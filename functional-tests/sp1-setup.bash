@@ -36,15 +36,17 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
             SP1_AR="$(rustc +succinct --print sysroot)/lib/rustlib/$(rustc +succinct -vV | sed -n 's/^host: //p')/bin/llvm-ar"
             export AR="$SP1_AR"
             export AR_riscv64im_unknown_none_elf="$SP1_AR"
-            ( cd "$ASM_SRC" && cargo build --release -p strata-asm-sp1-guest-builder )
+            ( cd "$ASM_SRC" && BUILD_ELF=1 cargo build --release -p strata-asm-sp1-guest-builder )
             export BRIDGE_PROOF_ASM_ELF_PATH="$ASM_SRC/guest-builder/sp1/elfs/asm.elf"
             export BRIDGE_PROOF_MOHO_ELF_PATH="$ASM_SRC/guest-builder/sp1/elfs/moho.elf"
 
             # Derive the Sp1Groth16 predicates the bridge proof verifies against. These
             # match the asm-runner's own (shared sp1 6.2.0 / zkaleido v0.1-beta.2).
             cargo build --release -p proof-datatool --features sp1
-            export BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"
-            export BRIDGE_PROOF_SP1_MOHO_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_MOHO_ELF_PATH")"
+            # Assign before exporting so a failed derivation trips `set -e`.
+            BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"
+            BRIDGE_PROOF_SP1_MOHO_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_MOHO_ELF_PATH")"
+            export BRIDGE_PROOF_SP1_ASM_PREDICATE BRIDGE_PROOF_SP1_MOHO_PREDICATE
             echo "ASM predicate:  $BRIDGE_PROOF_SP1_ASM_PREDICATE"
             echo "MOHO predicate: $BRIDGE_PROOF_SP1_MOHO_PREDICATE"
         fi
