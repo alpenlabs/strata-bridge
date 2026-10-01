@@ -361,23 +361,23 @@ mod tests {
         0, 0,
     ];
 
-    fn bridge_proof_receipt(claim_unlock: &OperatorClaimUnlock) -> ProofReceipt {
-        let output = BridgeProofOutput {
+    fn bridge_proof_tx(unlock: &OperatorClaimUnlock) -> BridgeProofTx {
+        let proof_output = BridgeProofOutput {
             total_pow: BRIDGE_PROOF_POW,
-            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(claim_unlock).unwrap(),
+            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(unlock).unwrap(),
             mmr_idx: 0,
         };
-        ProofReceipt::new(Proof::new(vec![]), PublicValues::new(output.as_ssz_bytes()))
-    }
-
-    fn bridge_proof_tx(claim_unlock: &OperatorClaimUnlock) -> BridgeProofTx {
-        let data = BridgeProofData {
+        let proof_receipt = ProofReceipt::new(
+            Proof::new(vec![]),
+            PublicValues::new(proof_output.as_ssz_bytes()),
+        );
+        let proof_data = BridgeProofData {
             contest_txid: Txid::all_zeros(),
-            proof_bytes: borsh::to_vec(&bridge_proof_receipt(claim_unlock)).unwrap(),
+            proof_bytes: borsh::to_vec(&proof_receipt).unwrap(),
             game_index: GAME_IDX,
         };
 
-        BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR)
+        BridgeProofTx::new(proof_data, *CONTEST_PROOF_CONNECTOR)
     }
 
     fn sign_bridge_proof_tx(tx: BridgeProofTx) -> Transaction {
