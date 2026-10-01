@@ -7,7 +7,7 @@ pub mod types;
 pub use moho_recursive_proof::MohoRecursiveOutput;
 pub use types::{
     BridgeProofGenesis, BridgeProofInput, BridgeProofOutput, MerkleProofB32, MohoState,
-    OperatorClaimUnlock, RecursiveMohoProof,
+    OperatorClaimUnlockV1, RecursiveMohoProof,
 };
 
 cfg_if::cfg_if! {

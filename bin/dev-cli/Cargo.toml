@@ -31,6 +31,7 @@ strata-identifiers.workspace = true
 strata-l1-envelope-fmt.workspace = true
 strata-l1-txfmt.workspace = true
 strata-ol-bridge-types.workspace = true
+strata-ol-identifiers.workspace = true
 strata-test-utils-arb.workspace = true
 
 alloy.workspace = true

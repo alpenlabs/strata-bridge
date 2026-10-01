@@ -3,7 +3,7 @@
 use moho_types::StateRefAttestation;
 pub use moho_types::{MohoState, RecursiveMohoProof};
 use ssz_derive::{Decode, Encode};
-pub use strata_asm_proto_bridge::OperatorClaimUnlock;
+pub use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 pub use strata_merkle::MerkleProofB32;
 use strata_predicate::PredicateKey;
 
@@ -26,7 +26,7 @@ pub struct BridgeProofInput {
     /// Recursive Moho proof.
     pub moho_proof: RecursiveMohoProof,
 
-    /// `strata_codec::Codec` encoded [`OperatorClaimUnlock`].
+    /// SSZ-encoded [`OperatorClaimUnlockV1`].
     pub claim_unlock: Vec<u8>,
 
     /// MMR inclusion proof for `claim_unlock` in `moho_state`.
