@@ -213,13 +213,22 @@ impl AsyncWalletPersister for SqliteStore {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use bdk_wallet::{
         bitcoin::{
+            absolute::LockTime,
+            constants::genesis_block,
+            hashes::Hash,
             secp256k1::{Keypair, Secp256k1, SecretKey},
-            Network, XOnlyPublicKey,
+            transaction::Version,
+            Amount, BlockHash, Network, OutPoint, ScriptBuf, Transaction, TxIn, TxOut,
+            XOnlyPublicKey,
         },
+        chain::{BlockId, CheckPoint, ConfirmationBlockTime, TxUpdate},
         descriptor,
         descriptor::ExtendedDescriptor,
+        KeychainKind, Update,
     };
 
     use super::*;
@@ -352,6 +361,110 @@ mod tests {
             fs::read(&path).unwrap(),
             bytes,
             "rejected file left untouched"
+        );
+    }
+
+    fn block_hash(height: u32, fork: u8) -> BlockHash {
+        let mut bytes = [fork; 32];
+        bytes[..4].copy_from_slice(&height.to_le_bytes());
+        BlockHash::from_byte_array(bytes)
+    }
+
+    fn checkpoint(blocks: &[(u32, BlockHash)]) -> CheckPoint {
+        let genesis = genesis_block(Network::Regtest).block_hash();
+        CheckPoint::from_block_ids(
+            std::iter::once(BlockId {
+                height: 0,
+                hash: genesis,
+            })
+            .chain(
+                blocks
+                    .iter()
+                    .map(|&(height, hash)| BlockId { height, hash }),
+            ),
+        )
+        .unwrap()
+    }
+
+    fn tx(input: OutPoint, script_pubkey: ScriptBuf) -> Transaction {
+        Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: input,
+                ..Default::default()
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey,
+            }],
+        }
+    }
+
+    fn anchor(height: u32, hash: BlockHash) -> ConfirmationBlockTime {
+        ConfirmationBlockTime {
+            block_id: BlockId { height, hash },
+            confirmation_time: 0,
+        }
+    }
+
+    /// A reorg to a shorter chain deletes the rows above the new tip; an anchor at one of those
+    /// heights must not survive the load.
+    #[tokio::test]
+    async fn anchor_above_a_shorter_reorged_tip_is_dropped_at_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut store, mut wallet) = open_wallet(dir.path(), WalletKind::General, 1)
+            .await
+            .unwrap();
+        let script = wallet
+            .reveal_next_address(KeychainKind::External)
+            .script_pubkey();
+
+        // Fund at 1, spend at 3, tip 3.
+        let funding = tx(OutPoint::null(), script);
+        let coin = OutPoint::new(funding.compute_txid(), 0);
+        let spend = tx(coin, ScriptBuf::new());
+        let (h1, h2, h3) = (block_hash(1, 0xa), block_hash(2, 0xa), block_hash(3, 0xa));
+        let tx_update = TxUpdate {
+            txs: vec![Arc::new(funding), Arc::new(spend.clone())],
+            anchors: [
+                (anchor(1, h1), coin.txid),
+                (anchor(3, h3), spend.compute_txid()),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        wallet
+            .apply_update(Update {
+                chain: Some(checkpoint(&[(1, h1), (2, h2), (3, h3)])),
+                tx_update,
+                ..Default::default()
+            })
+            .unwrap();
+        wallet.persist_async(&mut store).await.unwrap();
+        assert!(wallet.list_unspent().next().is_none(), "spent");
+
+        // Reorg to a shorter chain replacing 2 and dropping 3: the spend is gone.
+        wallet
+            .apply_update(Update {
+                chain: Some(checkpoint(&[(1, h1), (2, block_hash(2, 0xb))])),
+                ..Default::default()
+            })
+            .unwrap();
+        wallet.persist_async(&mut store).await.unwrap();
+        assert_eq!(wallet.latest_checkpoint().height(), 2);
+        drop((store, wallet));
+
+        let (_, wallet) = open_wallet(dir.path(), WalletKind::General, 1)
+            .await
+            .unwrap();
+        assert_eq!(wallet.latest_checkpoint().height(), 2);
+        let unspent: Vec<_> = wallet.list_unspent().map(|u| u.outpoint).collect();
+        assert_eq!(
+            unspent,
+            vec![coin],
+            "the reorged-out spend must not hide the coin"
         );
     }
 }

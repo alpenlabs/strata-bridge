@@ -166,16 +166,22 @@ pub async fn ensure_backend_not_behind<P: WalletStore>(
 /// BDK never deletes an anchor and canonicalizes a transaction whose anchors all point off the
 /// chain, so a spend confirmed in a reorged-out block keeps its inputs spent for as long as the
 /// anchor is loaded. Without it, and with mempool sightings never persisted, the transaction is
-/// unknown to canonicalization until the chain or the mempool shows it again. Anchors to heights
-/// the chain has no entry for are kept; the chain has nothing to say about them.
+/// unknown to canonicalization until the chain or the mempool shows it again. A reorg to a shorter
+/// chain leaves no entry above the new tip (SQLite deletes the rows), so anchors there go too.
+/// Anchors to other heights the chain has no entry for are kept; the chain has nothing to say
+/// about them.
 pub(crate) fn prune_stale_anchors(changeset: &mut ChangeSet) {
     let blocks = &changeset.local_chain.blocks;
+    let tip = blocks
+        .iter()
+        .rev()
+        .find_map(|(height, hash)| hash.map(|_| *height));
     changeset
         .tx_graph
         .anchors
         .retain(|(anchor, _)| match blocks.get(&anchor.block_id.height) {
             Some(hash) => *hash == Some(anchor.block_id.hash),
-            None => true,
+            None => tip.is_some_and(|tip| anchor.block_id.height <= tip),
         });
 }
 
