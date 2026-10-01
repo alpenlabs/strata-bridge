@@ -81,14 +81,14 @@ pub(crate) fn process_stake_pass(
             && applicator
                 .registry()
                 .get_operator_set()
-                .is_some_and(|membership| membership.registrations().get(exit.operator).is_some())
+                .is_some_and(|membership| membership.registrations().get(exit.operator()).is_some())
         {
             exits.push(ConfirmedExit {
-                operator_idx: exit.operator,
+                operator_idx: exit.operator(),
                 txid: tx.compute_txid(),
                 tx_index: u32::try_from(tx_index)
                     .expect("Bitcoin block transaction count fits u32"),
-                kind: exit.kind,
+                kind: exit.kind(),
             });
         }
         let events = classify_stake_tx(&stake_cfg, applicator.registry(), tx, height)
