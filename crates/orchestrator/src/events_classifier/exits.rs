@@ -1,25 +1,13 @@
 //! Parsing operator exits from Bitcoin transactions.
 
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::Transaction;
 use strata_asm_common::TxInputRef;
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, constants::BridgeTxType, slash::parse_slash_tx,
     unstake::parse_unstake_tx,
 };
-use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_sm::operator_set::ExitKind;
+pub use strata_bridge_sm::operator_set::ParsedExit;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
-
-/// An operator exit described by a Bitcoin transaction.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParsedExit {
-    /// Operator index declared by the transaction.
-    pub operator: OperatorIdx,
-    /// Outpoint referenced by the transaction's stake connector input.
-    pub source: OutPoint,
-    /// Whether this is a slash or an unstaking intent.
-    pub kind: ExitKind,
-}
 
 /// Extracts an operator exit from a transaction with the supplied magic bytes.
 ///
@@ -33,20 +21,10 @@ pub fn parse_exit(magic: MagicBytes, tx: &Transaction) -> Option<ParsedExit> {
     let input = TxInputRef::new(tx, tag);
     match input.tag().tx_type() {
         kind if kind == BridgeTxType::Slash as u8 => {
-            let info = parse_slash_tx(&input).ok()?;
-            Some(ParsedExit {
-                operator: info.header_aux().operator_idx(),
-                source: *info.stake_inpoint().outpoint(),
-                kind: ExitKind::Slash,
-            })
+            parse_slash_tx(&input).ok().map(ParsedExit::Slash)
         }
         kind if kind == BridgeTxType::Unstake as u8 => {
-            let info = parse_unstake_tx(&input).ok()?;
-            Some(ParsedExit {
-                operator: info.header_aux().operator_idx(),
-                source: *info.stake_inpoint().outpoint(),
-                kind: ExitKind::UnstakingIntent,
-            })
+            parse_unstake_tx(&input).ok().map(ParsedExit::Unstake)
         }
         _ => None,
     }
@@ -56,6 +34,7 @@ pub fn parse_exit(magic: MagicBytes, tx: &Transaction) -> Option<ParsedExit> {
 mod tests {
     use bitcoin::{Amount, TxIn, TxOut, Witness, absolute, transaction};
     use strata_asm_proto_bridge_txs::unstake::stake_connector_script;
+    use strata_bridge_sm::operator_set::ExitKind;
     use strata_bridge_test_utils::bitcoin::generate_xonly_pubkey;
     use strata_l1_txfmt::TagData;
 
@@ -86,14 +65,10 @@ mod tests {
     fn slash_parsing_needs_no_local_stake() {
         let mut tx = transaction(BridgeTxType::Slash);
         tx.input[1].previous_output.vout = 42;
-        assert_eq!(
-            parse_exit(MagicBytes::new(*b"test"), &tx),
-            Some(ParsedExit {
-                operator: 7,
-                source: tx.input[1].previous_output,
-                kind: ExitKind::Slash,
-            })
-        );
+        let parsed = parse_exit(MagicBytes::new(*b"test"), &tx).unwrap();
+        assert_eq!(parsed.operator(), 7);
+        assert_eq!(parsed.source(), tx.input[1].previous_output);
+        assert_eq!(parsed.kind(), ExitKind::Slash);
     }
 
     #[test]
@@ -104,14 +79,10 @@ mod tests {
         let script = stake_connector_script([1; 32], generate_xonly_pubkey());
         tx.input[0].witness =
             Witness::from_slice(&[vec![1; 32], vec![2; 64], script.into_bytes(), vec![3; 33]]);
-        assert_eq!(
-            parse_exit(magic, &tx),
-            Some(ParsedExit {
-                operator: 7,
-                source: tx.input[0].previous_output,
-                kind: ExitKind::UnstakingIntent,
-            })
-        );
+        let parsed = parse_exit(magic, &tx).unwrap();
+        assert_eq!(parsed.operator(), 7);
+        assert_eq!(parsed.source(), tx.input[0].previous_output);
+        assert_eq!(parsed.kind(), ExitKind::UnstakingIntent);
         tx.input[0].witness =
             Witness::from_slice(&[vec![1; 32], vec![2; 64], vec![0], vec![3; 33]]);
         assert!(parse_exit(magic, &tx).is_none());
