@@ -11,6 +11,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use bitcoin::{OutPoint, Transaction};
+use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::event::BlockEvent;
 use strata_asm_proto_bridge_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
@@ -30,7 +31,7 @@ use strata_bridge_sm::{
         events::{GraphEvent, NewBlockEvent as GraphNewBlockEvent},
         machine::GraphSM,
     },
-    operator_set::{ConfirmedExit, OperatorSetEvent},
+    operator_set::OperatorSetEvent,
     stake::{
         config::StakeSMCfg,
         events::{NewBlockEvent as StakeNewBlockEvent, StakeEvent},
@@ -40,7 +41,7 @@ use strata_bridge_sm::{
 use strata_bridge_tx_graph::transactions::{prelude::DepositData, stake::StakeTx};
 use tracing::{Level, debug, info, warn};
 
-use super::{drt, exits::parse_exit};
+use super::{drt, exits::resolve_exit_observation};
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
@@ -51,9 +52,10 @@ use crate::{
 /// Applies stake transitions and finalizes the block's operator membership.
 ///
 /// States that have already processed the block are left unchanged.
-pub(crate) fn process_stake_pass(
+pub(crate) async fn process_stake_pass(
     applicator: &mut Applicator<'_>,
     block_event: &BlockEvent,
+    bitcoin_client: &BitcoinClient,
 ) -> Result<(), PipelineError> {
     let height = block_event
         .block
@@ -71,31 +73,41 @@ pub(crate) fn process_stake_pass(
         .map(|(&key, _)| SMId::Stake(key))
         .collect();
 
-    let magic = applicator.registry().cfg().deposit.magic_bytes;
     let stake_cfg = applicator.registry().cfg().stake.clone();
+    let magic = applicator.registry().cfg().deposit.magic_bytes;
 
-    let mut exits = Vec::new();
+    // Authenticate exits only when membership needs to advance. Recovery replays blocks
+    // at or below its cursor to catch up lagging stakes; revalidating their public exits
+    // would require Bitcoin RPC and signing history that may not exist at that height.
+    let observe_exits = applicator
+        .registry()
+        .get_operator_set()
+        .is_none_or(|membership| membership.last_block_height() < height);
+
+    let mut observations = Vec::new();
     for (tx_index, tx) in block_event.block.txdata.iter().enumerate() {
-        let parsed = parse_exit(magic, tx);
-        if let Some(exit) = &parsed
-            && applicator
-                .registry()
-                .get_operator_set()
-                .is_some_and(|membership| membership.registrations().get(exit.operator()).is_some())
+        if observe_exits
+            && let Some(observation) =
+                resolve_exit_observation(bitcoin_client, magic, tx, tx_index).await?
         {
-            exits.push(ConfirmedExit {
-                operator_idx: exit.operator(),
-                txid: tx.compute_txid(),
-                tx_index: u32::try_from(tx_index)
-                    .expect("Bitcoin block transaction count fits u32"),
-                kind: exit.kind(),
-            });
+            observations.push(observation);
         }
+
         let events = classify_stake_tx(&stake_cfg, applicator.registry(), tx, height)
             .into_iter()
             .filter(|(id, _)| eligible.contains(id));
+
         applicator.apply_batch(events)?;
     }
+
+    let exits = match applicator.registry().get_operator_set() {
+        Some(membership) if observe_exits => membership
+            .validate_exits(height, &observations)
+            .map_err(ProcessError::from)?,
+        Some(_) => vec![],
+        None if observations.is_empty() => vec![],
+        None => return Err(ProcessError::SMNotFound(SMId::OperatorSet).into()),
+    };
 
     let stakes: Vec<_> = applicator
         .registry()
@@ -485,7 +497,7 @@ mod tests {
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
             insert_confirmed_stake, make_confirmed_stake_sm, test_deposit_sm_cfg, test_fdb_config,
             test_operator_table, test_populated_registry, test_safe_harbour_address,
-            test_stake_key,
+            test_stake_key, unavailable_bitcoin_client,
         },
     };
 
@@ -846,6 +858,7 @@ mod tests {
 
     #[tokio::test]
     async fn deposit_registration_recovers_from_any_committed_batch_subset() {
+        let bitcoin_client = unavailable_bitcoin_client();
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
@@ -939,7 +952,10 @@ mod tests {
                         status: BlockStatus::Buried,
                     }
                 };
-                let batch = process_block(&mut restored, &table, covenant, &replay).unwrap();
+                let batch =
+                    process_block(&bitcoin_client, &mut restored, &table, covenant, &replay)
+                        .await
+                        .unwrap();
                 persister
                     .persist_batches(batch.tracker, &restored)
                     .await
@@ -998,6 +1014,7 @@ mod tests {
     // Extend this single-covenant fixture to canonical ledger/admission integration.
     #[tokio::test]
     async fn block_final_stake_confirmation_admits_both_drts_without_replay_duplicates() {
+        let bitcoin_client = unavailable_bitcoin_client();
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
@@ -1051,7 +1068,9 @@ mod tests {
         .unwrap();
         let db = Arc::new(client);
         let persister = Persister::new(db.clone());
-        let batch = process_block(&mut registry, &table, covenant, &event).unwrap();
+        let batch = process_block(&bitcoin_client, &mut registry, &table, covenant, &event)
+            .await
+            .unwrap();
         persister
             .persist_batches(batch.tracker, &registry)
             .await
@@ -1088,7 +1107,9 @@ mod tests {
         assert_eq!(restored.get_deposit(&0), registry.get_deposit(&0));
         assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
         let original = restored.get_deposit(&0).unwrap().clone();
-        let batch = process_block(&mut restored, &table, covenant, &event).unwrap();
+        let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &event)
+            .await
+            .unwrap();
         persister
             .persist_batches(batch.tracker, &restored)
             .await
@@ -1103,7 +1124,9 @@ mod tests {
             .unwrap();
         let ids = recovered.get_all_ids();
         let before = recovered.clone();
-        let batch = process_block(&mut recovered, &table, covenant, &event).unwrap();
+        let batch = process_block(&bitcoin_client, &mut recovered, &table, covenant, &event)
+            .await
+            .unwrap();
         persister
             .persist_batches(batch.tracker, &recovered)
             .await
