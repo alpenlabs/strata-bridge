@@ -172,6 +172,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
 
     match mode {
         CounterproofMode::InvalidBridgeProof => {
+            // Fail if bridge proof is valid
             assert!(
                 genesis
                     .bridge_proof_vk
@@ -187,63 +188,72 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             let HeavierChainProof {
                 moho_state: heavier_moho_state,
                 moho_proof: heavier_moho_proof,
-                claim_unlock: heavier_claim_unlock,
+                claim_unlock: heavier_unlock,
                 claim_unlock_inclusion_proof: heavier_inclusion_proof,
             } = heavier_chain_proof;
 
-            // Fail if `heavier_moho_proof` is invalid.
+            // ┌───────────────────────────────────────────────────────────────────────┐
+            // │                       Verify heavier moho state                       │
+            // └───────────────────────────────────────────────────────────────────────┘
+            // Fail if heavier moho proof doesn't verify against the hardcoded genesis moho state
+            // and the hardcoded moho verification key
             verify_moho_proof(
                 &heavier_moho_state,
                 &heavier_moho_proof,
                 &genesis.genesis_moho_state,
                 genesis.moho_vk.clone(),
-                "invalid heavier chain: invalid moho proof",
+                "invalid counterproof: heavier moho proof doesn't verify",
             );
 
+            // ┌───────────────────────────────────────────────────────────────────────┐
+            // │                         Verify proof of work                          │
+            // └───────────────────────────────────────────────────────────────────────┘
+            // Fail if the heavier moho state doesn't contain the export container
+            // of the bridge v1 subprotocol
             let heavier_bridge_container = heavier_moho_state
                 .export_state()
                 .containers()
                 .iter()
                 .find(|c| c.container_id() == BRIDGE_SUBPROTOCOL_ID)
-                .expect("moho_state must contain a bridge-v1 export container");
+                .expect(
+                    "invalid counterproof: bridge export container missing in heavier moho state",
+                );
 
-            // Fail if pow(heavier_chain) <= pow(operator_chain)
+            // Fail if heavier chain has less than or as much proof of work than
+            // the bridge proof chain. To produce a valid counterproof, the heavier
+            // chain must have strictly more proof of work.
             if leq_little_endian(heavier_bridge_container.extra_data(), &total_pow) {
-                panic!("invalid heavier chain: not enough proof of work");
+                panic!("invalid counterproof: not enough proof of work on heavier chain");
             }
 
-            // Immediately succeed if `mmr_idx` is out of bounds
-            // for `heavier_moho_state`.
-            //
-            // This means that the heavier chain has fewer claim unlocks
-            // than the operator chain, which means that there are fake
-            // claim unlocks on the operator chain.
-            //
-            // The claim unlock and its inclusion proof are ignored in this case.
+            // ┌───────────────────────────────────────────────────────────────────────┐
+            // │                         Verify heavier unlock                         │
+            // └───────────────────────────────────────────────────────────────────────┘
+            // Immediately succeed if heavier moho state has fewer unlocks than
+            // the bridge moho state. In this case, the heavier unlock and the
+            // heavier inclusion proof are not verified; they can be any value.
             if heavier_bridge_container.entries_mmr().num_entries() <= mmr_idx {
                 break 'heavier_chain;
             }
 
-            // Fail if `heavier_claim_unlock` is not at index `mmr_idx`.
+            // Fail if heavier inclusion proof references the wrong index
             if heavier_inclusion_proof.index != mmr_idx {
-                panic!("invalid heavier chain: claim unlock index must match bridge proof")
+                panic!("invalid counterproof: heavier inclusion proof references wrong index")
             }
 
-            // Fail if `heavier_claim_unlock` is not included in `heavier_moho_state`.
+            // Fail if heavier inclusion proof doesn't verify
             verify_claim_unlock_inclusion(
-                &heavier_claim_unlock,
+                &heavier_unlock,
                 heavier_bridge_container,
                 &heavier_inclusion_proof,
-                "invalid heavier chain: invalid inclusion proof for heavier claim unlock",
+                "invalid counterproof: heavier inclusion proof doesn't verify",
             );
 
-            // Fail if `heavier_claim_unlock` is equal to `unlock`.
-            //
-            // If the heavier chain is an extension of the operator chain,
-            // i.e. the watchtower just waited a few blocks after the operator
-            // posted the bridge proof, then this equality is triggered.
-            if heavier_claim_unlock == unlock {
-                panic!("invalid heavier chain: claim unlock must be different from bridge proof")
+            // Fail if heavier unlock is equal to the bridge proof unlock
+            if heavier_unlock == unlock {
+                panic!(
+                    "invalid counterproof: heavier unlock must be different from bridge proof unlock"
+                )
             }
         }
     }
@@ -801,8 +811,8 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "invalid heavier chain: invalid moho proof")]
-        fn counterproof_invalid_if_heavier_moho_proof_invalid() {
+        #[should_panic(expected = "invalid counterproof: heavier moho proof doesn't verify")]
+        fn counterproof_invalid_if_heavier_moho_proof_doesnt_verify() {
             let input = INPUT_FOR_HEAVIER_CHAIN.clone();
 
             let _ = run_counterproof(RuntimeArgs {
@@ -814,7 +824,7 @@ mod tests {
 
         #[test]
         #[should_panic(expected = "moho proof doesn't build on given genesis")]
-        fn counterproof_invalid_if_heavier_genesis_state_forged() {
+        fn counterproof_invalid_if_heavier_moho_proof_doesnt_build_on_given_genesis() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
             // A genesis state of the watchtower's choosing, kept under the real genesis reference.
             let forged_genesis_state = StateRefAttestation::new(
@@ -834,8 +844,10 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(expected = "invalid heavier chain: not enough proof of work")]
-        fn counterproof_invalid_if_not_enough_pow() {
+        #[should_panic(
+            expected = "invalid counterproof: not enough proof of work on heavier chain"
+        )]
+        fn counterproof_invalid_if_not_enough_proof_of_work_on_heavier_chain() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
             let not_enough_pow = BRIDGE_PROOF_POW;
             let (heavier_moho_state, heavier_moho_proof, [heavier_inclusion_proof]) =
@@ -855,7 +867,7 @@ mod tests {
         }
 
         #[test]
-        fn counterproof_valid_if_mmr_out_of_bounds() {
+        fn counterproof_valid_if_heavier_moho_state_has_fewer_unlocks() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
             let (heavier_moho_state, heavier_moho_proof, []) =
                 generate_moho_state([], HEAVIER_CHAIN_POW);
@@ -877,9 +889,9 @@ mod tests {
 
         #[test]
         #[should_panic(
-            expected = "invalid heavier chain: claim unlock index must match bridge proof"
+            expected = "invalid counterproof: heavier inclusion proof references wrong index"
         )]
-        fn counterproof_invalid_if_mmr_different() {
+        fn counterproof_invalid_if_heavier_inclusion_proof_references_wrong_index() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
             if let CounterproofMode::HeavierChain(ref mut heavier_chain) = input.mode {
                 heavier_chain.claim_unlock_inclusion_proof.index = 1;
@@ -893,14 +905,12 @@ mod tests {
         }
 
         #[test]
-        #[should_panic(
-            expected = "invalid heavier chain: invalid inclusion proof for heavier claim unlock"
-        )]
-        fn counterproof_invalid_if_inclusion_proof_invalid() {
+        #[should_panic(expected = "invalid counterproof: heavier inclusion proof doesn't verify")]
+        fn counterproof_invalid_if_heavier_inclusion_proof_doesnt_verify() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
-            // NOTE: (@uncomputable) Because the bridge proof Moho state has 1 element,
-            // the heavier chain Moho state needs at least 2 elements.
-            // Otherwise, the mmr bounds check is triggered, which is tested elsewhere.
+            // NOTE: (@uncomputable) The heavier moho state needs at least 2 unlocks.
+            // Otherwise, the empty inclusion proof is always valid,
+            // the opposite of what we are testing.
             let (heavier_moho_state, heavier_moho_proof, _inclusion_proofs) = generate_moho_state(
                 [
                     BRIDGE_PROOF_CLAIM_UNLOCK.clone(),
@@ -924,9 +934,9 @@ mod tests {
 
         #[test]
         #[should_panic(
-            expected = "invalid heavier chain: claim unlock must be different from bridge proof"
+            expected = "invalid counterproof: heavier unlock must be different from bridge proof unlock"
         )]
-        fn counterproof_invalid_if_claim_unlock_same() {
+        fn counterproof_invalid_if_heavier_unlock_equals_bridge_proof_unlock() {
             let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
             let (heavier_moho_state, heavier_moho_proof, [bridge_inclusion_proof]) =
                 generate_moho_state([BRIDGE_PROOF_CLAIM_UNLOCK.clone()], HEAVIER_CHAIN_POW);
@@ -945,7 +955,7 @@ mod tests {
         }
 
         #[test]
-        fn counterproof_valid_if_heavier_chain_is_valid() {
+        fn counterproof_valid_if_heavier_chain_valid() {
             let input = INPUT_FOR_HEAVIER_CHAIN.clone();
 
             let output = run_counterproof(RuntimeArgs {
