@@ -12,7 +12,11 @@ on:
           - staging
           - prod
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json (e.g. v0.1-alpha.11).
+        description: Tag in alpenlabs/asm whose release ships asm.elf and its predicate (e.g. v0.4.0).
+        required: true
+        type: string
+      moho_tag:
+        description: Tag in alpenlabs/moho whose release ships moho.elf and its predicate (e.g. v0.4.0).
         required: true
         type: string
       asm_params_url:
@@ -32,7 +36,11 @@ on:
         required: true
         type: string
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json.
+        description: Tag in alpenlabs/asm whose release ships asm.elf and its predicate.
+        required: true
+        type: string
+      moho_tag:
+        description: Tag in alpenlabs/moho whose release ships moho.elf and its predicate.
         required: true
         type: string
       asm_params_url:
@@ -51,7 +59,7 @@ env:
   S3_PREFIX: elfs
 
 concurrency:
-  group: publish-sp1-bridge-guests-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
+  group: publish-sp1-bridge-guests-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}-${{ inputs.moho_tag }}
   cancel-in-progress: false
 
 permissions: {}
@@ -96,6 +104,7 @@ jobs:
         env:
           INPUT_ENV: ${{ inputs.env }}
           INPUT_ASM_TAG: ${{ inputs.asm_tag }}
+          INPUT_MOHO_TAG: ${{ inputs.moho_tag }}
           INPUT_ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           INPUT_REF: ${{ inputs.ref }}
         run: python3 .github/scripts/guest_publish.py validate
@@ -118,14 +127,32 @@ jobs:
       - name: Install protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
 
-      - name: Fetch asm-vk, moho-vk, asm/moho ELFs, asm-params
-        id: fetch
+      - name: Fetch asm/moho ELFs and predicates, asm-params
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASM_TAG: ${{ inputs.asm_tag }}
+          MOHO_TAG: ${{ inputs.moho_tag }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           OUTPUT_DIR: ${{ runner.temp }}/bridge-genesis
         run: python3 .github/scripts/guest_publish.py fetch
+
+      # The predicates baked into the bridge guests come from the releases' predicate
+      # files; derive them from the fetched ELFs so they are bound to the logged hashes.
+      - name: Check the published predicates against the ELFs
+        env:
+          INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
+        run: |
+          set -euo pipefail
+          cargo build --locked --release -p proof-datatool --features sp1
+          for guest in asm moho; do
+            derived="$(target/release/proof-datatool sp1-predicate "$INPUTS_DIR/$guest.elf")"
+            published="$(jq -er . "$INPUTS_DIR/$guest-vk.json")"
+            if [ "$derived" != "$published" ]; then
+              echo "::error::$guest.elf derives $derived, release publishes $published"
+              exit 1
+            fi
+            echo "$guest predicate matches $guest.elf"
+          done
 
       - name: Build SP1 bridge-proof and counterproof guests
         env:
@@ -142,8 +169,6 @@ jobs:
           ELF_DIR: guest-builder/sp1/elfs
           INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
           DEPLOY_ENV: ${{ inputs.env }}
-          ASM_TAG: ${{ inputs.asm_tag }}
-          ASM_REV: ${{ steps.fetch.outputs.asm_rev }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
           BRIDGE_REF: ${{ inputs.ref || github.ref }}
           BRIDGE_SHA: ${{ steps.resolve-sha.outputs.sha }}
@@ -159,9 +184,6 @@ jobs:
         id: upload
         env:
           ELF_DIR: guest-builder/sp1/elfs
-          INPUTS_DIR: ${{ runner.temp }}/bridge-genesis
-          ASM_TAG: ${{ inputs.asm_tag }}
-          ASM_REV: ${{ steps.fetch.outputs.asm_rev }}
           S3_BUCKET: ${{ env.S3_BUCKET }}
           S3_PREFIX: ${{ env.S3_PREFIX }}
         run: python3 .github/scripts/guest_publish.py upload
@@ -169,7 +191,7 @@ jobs:
       - name: Upload elfs/ as workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sp1-bridge-guests-${{ inputs.env }}-${{ inputs.asm_tag }}-${{ github.run_id }}
+          name: sp1-bridge-guests-${{ inputs.env }}-asm-${{ inputs.asm_tag }}-moho-${{ inputs.moho_tag }}-${{ github.run_id }}
           path: guest-builder/sp1/elfs/
           if-no-files-found: error
           retention-days: 90
