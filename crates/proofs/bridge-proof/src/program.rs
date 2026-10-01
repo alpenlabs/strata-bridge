@@ -8,7 +8,7 @@ use zkaleido::{
 
 use crate::types::{BridgeProofInput, BridgeProofOutput};
 
-/// Proves that an operator's [`OperatorClaimUnlock`](crate::OperatorClaimUnlock)
+/// Proves that an operator's [`OperatorClaimUnlockV1`](crate::OperatorClaimUnlockV1)
 /// is recorded in the ASM bridge-v1 export-entries MMR at a given Moho state
 #[derive(Debug)]
 pub struct BridgeProofProgram;

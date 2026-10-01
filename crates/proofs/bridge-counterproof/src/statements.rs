@@ -10,13 +10,12 @@ use bitcoin::{
 };
 use secp256k1::{Message, SECP256K1};
 use ssz::Decode;
-use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_proof::BridgeProofOutput;
 use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
 use strata_btc_types::BitcoinXOnlyPublicKey;
-use strata_codec::decode_buf_exact;
 use strata_identifiers::Buf32;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
@@ -119,7 +118,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             let (total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
                 .ok()
                 .and_then(|output| {
-                    decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock)
+                    OperatorClaimUnlockV1::from_ssz_bytes(&output.claim_unlock)
                         .ok()
                         .map(|claim_unlock| (output.total_pow, claim_unlock, output.mmr_idx))
                 })
@@ -158,9 +157,8 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 break 'heavier_chain;
             }
 
-            let heavier_claim_unlock =
-                decode_buf_exact::<OperatorClaimUnlock>(&heavier_claim_unlock)
-                    .expect("invalid heavier chain: invalid claim unlock encoding");
+            let heavier_claim_unlock = OperatorClaimUnlockV1::from_ssz_bytes(&heavier_claim_unlock)
+                .expect("invalid heavier chain: invalid claim unlock encoding");
 
             // Fail if `heavier_claim_unlock` is not at index `mmr_idx`.
             if heavier_inclusion_proof.index != mmr_idx {
@@ -316,10 +314,10 @@ pub fn commits_to_different_claim(
     game_idx: NonZero<u32>,
     operator_pubkey: Buf32,
 ) -> bool {
-    let expected = OperatorClaimUnlock::new(game_idx.get() - 1, operator_pubkey);
+    let expected = OperatorClaimUnlockV1::new(game_idx.get() - 1, operator_pubkey);
     BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
         .ok()
-        .and_then(|output| decode_buf_exact::<OperatorClaimUnlock>(&output.claim_unlock).ok())
+        .and_then(|output| OperatorClaimUnlockV1::from_ssz_bytes(&output.claim_unlock).ok())
         .is_some_and(|claim_unlock| claim_unlock != expected)
 }
 
@@ -339,7 +337,6 @@ mod tests {
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_bridge_test_utils::bitcoin::generate_keypair;
     use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
-    use strata_codec::encode_to_vec;
     use strata_predicate::PredicateKey;
     use zkaleido::{Proof, PublicValues};
     use zkaleido_native_adapter::NativeMachine;
@@ -376,10 +373,10 @@ mod tests {
         )
     });
     static PREVOUTS: LazyLock<[TxOut; 1]> = LazyLock::new(|| [CONTEST_PROOF_CONNECTOR.tx_out()]);
-    static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(CONTESTED_DEPOSIT_IDX, *OPERATOR_PUBKEY_BUF));
-    static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlock> =
-        LazyLock::new(|| OperatorClaimUnlock::new(0, operator_key(1)));
+    static BRIDGE_PROOF_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlockV1> =
+        LazyLock::new(|| OperatorClaimUnlockV1::new(CONTESTED_DEPOSIT_IDX, *OPERATOR_PUBKEY_BUF));
+    static HEAVIER_CHAIN_CLAIM_UNLOCK: LazyLock<OperatorClaimUnlockV1> =
+        LazyLock::new(|| OperatorClaimUnlockV1::new(0, operator_key(1)));
     const BRIDGE_PROOF_POW: [u8; 32] = [
         0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
@@ -389,16 +386,16 @@ mod tests {
         0, 0,
     ];
 
-    fn bridge_proof_receipt(claim_unlock: &OperatorClaimUnlock) -> ProofReceipt {
+    fn bridge_proof_receipt(claim_unlock: &OperatorClaimUnlockV1) -> ProofReceipt {
         let output = BridgeProofOutput {
             total_pow: BRIDGE_PROOF_POW,
-            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(claim_unlock).unwrap(),
+            claim_unlock: claim_unlock.as_ssz_bytes(),
             mmr_idx: 0,
         };
         ProofReceipt::new(Proof::new(vec![]), PublicValues::new(output.as_ssz_bytes()))
     }
 
-    fn bridge_proof_tx(claim_unlock: &OperatorClaimUnlock) -> BridgeProofTx {
+    fn bridge_proof_tx(claim_unlock: &OperatorClaimUnlockV1) -> BridgeProofTx {
         let data = BridgeProofData {
             contest_txid: Txid::all_zeros(),
             proof_bytes: borsh::to_vec(&bridge_proof_receipt(claim_unlock)).unwrap(),
@@ -439,13 +436,13 @@ mod tests {
         sign_bridge_proof_tx(BridgeProofTx::new(data, *CONTEST_PROOF_CONNECTOR))
     });
     static BRIDGE_PROOF_TX_SIGNED_DIFFERENT_GAME: LazyLock<Transaction> = LazyLock::new(|| {
-        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlock::new(
+        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlockV1::new(
             DIFFERENT_GAME_DEPOSIT_IDX,
             *OPERATOR_PUBKEY_BUF,
         )))
     });
     static BRIDGE_PROOF_TX_SIGNED_DIFFERENT_OPERATOR: LazyLock<Transaction> = LazyLock::new(|| {
-        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlock::new(
+        sign_bridge_proof_tx(bridge_proof_tx(&OperatorClaimUnlockV1::new(
             CONTESTED_DEPOSIT_IDX,
             operator_key(0),
         )))
@@ -500,7 +497,7 @@ mod tests {
     #[test]
     fn commits_to_different_claim_flags_mismatched_deposit() {
         let receipt = |deposit_idx: u32| {
-            bridge_proof_receipt(&OperatorClaimUnlock::new(deposit_idx, operator_key(0)))
+            bridge_proof_receipt(&OperatorClaimUnlockV1::new(deposit_idx, operator_key(0)))
         };
 
         // deposit_idx + 1 == game_idx and matching operator: the proof backs the contested game.
@@ -520,7 +517,7 @@ mod tests {
     #[test]
     fn commits_to_different_claim_flags_mismatched_operator() {
         // Contested deposit but a different operator than expected: still a different claim.
-        let receipt = bridge_proof_receipt(&OperatorClaimUnlock::new(
+        let receipt = bridge_proof_receipt(&OperatorClaimUnlockV1::new(
             CONTESTED_DEPOSIT_IDX,
             operator_key(0),
         ));
@@ -536,7 +533,7 @@ mod tests {
     fn commits_to_different_claim_does_not_overflow_on_max_deposit_idx() {
         // A `u32::MAX` deposit index is operator-controlled and must not overflow
         // (`deposit_idx + 1` would panic in overflow-checked builds before verification).
-        let receipt = bridge_proof_receipt(&OperatorClaimUnlock::new(u32::MAX, operator_key(0)));
+        let receipt = bridge_proof_receipt(&OperatorClaimUnlockV1::new(u32::MAX, operator_key(0)));
 
         // `u32::MAX != GAME_IDX - 1`, so this is a different game.
         assert!(commits_to_different_claim(

@@ -11,9 +11,10 @@ use secp256k1::{Keypair, Parity, XOnlyPublicKey, SECP256K1};
 use strata_asm_proto_bridge_txs::deposit_request::DrtHeaderAux;
 use strata_bridge_common::params::Params;
 use strata_bridge_tx_graph::transactions::deposit::DepositTx;
-use strata_identifiers::{AccountSerial, SubjectIdBytes};
+use strata_codec::VarVec;
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use strata_ol_bridge_types::DepositDescriptor;
+use strata_ol_identifiers::{AccountSerial, SubjectIdBytes};
 use tracing::info;
 
 use crate::{
@@ -86,7 +87,8 @@ fn build_sps50_metadata(
     let alpen_account_serial: AccountSerial = AccountSerial::reserved(127).incr();
     let deposit_descriptor = DepositDescriptor::new(alpen_account_serial, alpen_subject_bytes)
         .expect("AccountSerial for Alpen is always within valid range");
-    let destination = deposit_descriptor.encode_to_varvec();
+    let destination = VarVec::from_vec(deposit_descriptor.encode_to_vec())
+        .expect("descriptor length (max 36 bytes) is always within VARINT_MAX bound");
 
     let header_aux = DrtHeaderAux::new(recovery_pubkey.serialize(), destination)
         .expect("header aux creation must succeed");

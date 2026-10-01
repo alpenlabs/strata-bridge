@@ -9,7 +9,7 @@ use moho_types::{
     RecursiveMohoProof, StateRefAttestation, StateReference,
 };
 use ssz::Encode;
-use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_merkle::{MerkleProofB32, Mmr, Mmr64B32, MmrState, Sha256Hasher};
 use strata_predicate::PredicateKey;
@@ -80,7 +80,7 @@ pub static MOHO_GENESIS_ATTESTATION: LazyLock<StateRefAttestation> = LazyLock::n
 ///
 /// [`MOHO_GENESIS_ATTESTATION`].
 pub fn generate_moho_state<const N: usize>(
-    claim_unlocks: [OperatorClaimUnlock; N],
+    claim_unlocks: [OperatorClaimUnlockV1; N],
     pow: [u8; 32],
 ) -> (MohoState, RecursiveMohoProof, [MerkleProofB32; N]) {
     let mut container = ExportContainer::new(BRIDGE_SUBPROTOCOL_ID);
@@ -124,7 +124,7 @@ pub fn generate_moho_state<const N: usize>(
 ///
 /// This function panics if the inclusion proof is invalid.
 pub fn verify_claim_unlock_inclusion(
-    claim_unlock: &OperatorClaimUnlock,
+    claim_unlock: &OperatorClaimUnlockV1,
     bridge_container: &ExportContainer,
     inclusion_proof: &MerkleProofB32,
     error_message: &str,
