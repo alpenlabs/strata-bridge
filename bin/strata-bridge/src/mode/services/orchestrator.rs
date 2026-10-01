@@ -170,7 +170,7 @@ where
         wallet,
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
-        bitcoind_rpc_client: btc_rpc_client,
+        bitcoind_rpc_client: btc_rpc_client.clone(),
         asm_rpc_client,
         s2_client: s2_client.clone(),
         tx_driver,
@@ -180,7 +180,13 @@ where
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 
-    let orchestrator_pipeline = Pipeline::new(events_mux, registry, persister, duty_dispatcher);
+    let orchestrator_pipeline = Pipeline::new(
+        events_mux,
+        registry,
+        persister,
+        duty_dispatcher,
+        btc_rpc_client,
+    );
 
     debug!("starting orchestrator pipeline");
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");

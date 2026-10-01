@@ -326,6 +326,7 @@ pub(crate) const fn pipeline_error_class(error: &PipelineError) -> &'static str 
     match error {
         PipelineError::Process(error) => process_error_class(error),
         PipelineError::Persist(error) => persist_error_class(error),
+        PipelineError::ExitInput { .. } => "exit_input_unavailable",
     }
 }
 
