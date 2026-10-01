@@ -13,7 +13,7 @@ export SP1_PROOF_STRATEGY=${SP1_PROOF_STRATEGY:-reserved}
 export NETWORK_RPC_URL=${NETWORK_RPC_URL:-https://rpc.production.succinct.xyz}
 export NETWORK_PRIVATE_KEY=${NETWORK_PRIVATE_KEY:-}   # required for SP1_PROVER=network
 
-# Real SP1 Groth16 ASM+Moho proving: build the asm/moho guest ELFs and run the
+# Real SP1 Groth16 ASM+Moho proving: fetch the asm/moho guest ELFs and run the
 # asm-runner's SP1 backend so the bridge verifies Groth16 proofs (Sp1Groth16 predicates).
 # Set 0 to fall back to native Schnorr attestations (Bip340Schnorr) for the ASM/Moho layer.
 export BRIDGE_PROOF_SP1_ASM=${BRIDGE_PROOF_SP1_ASM:-1}
