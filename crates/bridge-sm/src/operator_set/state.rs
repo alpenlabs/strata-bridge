@@ -124,6 +124,9 @@ pub enum OperatorSetError {
     /// Existing registration identity or historical intervals cannot be rewritten.
     #[error("registration {0} is missing or has conflicting historical configuration")]
     RegistrationMismatch(OperatorIdx),
+    /// Membership at the start of the requested block is unavailable.
+    #[error("membership history is unavailable for block {0}")]
+    HistoryUnavailable(BitcoinBlockHeight),
     /// Preparation requires an activation beyond the processed height.
     #[error("preparation height {0} is not in the future")]
     InvalidPreparationHeight(BitcoinBlockHeight),
@@ -268,7 +271,7 @@ impl OperatorSetSM {
             .members
     }
 
-    fn table_for(
+    pub(super) fn table_for(
         registrations: &OperatorSetSchedule,
         members: &BTreeSet<OperatorIdx>,
     ) -> Result<PublicOperatorTable, OperatorSetError> {
