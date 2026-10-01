@@ -170,7 +170,7 @@ where
         wallet,
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
-        bitcoind_rpc_client: btc_rpc_client,
+        bitcoind_rpc_client: btc_rpc_client.clone(),
         asm_rpc_client,
         s2_client: s2_client.clone(),
         tx_driver,
@@ -196,6 +196,7 @@ where
         registry,
         persister,
         duty_dispatcher,
+        btc_rpc_client,
         nag_dedup_window,
         nag_dedup_in_flight_timeout,
     );
