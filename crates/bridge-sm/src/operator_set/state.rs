@@ -68,6 +68,15 @@ pub struct MembershipSnapshot {
     pub members: BTreeSet<OperatorIdx>,
 }
 
+/// The finalized covenant of a processed block and its exact public membership.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockCovenant {
+    /// The covenant after every exit and admin operation in the block.
+    pub covenant: CovenantId,
+    /// The indexed membership that signs for [`Self::covenant`].
+    pub operator_table: PublicOperatorTable,
+}
+
 /// Public operator membership, covenant identity, and ordered transition history.
 ///
 /// Historical registrations and exits survive serialization. Membership is independent of
@@ -124,9 +133,17 @@ pub enum OperatorSetError {
     /// Existing registration identity or historical intervals cannot be rewritten.
     #[error("registration {0} is missing or has conflicting historical configuration")]
     RegistrationMismatch(OperatorIdx),
-    /// Membership at the start of the requested block is unavailable.
+    /// Retained membership history does not cover the requested block.
     #[error("membership history is unavailable for block {0}")]
     HistoryUnavailable(BitcoinBlockHeight),
+    /// The requested block has not been processed.
+    #[error("block {requested} is beyond processed height {processed}")]
+    UnprocessedBlock {
+        /// Last fully processed height.
+        processed: BitcoinBlockHeight,
+        /// Requested block height.
+        requested: BitcoinBlockHeight,
+    },
     /// Preparation requires an activation beyond the processed height.
     #[error("preparation height {0} is not in the future")]
     InvalidPreparationHeight(BitcoinBlockHeight),
@@ -220,6 +237,63 @@ impl OperatorSetSM {
     /// The last fully processed block height.
     pub const fn last_block_height(&self) -> BitcoinBlockHeight {
         self.last_block_height
+    }
+
+    /// Resolves the covenant finalized for a processed block.
+    ///
+    /// Membership reflects every exit and admin operation in the block. The activation height is
+    /// that of the most recent effective admin operation at or before the block, or the
+    /// initialization boundary if there is none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperatorSetError::HistoryUnavailable`] for blocks before initialization and
+    /// [`OperatorSetError::UnprocessedBlock`] for blocks beyond the processed height.
+    pub fn covenant_at(
+        &self,
+        height: BitcoinBlockHeight,
+    ) -> Result<BlockCovenant, OperatorSetError> {
+        if height > self.last_block_height {
+            return Err(OperatorSetError::UnprocessedBlock {
+                processed: self.last_block_height,
+                requested: height,
+            });
+        }
+
+        let covered = self
+            .membership_history
+            .iter()
+            .take_while(|snapshot| snapshot.block_height <= height);
+        let mut final_snapshot = None;
+        let mut admin_height = None;
+        for snapshot in covered {
+            if matches!(
+                snapshot.cause,
+                MembershipCause::Admin {
+                    effective: true,
+                    ..
+                }
+            ) {
+                admin_height = Some(snapshot.block_height);
+            }
+            final_snapshot = Some(snapshot);
+        }
+        let final_snapshot = final_snapshot.ok_or(OperatorSetError::HistoryUnavailable(height))?;
+
+        let activation_height = match admin_height {
+            Some(admin_height) => admin_height,
+            None => {
+                Self::init_boundary(&self.registrations, self.membership_history[0].block_height)?
+            }
+        };
+        let operator_table = self.historical_operator_table(final_snapshot)?;
+        let covenant = CovenantId::from_operator_table(&operator_table, activation_height)
+            .map_err(|_| OperatorSetError::InvalidMembership)?;
+
+        Ok(BlockCovenant {
+            covenant,
+            operator_table,
+        })
     }
 
     /// Builds the finalized public table without selecting a local participant.
