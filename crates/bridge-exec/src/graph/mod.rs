@@ -285,7 +285,7 @@ pub async fn execute_graph_duty(
                 .write()
                 .await
                 .send_nag_request(nag_request, None)
-                .await;
+                .await?;
 
             info!(%graph_idx, %operator_idx, "published graph nag request");
             Ok(())

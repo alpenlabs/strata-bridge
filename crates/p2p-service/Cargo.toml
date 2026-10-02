@@ -19,6 +19,7 @@ metrics.workspace = true
 musig2.workspace = true
 rkyv.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true

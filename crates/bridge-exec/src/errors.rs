@@ -67,6 +67,10 @@ pub enum ExecutorError {
     #[error("asm rpc error: {0}")]
     AsmRpcErr(String),
 
+    /// A message could not be sent to peers.
+    #[error("p2p error: {0}")]
+    P2PErr(#[from] strata_bridge_p2p_service::DispatchError),
+
     /// Error generating a ZK proof.
     #[error("proof generation error: {0}")]
     ProofErr(#[from] strata_bridge_proof_common::ProofError),

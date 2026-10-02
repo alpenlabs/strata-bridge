@@ -11848,6 +11848,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-p2p",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",

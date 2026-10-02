@@ -88,7 +88,7 @@ pub(crate) async fn publish_stake_data(
     let mut msg_handler = output_handles.msg_handler.write().await;
     msg_handler
         .send_unstaking_input(operator_idx, unstaking_input, None)
-        .await;
+        .await?;
 
     Ok(())
 }
@@ -360,7 +360,7 @@ pub(crate) async fn publish_unstaking_nonces(
         .write()
         .await
         .send_unstaking_nonces(operator_idx, nonces, None)
-        .await;
+        .await?;
     info!(%operator_idx, "successfully published unstaking nonces for the stake graph");
 
     Ok(())
@@ -416,7 +416,7 @@ pub(crate) async fn publish_unstaking_partials(
         .write()
         .await
         .send_unstaking_partials(operator_idx, partials, None)
-        .await;
+        .await?;
     info!(%operator_idx, "successfully published unstaking partial signatures for the stake graph");
 
     Ok(())

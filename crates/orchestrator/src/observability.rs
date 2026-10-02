@@ -405,6 +405,7 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
         ExecutorError::DatabaseErr(_) => "database",
         ExecutorError::MosaicErr(_) => "mosaic",
         ExecutorError::AsmRpcErr(_) => "asm_rpc",
+        ExecutorError::P2PErr(_) => "p2p",
         ExecutorError::ProofErr(_) => "proof_generation",
         ExecutorError::InvalidTxStructure(_) => "invalid_transaction_structure",
         ExecutorError::FeeRateTooHigh { .. } => "fee_rate_too_high",
