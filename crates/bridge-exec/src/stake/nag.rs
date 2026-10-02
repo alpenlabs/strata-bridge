@@ -56,7 +56,7 @@ pub(crate) async fn execute_nag_duty(
         .write()
         .await
         .send_nag_request(nag_request, None)
-        .await;
+        .await?;
 
     Ok(())
 }

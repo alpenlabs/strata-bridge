@@ -40,7 +40,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_payout_descriptor(deposit_idx, 0, PayoutDescriptor::new(vec![1, 2, 3]), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "payout_descriptor", |msg| {
         matches!(msg, UnsignedGossipsubMsg::PayoutDescriptorExchange { .. })
@@ -56,7 +56,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
         );
         op.handler
             .send_graph_data(graph_idx, graph_data, None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "graph_data", |msg| {
         matches!(msg, UnsignedGossipsubMsg::GraphDataExchange { .. })
@@ -67,7 +67,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_deposit_nonce(deposit_idx, mock_nonce(), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "deposit_nonce", |msg| {
         matches!(
@@ -83,7 +83,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_deposit_partial(deposit_idx, mock_partial(), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "deposit_partial", |msg| {
         matches!(
@@ -99,7 +99,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_payout_nonce(deposit_idx, mock_nonce(), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "payout_nonce", |msg| {
         matches!(
@@ -115,7 +115,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_payout_partial(deposit_idx, mock_partial(), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "payout_partial", |msg| {
         matches!(
@@ -131,7 +131,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_graph_nonces(graph_idx, vec![mock_nonce(), mock_nonce()], None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "graph_nonces", |msg| {
         matches!(
@@ -147,7 +147,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_graph_partials(graph_idx, vec![mock_partial(), mock_partial()], None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "graph_partials", |msg| {
         matches!(
@@ -163,7 +163,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_sweep_nonce(deposit_idx, mock_nonce(), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "sweep_nonce", |msg| {
         matches!(
@@ -179,7 +179,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
     for op in operators.iter_mut() {
         op.handler
             .send_sweep_partial(deposit_idx, mock_partial(), None)
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "sweep_partial", |msg| {
         matches!(
@@ -201,7 +201,7 @@ async fn dispatch_all_message_types() -> anyhow::Result<()> {
                 },
                 None,
             )
-            .await;
+            .await?;
     }
     verify_dispatch(&mut operators, OPERATORS_NUM, "nag_request", |msg| {
         matches!(msg, UnsignedGossipsubMsg::NagRequestExchange(_))
@@ -239,7 +239,7 @@ async fn dispatch_direct_peer() -> anyhow::Result<()> {
             PayoutDescriptor::new(vec![4, 5, 6]),
             Some(tx),
         )
-        .await;
+        .await?;
 
     // Verify ouroboros received the unsigned message
     let ouroboros_msg = operators[0]

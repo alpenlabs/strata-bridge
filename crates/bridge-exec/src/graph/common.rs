@@ -114,7 +114,7 @@ pub(super) async fn generate_graph_data(
         .write()
         .await
         .send_graph_data(graph_idx, graph_data, None)
-        .await;
+        .await?;
     info!(?graph_idx, "broadcasted graph data");
 
     Ok(())
@@ -526,7 +526,7 @@ pub(super) async fn publish_graph_nonces(
         .write()
         .await
         .send_graph_nonces(graph_idx, nonces, None)
-        .await;
+        .await?;
 
     info!(?graph_idx, "graph nonces published");
     Ok(())
@@ -627,7 +627,7 @@ pub(super) async fn publish_graph_partials(
         .write()
         .await
         .send_graph_partials(graph_idx, partials, None)
-        .await;
+        .await?;
 
     info!(?graph_idx, "graph partials published");
     Ok(())
