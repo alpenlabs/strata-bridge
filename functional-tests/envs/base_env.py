@@ -165,7 +165,7 @@ class BaseEnv(flexitest.EnvConfig):
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
             moho=moho_source,
-            asm_artifacts=[AsmArtifactConfig(predicate=self.asm_predicate, source=asm_source)],
+            asm_artifacts=[AsmArtifactConfig(spec_id=0, source=asm_source)],
         )
 
     @property
