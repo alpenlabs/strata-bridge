@@ -149,16 +149,7 @@ impl OperatorSetSM {
             .map(|op| op.index())
             .collect();
         let active_table = Self::table_for(&registrations, &members)?;
-        let boundary = registrations
-            .iter()
-            .flat_map(|op| {
-                [Some(op.activation_height()), op.deactivation_height()]
-                    .into_iter()
-                    .flatten()
-            })
-            .filter(|height| *height <= block_height)
-            .max()
-            .ok_or(OperatorSetError::EmptyMembership)?;
+        let boundary = Self::init_boundary(&registrations, block_height)?;
         let current_covenant = CovenantId::from_operator_table(&active_table, boundary)
             .map_err(|_| OperatorSetError::InvalidMembership)?;
         let exited_operators = registrations
@@ -261,6 +252,29 @@ impl OperatorSetSM {
             }
         }
         Ok(())
+    }
+
+    /// The latest registration activation or deactivation at or before `block_height`.
+    ///
+    /// This is the admin boundary of membership initialized from registration intervals.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OperatorSetError::EmptyMembership`] if no interval boundary precedes the height.
+    pub(super) fn init_boundary(
+        registrations: &OperatorSetSchedule,
+        block_height: BitcoinBlockHeight,
+    ) -> Result<BitcoinBlockHeight, OperatorSetError> {
+        registrations
+            .iter()
+            .flat_map(|op| {
+                [Some(op.activation_height()), op.deactivation_height()]
+                    .into_iter()
+                    .flatten()
+            })
+            .filter(|height| *height <= block_height)
+            .max()
+            .ok_or(OperatorSetError::EmptyMembership)
     }
 
     pub(super) fn current_members(&self) -> &BTreeSet<OperatorIdx> {
