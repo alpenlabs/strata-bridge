@@ -12,6 +12,9 @@
 BRIDGE_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     export SP1_PROVER="${SP1_PROVER:-mock}"
+    # The guests bake the Moho genesis in, so they must match the asm-runner's genesis spec
+    # (`ASM_SPEC_ID` in constants.py).
+    export BRIDGE_PROOF_ASM_GENESIS_SPEC_ID=1
     if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
         export BRIDGE_PROOF_ASM_PARAMS_DIR="$(realpath functional-tests)/_asm_params"
         mkdir -p "$BRIDGE_PROOF_ASM_PARAMS_DIR"

@@ -3,7 +3,8 @@
 //! Active only in `--release` **and** with the `build-elf` feature enabled.
 //! For `guest-bridge-proof`, reads `BRIDGE_PROOF_ASM_PARAMS_PATH`,
 //! `BRIDGE_PROOF_ASM_VK_PATH`, and `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/`
-//! files under `SKIP_PARAMS=1`), writes the SSZ-encoded `BridgeProofGenesis`
+//! files under `SKIP_PARAMS=1`) plus the optional `BRIDGE_PROOF_ASM_GENESIS_SPEC_ID`
+//! (default 0), writes the SSZ-encoded `BridgeProofGenesis`
 //! to `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
 //! directly into `<crate>/elfs/bridge-proof.elf` (referenced at runtime via
 //! [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]). The bridge-proof
@@ -34,8 +35,9 @@ mod release {
     use ssz::Encode;
     use strata_bridge_counterproof::load_genesis_from_paths as load_counterproof_genesis_from_paths;
     use strata_bridge_proof::{
-        load_genesis_from_paths as load_bridge_proof_genesis_from_paths, ASM_PARAMS_PATH_ENV,
-        ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+        asm_genesis_spec_id_from_env,
+        load_genesis_from_paths as load_bridge_proof_genesis_from_paths, ASM_GENESIS_SPEC_ID_ENV,
+        ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
     };
     use strata_bridge_proof_common::host::{
         sp1_groth16_predicate_key, sp1_groth16_predicate_string_from_key, sp1_program_vkey_hash,
@@ -62,6 +64,7 @@ mod release {
         println!("cargo:rerun-if-env-changed={ASM_PARAMS_PATH_ENV}");
         println!("cargo:rerun-if-env-changed={ASM_VK_PATH_ENV}");
         println!("cargo:rerun-if-env-changed={MOHO_VK_PATH_ENV}");
+        println!("cargo:rerun-if-env-changed={ASM_GENESIS_SPEC_ID_ENV}");
 
         // Mirror sp1-build's own skip predicates so `SP1_SKIP_PROGRAM_BUILD=true` and
         // `cargo clippy --release` work without provisioning input JSONs.
@@ -125,8 +128,12 @@ mod release {
         fs::create_dir_all(&build_out_dir)
             .unwrap_or_else(|e| panic!("create {}: {e}", build_out_dir.display()));
 
-        let genesis =
-            load_bridge_proof_genesis_from_paths(asm_params_path, asm_vk_path, moho_vk_path);
+        let genesis = load_bridge_proof_genesis_from_paths(
+            asm_params_path,
+            asm_vk_path,
+            moho_vk_path,
+            asm_genesis_spec_id_from_env(),
+        );
         // Surface the genesis baked into this ELF; it pins the trust anchors the guest verifies
         // against.
         println!("cargo:warning=bridge-proof ELF baking in genesis: {genesis:?}");
@@ -151,6 +158,7 @@ mod release {
             asm_params_path,
             asm_vk_path,
             moho_vk_path,
+            asm_genesis_spec_id_from_env(),
         );
         println!("cargo:warning=counterproof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())

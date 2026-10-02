@@ -8,6 +8,7 @@ import flexitest
 from constants import (
     ASM_PARAMS_DIR,
     ASM_PARAMS_FILE,
+    ASM_SPEC_ID,
     ASM_VK_FILE,
     BRIDGE_NODE_DIR,
     MOHO_VK_FILE,
@@ -168,6 +169,7 @@ class BridgeOperatorFactory(PortProbingFactory):
             "BRIDGE_PROOF_MOHO_VK_PATH": str(
                 (envdd_path / ASM_PARAMS_DIR / MOHO_VK_FILE).resolve()
             ),
+            "BRIDGE_PROOF_ASM_GENESIS_SPEC_ID": str(ASM_SPEC_ID),
         }
         svc = ProcServiceWithEnv(
             props,
