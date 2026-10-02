@@ -16,6 +16,10 @@ ASM_PARAMS_FILE = "asm-params.json"
 ASM_VK_FILE = "asm-vk.json"
 MOHO_VK_FILE = "moho-vk.json"
 
+# ASM spec every env runs from genesis: `StrataAsmSpecV1`, which commits the
+# `OperatorClaimUnlockV1` leaves the bridge proves against.
+ASM_SPEC_ID = 1
+
 # Deposit Transaction output indices
 DT_DEPOSIT_VOUT = 1  # Deposit funds locked in N/N taproot
 

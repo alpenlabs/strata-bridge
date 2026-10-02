@@ -2123,6 +2123,7 @@ dependencies = [
  "serde_json",
  "ssz",
  "ssz_derive",
+ "strata-asm-common",
  "strata-asm-params",
  "strata-asm-proof-impl",
  "strata-asm-proto-bridge",

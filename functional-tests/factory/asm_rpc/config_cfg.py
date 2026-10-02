@@ -5,6 +5,7 @@ These dataclasses mirror the Rust configuration structures in bin/asm-runner/src
 
 from dataclasses import dataclass
 
+from constants import ASM_SPEC_ID
 from factory.common_cfg import Duration
 
 
@@ -110,8 +111,8 @@ class ExecutionConfig:
 
     @classmethod
     def single(cls, predicate: str) -> "ExecutionConfig":
-        """A chain that starts on, and only runs, `predicate` as spec 0."""
-        return cls(0, [ExecutionTargetConfig(predicate, spec_id=0)])
+        """A chain that starts on, and only runs, `predicate` as `ASM_SPEC_ID`."""
+        return cls(ASM_SPEC_ID, [ExecutionTargetConfig(predicate, spec_id=ASM_SPEC_ID)])
 
 
 @dataclass
