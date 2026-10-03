@@ -39,6 +39,10 @@ const DUTIES_TOTAL: &str = "strata_bridge_duties_total";
 const DUTIES_IN_FLIGHT: &str = "strata_bridge_duties_in_flight";
 const DUTY_DURATION_SECONDS: &str = "strata_bridge_duty_duration_seconds";
 const PERSISTENCE_DURATION_SECONDS: &str = "strata_bridge_persistence_duration_seconds";
+const GOSSIP_RECEIVED_TOTAL: &str = "strata_bridge_gossip_received_total";
+const GOSSIP_LAGGED_MESSAGES_TOTAL: &str = "strata_bridge_gossip_lagged_messages_total";
+const NAG_DEDUPED_TOTAL: &str = "strata_bridge_nag_deduped_total";
+const TICK_LATENESS_SECONDS: &str = "strata_bridge_tick_lateness_seconds";
 
 pub(crate) fn describe_metrics() {
     describe_histogram!(
@@ -70,6 +74,23 @@ pub(crate) fn describe_metrics() {
         PERSISTENCE_DURATION_SECONDS,
         Unit::Seconds,
         "Atomic state-machine persistence operation time"
+    );
+    describe_counter!(
+        GOSSIP_RECEIVED_TOTAL,
+        "Decoded peer gossip messages handed to the pipeline, by message kind"
+    );
+    describe_counter!(
+        GOSSIP_LAGGED_MESSAGES_TOTAL,
+        "Peer gossip messages lost because the orchestrator fell behind the inbound buffer"
+    );
+    describe_counter!(
+        NAG_DEDUPED_TOTAL,
+        "Peer nags dropped because a reply to the same request was recently sent or is in flight"
+    );
+    describe_histogram!(
+        TICK_LATENESS_SECONDS,
+        Unit::Seconds,
+        "Delay between a periodic tick's scheduled instant and the orchestrator serving it"
     );
 }
 
@@ -170,6 +191,22 @@ pub(crate) fn record_persistence(
         "error_class" => error_class
     )
     .record(duration.as_secs_f64());
+}
+
+pub(crate) fn record_gossip_received(kind: &'static str) {
+    counter!(GOSSIP_RECEIVED_TOTAL, "kind" => kind).increment(1);
+}
+
+pub(crate) fn record_gossip_lagged(skipped: u64) {
+    counter!(GOSSIP_LAGGED_MESSAGES_TOTAL).increment(skipped);
+}
+
+pub(crate) fn record_nag_deduped(kind: &'static str) {
+    counter!(NAG_DEDUPED_TOTAL, "kind" => kind).increment(1);
+}
+
+pub(crate) fn record_tick_lateness(tick: &'static str, lateness: Duration) {
+    histogram!(TICK_LATENESS_SECONDS, "tick" => tick).record(lateness.as_secs_f64());
 }
 
 pub(crate) const fn unified_event_kind(event: &UnifiedEvent) -> &'static str {
@@ -368,6 +405,7 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
         ExecutorError::DatabaseErr(_) => "database",
         ExecutorError::MosaicErr(_) => "mosaic",
         ExecutorError::AsmRpcErr(_) => "asm_rpc",
+        ExecutorError::P2PErr(_) => "p2p",
         ExecutorError::ProofErr(_) => "proof_generation",
         ExecutorError::InvalidTxStructure(_) => "invalid_transaction_structure",
         ExecutorError::FeeRateTooHigh { .. } => "fee_rate_too_high",

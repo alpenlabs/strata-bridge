@@ -1,6 +1,6 @@
 //! Configuration for the P2P.
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use libp2p::{
     identity::ed25519::{Keypair as Libp2pEdKeypair, SecretKey as Libp2pEdSecretKey},
@@ -119,6 +119,48 @@ pub struct Configuration {
     /// longer connected. Defaults to
     /// [`DEFAULT_PEER_RECONNECT_INTERVAL`](crate::constants::DEFAULT_PEER_RECONNECT_INTERVAL).
     pub peer_reconnect_interval: Option<Duration>,
+
+    /// Rate-limit score charged per accepted peer message; see
+    /// [`OperatorValidator::message_cost`](crate::validator::OperatorValidator::message_cost).
+    ///
+    /// Defaults to [`DEFAULT_MESSAGE_COST`](crate::validator::DEFAULT_MESSAGE_COST).
+    pub rate_limit_message_cost: Option<f64>,
+
+    /// Rate-limit score below which a peer is muted. Must be negative. See
+    /// [`OperatorValidator::mute_threshold`](crate::validator::OperatorValidator::mute_threshold).
+    ///
+    /// Defaults to [`DEFAULT_MUTE_THRESHOLD`](crate::validator::DEFAULT_MUTE_THRESHOLD).
+    pub rate_limit_mute_threshold: Option<f64>,
+
+    /// Rate-limit score a peer recovers per second; see
+    /// [`OperatorValidator::recovery_per_sec`](crate::validator::OperatorValidator::recovery_per_sec).
+    ///
+    /// Defaults to [`DEFAULT_RECOVERY_PER_SEC`](crate::validator::DEFAULT_RECOVERY_PER_SEC).
+    pub rate_limit_recovery_per_sec: Option<f64>,
+
+    /// How long a peer that crosses the mute threshold stays muted; see
+    /// [`OperatorValidator::mute_duration`](crate::validator::OperatorValidator::mute_duration).
+    ///
+    /// Defaults to [`DEFAULT_MUTE_DURATION`](crate::validator::DEFAULT_MUTE_DURATION).
+    pub rate_limit_mute_duration: Option<Duration>,
+
+    /// Size of the inbound gossip event buffer.
+    ///
+    /// A consumer that falls this far behind loses the oldest messages, which then have to be
+    /// nagged for. Received messages stay resident until overwritten, so memory is about this many
+    /// times the message size.
+    ///
+    /// Defaults to
+    /// [`DEFAULT_GOSSIP_EVENT_BUFFER_SIZE`](crate::constants::DEFAULT_GOSSIP_EVENT_BUFFER_SIZE).
+    pub gossip_event_buffer_size: Option<NonZeroUsize>,
+
+    /// Size of the outbound gossip command queue.
+    ///
+    /// Publishing does not wait for space, so messages beyond this are dropped.
+    ///
+    /// Defaults to
+    /// [`DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE`](crate::constants::DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE).
+    pub gossip_command_buffer_size: Option<NonZeroUsize>,
 }
 
 impl Configuration {
@@ -143,6 +185,12 @@ impl Configuration {
         gossipsub_publish_queue_duration: Option<Duration>,
         gossipsub_forward_queue_duration: Option<Duration>,
         peer_reconnect_interval: Option<Duration>,
+        rate_limit_message_cost: Option<f64>,
+        rate_limit_mute_threshold: Option<f64>,
+        rate_limit_recovery_per_sec: Option<f64>,
+        rate_limit_mute_duration: Option<Duration>,
+        gossip_event_buffer_size: Option<NonZeroUsize>,
+        gossip_command_buffer_size: Option<NonZeroUsize>,
     ) -> Self {
         let keypair = Libp2pEdKeypair::from(sk);
         Self {
@@ -164,6 +212,12 @@ impl Configuration {
             gossipsub_publish_queue_duration,
             gossipsub_forward_queue_duration,
             peer_reconnect_interval,
+            rate_limit_message_cost,
+            rate_limit_mute_threshold,
+            rate_limit_recovery_per_sec,
+            rate_limit_mute_duration,
+            gossip_event_buffer_size,
+            gossip_command_buffer_size,
         }
     }
 }
@@ -183,6 +237,12 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             None,
             None,
             None,

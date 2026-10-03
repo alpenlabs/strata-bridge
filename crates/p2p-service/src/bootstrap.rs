@@ -1,13 +1,16 @@
 //! Module to bootstrap the p2p node by hooking up all the required services.
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use libp2p::gossipsub::{PeerScoreParams, PeerScoreThresholds, Sha256Topic, TopicScoreParams};
-use strata_p2p::swarm::{
-    self,
-    handle::{CommandHandle, GossipHandle, ReqRespHandle},
-    P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT, DEFAULT_GENERAL_TIMEOUT,
-    P2P,
+use strata_p2p::{
+    swarm::{
+        self,
+        handle::{CommandHandle, GossipHandle, ReqRespHandle},
+        P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT,
+        DEFAULT_GENERAL_TIMEOUT, P2P,
+    },
+    validator::Validator,
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -15,18 +18,23 @@ use tracing::{debug, info};
 
 use crate::{
     config::{Configuration, GossipsubScoringPreset},
-    constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL},
+    constants::{
+        DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE, DEFAULT_GOSSIP_EVENT_BUFFER_SIZE,
+        DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_PEER_RECONNECT_INTERVAL,
+    },
+    observability::{self, InstrumentedValidator},
     reconnect::maintain_connections,
+    validator::OperatorValidator,
 };
 
 /// The default gossipsub topic name (must match strata-p2p's default).
 const DEFAULT_GOSSIPSUB_TOPIC: &str = "strata";
 
-/// Maximum transmit size for gossipsub messages (8 MB).
+/// Maximum transmit size for gossipsub messages (64 KiB, libp2p's default).
 ///
-/// Bridge protocol messages (especially deposit setup with WOTS signatures)
-/// can exceed the default 512 KB limit, so we increase this significantly.
-const GOSSIPSUB_MAX_TRANSMIT_SIZE: usize = 8 * 1024 * 1024;
+/// The largest bridge message, a graph's nonces, is about `660 + 264N` bytes for `N` operators.
+/// The limit also caps what a peer can make us buffer per inbound event slot.
+const GOSSIPSUB_MAX_TRANSMIT_SIZE: usize = 64 * 1024;
 
 /// Creates permissive peer score parameters that don't penalize peers.
 ///
@@ -117,8 +125,47 @@ pub struct BootstrapHandles {
     pub listen_task: JoinHandle<()>,
 }
 
+/// Rate limiter applied to every inbound peer message, instrumented so its effect is measurable.
+fn rate_limiter(config: &Configuration) -> anyhow::Result<Box<dyn Validator>> {
+    let defaults = OperatorValidator::default();
+    let limiter = OperatorValidator {
+        message_cost: config
+            .rate_limit_message_cost
+            .unwrap_or(defaults.message_cost),
+        mute_threshold: config
+            .rate_limit_mute_threshold
+            .unwrap_or(defaults.mute_threshold),
+        recovery_per_sec: config
+            .rate_limit_recovery_per_sec
+            .unwrap_or(defaults.recovery_per_sec),
+        mute_duration: config
+            .rate_limit_mute_duration
+            .unwrap_or(defaults.mute_duration),
+    };
+    // A non-negative threshold would mute every peer on its first message.
+    anyhow::ensure!(
+        limiter.mute_threshold < 0.0,
+        "p2p rate-limit mute threshold must be negative, got {}",
+        limiter.mute_threshold
+    );
+    anyhow::ensure!(
+        limiter.message_cost >= 0.0 && limiter.recovery_per_sec >= 0.0,
+        "p2p rate-limit message cost and recovery must not be negative, got {} and {}",
+        limiter.message_cost,
+        limiter.recovery_per_sec
+    );
+    info!(?limiter, "p2p rate limiter configured");
+
+    Ok(Box::new(InstrumentedValidator::new(
+        limiter,
+        limiter.mute_threshold,
+    )))
+}
+
 /// Bootstrap the p2p node by hooking up all the required services.
 pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandles> {
+    observability::describe_metrics();
+
     // Determine scoring parameters based on preset
     let preset = config.gossipsub_scoring_preset.unwrap_or_default();
     let (gossipsub_score_params, gossipsub_score_thresholds) = match preset {
@@ -163,7 +210,11 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         gossipsub_heartbeat_initial_delay: config.gossipsub_heartbeat_initial_delay,
         gossipsub_publish_queue_duration: config.gossipsub_publish_queue_duration,
         gossipsub_forward_queue_duration: config.gossipsub_forward_queue_duration,
-        gossip_event_buffer_size: None,
+        gossip_event_buffer_size: Some(
+            config
+                .gossip_event_buffer_size
+                .map_or(DEFAULT_GOSSIP_EVENT_BUFFER_SIZE, NonZeroUsize::get),
+        ),
         commands_event_buffer_size: None,
         command_buffer_size: None,
         handle_default_timeout: None,
@@ -171,7 +222,11 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
         req_resp_command_buffer_size: None,
         request_max_bytes: None,
         response_max_bytes: None,
-        gossip_command_buffer_size: None,
+        gossip_command_buffer_size: Some(
+            config
+                .gossip_command_buffer_size
+                .map_or(DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE, NonZeroUsize::get),
+        ),
         envelope_max_age: None,
         max_clock_skew: None,
         conn_limits: Default::default(),
@@ -183,8 +238,13 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
     debug!("swarm initialized");
 
     info!("initializing p2p node");
-    let (mut p2p, req_resp_handle) =
-        P2P::from_config(p2p_config, cancel.clone(), swarm, None, None)?;
+    let (mut p2p, req_resp_handle) = P2P::from_config(
+        p2p_config,
+        cancel.clone(),
+        swarm,
+        None,
+        Some(rate_limiter(config)?),
+    )?;
     let command_handle = p2p.new_command_handle();
     let gossip_handle = p2p.new_gossip_handle();
     debug!("p2p node initialized");

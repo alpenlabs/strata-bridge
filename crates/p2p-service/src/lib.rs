@@ -4,10 +4,12 @@ pub mod bootstrap;
 pub mod config;
 pub mod constants;
 pub mod message_handler;
+mod observability;
 pub mod reconnect;
+pub mod validator;
 
 pub use bootstrap::bootstrap;
 pub use config::{Configuration, GossipsubScoringPreset};
-pub use message_handler::{MessageHandler, OuroborosMessage};
+pub use message_handler::{DispatchError, MessageHandler, OuroborosMessage};
 #[cfg(test)]
 pub mod tests;

@@ -315,7 +315,7 @@ pub async fn execute_deposit_duty(
                 .write()
                 .await
                 .send_nag_request(nag_request, None)
-                .await;
+                .await?;
 
             info!(%deposit_idx, %operator_idx, "published nag request");
             Ok(())
@@ -375,7 +375,7 @@ async fn publish_deposit_nonce(
         .write()
         .await
         .send_deposit_nonce(deposit_idx, nonce, None)
-        .await;
+        .await?;
 
     info!(%drt_outpoint, %deposit_idx, "published deposit nonce");
     Ok(())
@@ -437,7 +437,7 @@ async fn publish_deposit_partial(
         .write()
         .await
         .send_deposit_partial(deposit_idx, partial_sig, None)
-        .await;
+        .await?;
 
     info!(%drt_outpoint, %deposit_idx, "published deposit partial");
     Ok(())
@@ -726,7 +726,7 @@ async fn request_payout_nonces(
         .write()
         .await
         .send_payout_descriptor(deposit_idx, operator_idx, payout_descriptor.clone(), None)
-        .await;
+        .await?;
 
     info!(%deposit_idx, %operator_idx, ?payout_descriptor, "published payout descriptor");
     Ok(())
@@ -766,7 +766,7 @@ async fn publish_payout_nonce(
         .write()
         .await
         .send_payout_nonce(deposit_idx, nonce, None)
-        .await;
+        .await?;
 
     info!(%deposit_outpoint, %deposit_idx, "published payout nonce");
     Ok(())
@@ -813,7 +813,7 @@ async fn publish_payout_partial(
         .write()
         .await
         .send_payout_partial(deposit_idx, partial_sig, None)
-        .await;
+        .await?;
 
     info!(%deposit_outpoint, %deposit_idx, "published payout partial");
     Ok(())
@@ -943,7 +943,7 @@ async fn publish_sweep_nonce(
         .write()
         .await
         .send_sweep_nonce(deposit_idx, nonce, None)
-        .await;
+        .await?;
 
     info!(%deposit_outpoint, %deposit_idx, "published sweep nonce");
     Ok(())
@@ -990,7 +990,7 @@ async fn publish_sweep_partial(
         .write()
         .await
         .send_sweep_partial(deposit_idx, partial_sig, None)
-        .await;
+        .await?;
 
     info!(%deposit_outpoint, %deposit_idx, "published sweep partial");
     Ok(())

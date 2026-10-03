@@ -38,6 +38,12 @@ fn build_config(keypair: EdKeypair, allowlist: Vec<PeerId>) -> Configuration {
         gossipsub_publish_queue_duration: None,
         gossipsub_forward_queue_duration: None,
         peer_reconnect_interval: None,
+        rate_limit_message_cost: None,
+        rate_limit_mute_threshold: None,
+        rate_limit_recovery_per_sec: None,
+        rate_limit_mute_duration: None,
+        gossip_event_buffer_size: None,
+        gossip_command_buffer_size: None,
     }
 }
 

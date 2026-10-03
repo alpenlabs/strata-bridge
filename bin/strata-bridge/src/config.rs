@@ -2,7 +2,13 @@
 //!
 //! These do not affect consensus between bridge nodes and can be set to different values by
 //! different operators.
-use std::{fmt, net::SocketAddr, num::NonZeroU32, path::PathBuf, time::Duration};
+use std::{
+    fmt,
+    net::SocketAddr,
+    num::{NonZeroU32, NonZeroUsize},
+    path::PathBuf,
+    time::Duration,
+};
 
 use bitcoin::BlockHash;
 use libp2p::Multiaddr;
@@ -29,6 +35,15 @@ pub(crate) struct Config {
 
     /// The interval at which to nag peers for required MuSig2 information.
     pub nag_interval: Duration,
+
+    /// How long a nag reply suppresses repeat nags for the same data. Defaults to half of
+    /// `nag_interval` so a peer's retry after a lost reply is still served; zero disables it.
+    pub nag_dedup_window: Option<Duration>,
+
+    /// How long an unsettled nag reply suppresses repeat nags, bounding the cost of a reply that
+    /// hangs. Defaults to `nag_interval`, so a hung reply costs peers one nag round. Zero turns
+    /// this off, so only a sent reply suppresses repeats.
+    pub nag_dedup_in_flight_timeout: Option<Duration>,
 
     /// The interval at which to retry duties.
     pub retry_interval: Duration,
@@ -174,7 +189,7 @@ pub(crate) struct BtcZmqConfig {
     pub sequence_connection_string: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct P2PConfig {
     /// Idle connection timeout.
     pub idle_connection_timeout: Option<Duration>,
@@ -248,6 +263,48 @@ pub(crate) struct P2PConfig {
     /// If [`None`], defaults to
     /// [`DEFAULT_PEER_RECONNECT_INTERVAL`](strata_bridge_p2p_service::constants::DEFAULT_PEER_RECONNECT_INTERVAL).
     pub peer_reconnect_interval: Option<Duration>,
+
+    /// Rate-limit score charged per accepted peer message; see
+    /// [`OperatorValidator::message_cost`](strata_bridge_p2p_service::validator::OperatorValidator::message_cost).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_MESSAGE_COST`](strata_bridge_p2p_service::validator::DEFAULT_MESSAGE_COST).
+    pub rate_limit_message_cost: Option<f64>,
+
+    /// Rate-limit score below which a peer is muted. Must be negative. See
+    /// [`OperatorValidator::mute_threshold`](strata_bridge_p2p_service::validator::OperatorValidator::mute_threshold).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_MUTE_THRESHOLD`](strata_bridge_p2p_service::validator::DEFAULT_MUTE_THRESHOLD).
+    pub rate_limit_mute_threshold: Option<f64>,
+
+    /// Rate-limit score a peer recovers per second; see
+    /// [`OperatorValidator::recovery_per_sec`](strata_bridge_p2p_service::validator::OperatorValidator::recovery_per_sec).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_RECOVERY_PER_SEC`](strata_bridge_p2p_service::validator::DEFAULT_RECOVERY_PER_SEC).
+    pub rate_limit_recovery_per_sec: Option<f64>,
+
+    /// How long a peer that crosses the mute threshold stays muted; see
+    /// [`OperatorValidator::mute_duration`](strata_bridge_p2p_service::validator::OperatorValidator::mute_duration).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_MUTE_DURATION`](strata_bridge_p2p_service::validator::DEFAULT_MUTE_DURATION).
+    pub rate_limit_mute_duration: Option<Duration>,
+
+    /// Size of the inbound gossip event buffer; see
+    /// [`Configuration::gossip_event_buffer_size`](strata_bridge_p2p_service::Configuration::gossip_event_buffer_size).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_GOSSIP_EVENT_BUFFER_SIZE`](strata_bridge_p2p_service::constants::DEFAULT_GOSSIP_EVENT_BUFFER_SIZE).
+    pub gossip_event_buffer_size: Option<NonZeroUsize>,
+
+    /// Size of the outbound gossip command queue; see
+    /// [`Configuration::gossip_command_buffer_size`](strata_bridge_p2p_service::Configuration::gossip_command_buffer_size).
+    ///
+    /// If [`None`], defaults to
+    /// [`DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE`](strata_bridge_p2p_service::constants::DEFAULT_GOSSIP_COMMAND_BUFFER_SIZE).
+    pub gossip_command_buffer_size: Option<NonZeroUsize>,
 }
 
 /// RPC server configuration.
@@ -374,6 +431,9 @@ pub(crate) fn test_config() -> Config {
             general_timeout = { secs = 0, nanos = 250_000_000 }
             connection_check_interval = { secs = 0, nanos = 500_000_000 }
             gossipsub_scoring_preset = "permissive"
+            rate_limit_mute_threshold = -50_000
+            rate_limit_mute_duration = { secs = 5, nanos = 0 }
+            gossip_event_buffer_size = 8192
 
             [rpc]
             rpc_addr = "localhost:5678"
@@ -443,6 +503,29 @@ mod tests {
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
     // RPC credentials, neither the leaf struct nor the parent that holds it.
+    #[test]
+    fn p2p_rate_limit_fields_are_optional_and_accept_integers() {
+        let p2p = test_config().p2p;
+        assert_eq!(p2p.rate_limit_mute_threshold, Some(-50_000.0));
+        assert_eq!(p2p.rate_limit_mute_duration, Some(Duration::from_secs(5)));
+        assert_eq!(p2p.rate_limit_message_cost, None);
+        assert_eq!(p2p.rate_limit_recovery_per_sec, None);
+    }
+
+    #[test]
+    fn p2p_gossip_buffer_sizes_are_optional_and_nonzero() {
+        let p2p = test_config().p2p;
+        assert_eq!(p2p.gossip_event_buffer_size, NonZeroUsize::new(8192));
+        assert_eq!(p2p.gossip_command_buffer_size, None);
+
+        let zero = r#"
+            listening_addr = "/ip4/127.0.0.1/tcp/1234"
+            connect_to = []
+            gossip_command_buffer_size = 0
+        "#;
+        assert!(toml::from_str::<P2PConfig>(zero).is_err());
+    }
+
     #[test]
     fn debug_redacts_btc_rpc_credentials() {
         let config = test_config();

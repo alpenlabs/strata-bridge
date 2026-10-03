@@ -9,8 +9,19 @@ use strata_bridge_p2p_types::{
 };
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
+use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, trace};
+use tracing::{debug, trace};
+
+use crate::observability::record_gossip_published;
+
+/// A message [`MessageHandler`] could not send.
+#[derive(Debug, Error)]
+#[error("failed to send {description}: {reason}")]
+pub struct DispatchError {
+    description: &'static str,
+    reason: String,
+}
 
 /// Message intended for oneself via ouroboros channel.
 #[derive(Debug)]
@@ -55,13 +66,13 @@ impl MessageHandler {
         operator_idx: OperatorIdx,
         operator_desc: PayoutDescriptor,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::PayoutDescriptorExchange {
             deposit_idx,
             operator_idx,
             operator_desc,
         };
-        self.dispatch(msg, peer, "payout descriptor exchange").await;
+        self.dispatch(msg, peer, "payout descriptor exchange").await
     }
 
     /// Sends the deposit-time data required to generate a graph.
@@ -72,13 +83,13 @@ impl MessageHandler {
         graph_idx: GraphIdx,
         graph_data: GraphData,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::GraphDataExchange {
             graph_idx,
             graph_data,
         };
 
-        self.dispatch(msg, peer, "graph data exchange").await;
+        self.dispatch(msg, peer, "graph data exchange").await
     }
 
     /// Sends a nonce for signing the deposit transaction.
@@ -89,12 +100,12 @@ impl MessageHandler {
         deposit_idx: DepositIdx,
         nonce: PubNonce,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Deposit {
             deposit_idx,
             nonce: nonce.into(),
         });
-        self.dispatch(msg, peer, "deposit nonce").await;
+        self.dispatch(msg, peer, "deposit nonce").await
     }
 
     /// Sends a partial signature for the deposit transaction.
@@ -105,12 +116,12 @@ impl MessageHandler {
         deposit_idx: DepositIdx,
         partial: PartialSignature,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Deposit {
             deposit_idx,
             partial: partial.into(),
         });
-        self.dispatch(msg, peer, "deposit partial").await;
+        self.dispatch(msg, peer, "deposit partial").await
     }
 
     /// Sends a payout nonce for cooperative payout signing.
@@ -121,12 +132,12 @@ impl MessageHandler {
         deposit_idx: DepositIdx,
         nonce: PubNonce,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Payout {
             deposit_idx,
             nonce: nonce.into(),
         });
-        self.dispatch(msg, peer, "payout nonce").await;
+        self.dispatch(msg, peer, "payout nonce").await
     }
 
     /// Sends a payout partial signature for cooperative payout signing.
@@ -137,12 +148,12 @@ impl MessageHandler {
         deposit_idx: DepositIdx,
         partial: PartialSignature,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Payout {
             deposit_idx,
             partial: partial.into(),
         });
-        self.dispatch(msg, peer, "payout partial").await;
+        self.dispatch(msg, peer, "payout partial").await
     }
 
     /// Sends a sweep nonce for safe-harbour sweep signing.
@@ -153,12 +164,12 @@ impl MessageHandler {
         deposit_idx: DepositIdx,
         nonce: PubNonce,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Sweep {
             deposit_idx,
             nonce: nonce.into(),
         });
-        self.dispatch(msg, peer, "sweep nonce").await;
+        self.dispatch(msg, peer, "sweep nonce").await
     }
 
     /// Sends a sweep partial signature for safe-harbour sweep signing.
@@ -169,12 +180,12 @@ impl MessageHandler {
         deposit_idx: DepositIdx,
         partial: PartialSignature,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Sweep {
             deposit_idx,
             partial: partial.into(),
         });
-        self.dispatch(msg, peer, "sweep partial").await;
+        self.dispatch(msg, peer, "sweep partial").await
     }
 
     /// Sends a nag request for missing data.
@@ -184,9 +195,9 @@ impl MessageHandler {
         &mut self,
         nag_request: NagRequest,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
-        self.dispatch(msg, peer, "nag request").await;
+        self.dispatch(msg, peer, "nag request").await
     }
 
     // --- Graph context (Vec of nonces/partials) ---
@@ -199,12 +210,12 @@ impl MessageHandler {
         graph_idx: GraphIdx,
         nonces: Vec<PubNonce>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Graph {
             graph_idx,
             nonces: nonces.into_iter().map(Into::into).collect(),
         });
-        self.dispatch(msg, peer, "graph nonces").await;
+        self.dispatch(msg, peer, "graph nonces").await
     }
 
     /// Sends graph partial signatures for transaction graph signing.
@@ -215,12 +226,12 @@ impl MessageHandler {
         graph_idx: GraphIdx,
         partials: Vec<PartialSignature>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Graph {
             graph_idx,
             partials: partials.into_iter().map(Into::into).collect(),
         });
-        self.dispatch(msg, peer, "graph partials").await;
+        self.dispatch(msg, peer, "graph partials").await
     }
 
     /// Sends unstaking input data for generating the unstaking transaction graph.
@@ -229,13 +240,13 @@ impl MessageHandler {
         operator_idx: OperatorIdx,
         unstaking_input: UnstakingInput,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
             operator_idx,
             unstaking_input,
         };
 
-        self.dispatch(msg, peer, "stake data exchange").await;
+        self.dispatch(msg, peer, "stake data exchange").await
     }
 
     /// Sends unstaking nonces for signing the unstaking transaction graph.
@@ -244,13 +255,13 @@ impl MessageHandler {
         operator_idx: OperatorIdx,
         nonces: Vec<PubNonce>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
             operator_idx,
             nonces: nonces.into_iter().map(Into::into).collect(),
         });
 
-        self.dispatch(msg, peer, "unstaking nonces").await;
+        self.dispatch(msg, peer, "unstaking nonces").await
     }
 
     /// Sends unstaking partial signatures for signing the unstaking transaction graph.
@@ -259,58 +270,57 @@ impl MessageHandler {
         operator_idx: OperatorIdx,
         partials: Vec<PartialSignature>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Unstake {
             operator_idx,
             partials: partials.into_iter().map(Into::into).collect(),
         });
 
-        self.dispatch(msg, peer, "unstaking partials").await;
+        self.dispatch(msg, peer, "unstaking partials").await
     }
 
     async fn dispatch(
         &mut self,
         msg: UnsignedGossipsubMsg,
         peer: Option<oneshot::Sender<Vec<u8>>>,
-        description: &str,
-    ) {
+        description: &'static str,
+    ) -> Result<(), DispatchError> {
         trace!(%description, ?msg, "sending message via combined dispatch");
+        let kind = msg.kind();
+        let fail = |reason: String| DispatchError {
+            description,
+            reason,
+        };
 
         // 1. Sign message (borrows msg)
         let signed = msg.sign_ed25519(&self.keypair);
         let mut data = Vec::new();
-        if let Err(e) = rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&signed, &mut data) {
-            error!(%description, %e, "failed to serialize signed message");
-            return;
-        }
+        rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&signed, &mut data)
+            .map_err(|e| fail(format!("serialization: {e}")))?;
 
         // 2. Send unsigned to ouroboros for local processing (moves msg)
-        if let Err(e) = self
-            .ouroboros_msg_sender
+        self.ouroboros_msg_sender
             .send(OuroborosMessage { publish: msg })
-        {
-            error!(%description, %e, "failed to send message via ouroboros");
-            return;
-        }
+            .map_err(|e| fail(format!("ouroboros: {e}")))?;
 
         // 3. Send to network: directed to specific peer OR broadcast to all
         match peer {
             Some(channel) => {
                 // Direct response to requesting peer
-                if channel.send(data).is_err() {
-                    error!(%description, "failed to send direct response to peer (receiver dropped)");
-                    return;
-                }
+                channel
+                    .send(data)
+                    .map_err(|_| fail("requesting peer dropped the response channel".into()))?;
             }
             None => {
                 // Broadcast to all peers via gossip
-                if let Err(e) = self.gossip_handle.send(GossipCommand { data }).await {
-                    error!(%description, %e, "failed to send message to gossip");
-                    return;
-                }
+                let result = self.gossip_handle.send(GossipCommand { data }).await;
+                record_gossip_published(kind, result.is_ok());
+                // `try_send` underneath: "channel closed" here is almost always a full queue.
+                result.map_err(|e| fail(format!("gossip: {e}")))?;
             }
         }
 
         debug!(%description, "sent message via combined dispatch");
+        Ok(())
     }
 }
