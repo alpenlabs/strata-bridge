@@ -125,10 +125,11 @@ pub enum MuSig2Nonce {
 impl MuSig2Nonce {
     /// Returns the content bytes for signing.
     ///
-    /// Includes a single-byte discriminator to cryptographically bind the signature
-    /// to the message type, providing domain separation between variants.
+    /// Starts with the gossipsub kind byte followed by the signing-context byte, so
+    /// [`UnsignedGossipsubMsg::Musig2NoncesExchange`] signs exactly these bytes.
     pub fn content_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
+        buf.push(GossipsubMsgKind::Musig2Nonces as u8);
         match self {
             Self::Deposit { deposit_idx, nonce } => {
                 buf.push(SigningContext::Deposit as u8);
@@ -247,10 +248,11 @@ pub enum MuSig2Partial {
 impl MuSig2Partial {
     /// Returns the content bytes for signing.
     ///
-    /// Includes a single-byte discriminator to cryptographically bind the signature
-    /// to the message type, providing domain separation between Deposit/Payout/Graph partials.
+    /// Starts with the gossipsub kind byte followed by the signing-context byte, so
+    /// [`UnsignedGossipsubMsg::Musig2SignaturesExchange`] signs exactly these bytes.
     pub fn content_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
+        buf.push(GossipsubMsgKind::Musig2Signatures as u8);
         match self {
             Self::Deposit {
                 deposit_idx,
@@ -567,9 +569,12 @@ pub struct NagRequest {
 impl NagRequest {
     /// Returns the content bytes for signing.
     ///
-    /// Includes the recipient public key followed by the payload content bytes.
+    /// Starts with the gossipsub kind byte, followed by the recipient public key and
+    /// the payload content bytes, so [`UnsignedGossipsubMsg::NagRequestExchange`] signs
+    /// exactly these bytes.
     pub fn content_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
+        buf.push(GossipsubMsgKind::NagRequest as u8);
         buf.extend(self.recipient.as_ref());
         buf.extend(self.payload.content_bytes());
         buf
@@ -685,15 +690,12 @@ impl UnsignedGossipsubMsg {
                 buf.extend(unstaking_operator_desc.content_bytes());
             }
             Self::Musig2NoncesExchange(nonce) => {
-                buf.push(GossipsubMsgKind::Musig2Nonces as u8);
                 buf.extend(nonce.content_bytes());
             }
             Self::Musig2SignaturesExchange(partial) => {
-                buf.push(GossipsubMsgKind::Musig2Signatures as u8);
                 buf.extend(partial.content_bytes());
             }
             Self::NagRequestExchange(nag) => {
-                buf.push(GossipsubMsgKind::NagRequest as u8);
                 buf.extend(nag.content_bytes());
             }
         }
@@ -915,8 +917,9 @@ mod tests {
 
         for (name, nonce, expected_prefix) in cases {
             let content = nonce.content_bytes();
+            assert_eq!(content[0], 0x01, "{} kind byte should be 0x01", name);
             assert_eq!(
-                content[0], expected_prefix,
+                content[1], expected_prefix,
                 "{} discriminator should be {:#04x}",
                 name, expected_prefix
             );
@@ -974,8 +977,9 @@ mod tests {
 
         for (name, partial, expected_prefix) in cases {
             let content = partial.content_bytes();
+            assert_eq!(content[0], 0x02, "{} kind byte should be 0x02", name);
             assert_eq!(
-                content[0], expected_prefix,
+                content[1], expected_prefix,
                 "{} discriminator should be {:#04x}",
                 name, expected_prefix
             );
@@ -1380,12 +1384,13 @@ mod tests {
 
         assert_eq!(
             content.len(),
-            1 + 4 + 66,
-            "Deposit content should be 71 bytes: discriminator (1) + deposit_idx (4) + nonce (66)"
+            1 + 1 + 4 + 66,
+            "Deposit content should be 72 bytes: kind (1) + discriminator (1) + deposit_idx (4) + nonce (66)"
         );
-        assert_eq!(content[0], 0x00, "Deposit discriminator should be 0x00");
+        assert_eq!(content[0], 0x01, "kind byte should be 0x01");
+        assert_eq!(content[1], 0x00, "Deposit discriminator should be 0x00");
         assert_eq!(
-            &content[1..5],
+            &content[2..6],
             &42u32.to_le_bytes(),
             "deposit_idx should be serialized as little-endian u32"
         );
@@ -1404,20 +1409,22 @@ mod tests {
         };
         let content = nonce.content_bytes();
 
-        // Check structure: discriminator (1) + operator_idx (4) + deposit_idx (4) + nonces (3 * 66)
+        // Check structure: kind (1) + discriminator (1) + operator_idx (4) + deposit_idx (4) +
+        // nonces (3 * 66)
         assert_eq!(
             content.len(),
-            1 + 4 + 4 + 3 * 66,
-            "Graph content should be 207 bytes: discriminator (1) + operator_idx (4) + deposit_idx (4) + 3 nonces (198)"
+            1 + 1 + 4 + 4 + 3 * 66,
+            "Graph content should be 208 bytes: kind (1) + discriminator (1) + operator_idx (4) + deposit_idx (4) + 3 nonces (198)"
         );
-        assert_eq!(content[0], 0x02, "Graph discriminator should be 0x02");
+        assert_eq!(content[0], 0x01, "kind byte should be 0x01");
+        assert_eq!(content[1], 0x02, "Graph discriminator should be 0x02");
         assert_eq!(
-            &content[1..5],
+            &content[2..6],
             &10u32.to_le_bytes(),
             "operator_idx should be serialized as little-endian u32"
         );
         assert_eq!(
-            &content[5..9],
+            &content[6..10],
             &20u32.to_le_bytes(),
             "deposit_idx should be serialized as little-endian u32"
         );
@@ -1436,14 +1443,15 @@ mod tests {
         };
         let content = partial.content_bytes();
 
-        // Check structure: discriminator (1) + operator_idx (4) + deposit_idx (4) + partials (2 *
-        // 32)
+        // Check structure: kind (1) + discriminator (1) + operator_idx (4) + deposit_idx (4) +
+        // partials (2 * 32)
         assert_eq!(
             content.len(),
-            1 + 4 + 4 + 2 * 32,
-            "Graph partial content should be 73 bytes: discriminator (1) + operator_idx (4) + deposit_idx (4) + 2 partials (64)"
+            1 + 1 + 4 + 4 + 2 * 32,
+            "Graph partial content should be 74 bytes: kind (1) + discriminator (1) + operator_idx (4) + deposit_idx (4) + 2 partials (64)"
         );
-        assert_eq!(content[0], 0x02, "Graph discriminator should be 0x02");
+        assert_eq!(content[0], 0x02, "kind byte should be 0x02");
+        assert_eq!(content[1], 0x02, "Graph discriminator should be 0x02");
     }
 
     // Verifies MuSig2Nonce::Unstake serializes all nonces into content bytes.
@@ -1456,15 +1464,16 @@ mod tests {
         };
         let content = nonce.content_bytes();
 
-        // Check structure: discriminator (1) + operator_idx (4) + nonces (3 * 66)
+        // Check structure: kind (1) + discriminator (1) + operator_idx (4) + nonces (3 * 66)
         assert_eq!(
             content.len(),
-            1 + 4 + 3 * 66,
-            "Unstake nonce content should be 203 bytes: discriminator (1) + operator_idx (4) + 3 nonces (198)"
+            1 + 1 + 4 + 3 * 66,
+            "Unstake nonce content should be 204 bytes: kind (1) + discriminator (1) + operator_idx (4) + 3 nonces (198)"
         );
-        assert_eq!(content[0], 0x03, "Unstake discriminator should be 0x03");
+        assert_eq!(content[0], 0x01, "kind byte should be 0x01");
+        assert_eq!(content[1], 0x03, "Unstake discriminator should be 0x03");
         assert_eq!(
-            &content[1..5],
+            &content[2..6],
             &10u32.to_le_bytes(),
             "operator_idx should be serialized as little-endian u32"
         );
@@ -1480,15 +1489,16 @@ mod tests {
         };
         let content = partial.content_bytes();
 
-        // Check structure: discriminator (1) + operator_idx (4) + partials (2 * 32)
+        // Check structure: kind (1) + discriminator (1) + operator_idx (4) + partials (2 * 32)
         assert_eq!(
             content.len(),
-            1 + 4 + 2 * 32,
-            "Unstake partial content should be 69 bytes: discriminator (1) + operator_idx (4) + 2 partials (64)"
+            1 + 1 + 4 + 2 * 32,
+            "Unstake partial content should be 70 bytes: kind (1) + discriminator (1) + operator_idx (4) + 2 partials (64)"
         );
-        assert_eq!(content[0], 0x03, "Unstake discriminator should be 0x03");
+        assert_eq!(content[0], 0x02, "kind byte should be 0x02");
+        assert_eq!(content[1], 0x03, "Unstake discriminator should be 0x03");
         assert_eq!(
-            &content[1..5],
+            &content[2..6],
             &5u32.to_le_bytes(),
             "operator_idx should be serialized as little-endian u32"
         );
@@ -1505,12 +1515,13 @@ mod tests {
 
         assert_eq!(
             content.len(),
-            1 + 4 + 66,
-            "Sweep content should be 71 bytes: discriminator (1) + deposit_idx (4) + nonce (66)"
+            1 + 1 + 4 + 66,
+            "Sweep content should be 72 bytes: kind (1) + discriminator (1) + deposit_idx (4) + nonce (66)"
         );
-        assert_eq!(content[0], 0x04, "Sweep discriminator should be 0x04");
+        assert_eq!(content[0], 0x01, "kind byte should be 0x01");
+        assert_eq!(content[1], 0x04, "Sweep discriminator should be 0x04");
         assert_eq!(
-            &content[1..5],
+            &content[2..6],
             &42u32.to_le_bytes(),
             "deposit_idx should be serialized as little-endian u32"
         );
@@ -1527,12 +1538,13 @@ mod tests {
 
         assert_eq!(
             content.len(),
-            1 + 4 + 32,
-            "Sweep partial content should be 37 bytes: discriminator (1) + deposit_idx (4) + partial (32)"
+            1 + 1 + 4 + 32,
+            "Sweep partial content should be 38 bytes: kind (1) + discriminator (1) + deposit_idx (4) + partial (32)"
         );
-        assert_eq!(content[0], 0x04, "Sweep discriminator should be 0x04");
+        assert_eq!(content[0], 0x02, "kind byte should be 0x02");
+        assert_eq!(content[1], 0x04, "Sweep discriminator should be 0x04");
         assert_eq!(
-            &content[1..5],
+            &content[2..6],
             &42u32.to_le_bytes(),
             "deposit_idx should be serialized as little-endian u32"
         );
@@ -1547,11 +1559,11 @@ mod tests {
         };
         let content = nonce.content_bytes();
 
-        // Should just have discriminator + operator_idx
+        // Should just have kind + discriminator + operator_idx
         assert_eq!(
             content.len(),
-            1 + 4,
-            "Empty unstake nonces should be 5 bytes: discriminator (1) + operator_idx (4)"
+            1 + 1 + 4,
+            "Empty unstake nonces should be 6 bytes: kind (1) + discriminator (1) + operator_idx (4)"
         );
     }
 
@@ -1564,11 +1576,11 @@ mod tests {
         };
         let content = partial.content_bytes();
 
-        // Should just have discriminator + operator_idx
+        // Should just have kind + discriminator + operator_idx
         assert_eq!(
             content.len(),
-            1 + 4,
-            "Empty unstake partials should be 5 bytes: discriminator (1) + operator_idx (4)"
+            1 + 1 + 4,
+            "Empty unstake partials should be 6 bytes: kind (1) + discriminator (1) + operator_idx (4)"
         );
     }
 
@@ -1584,11 +1596,11 @@ mod tests {
         };
         let content = nonce.content_bytes();
 
-        // Should just have discriminator + graph_idx
+        // Should just have kind + discriminator + graph_idx
         assert_eq!(
             content.len(),
-            1 + 4 + 4,
-            "Empty graph nonces should be 9 bytes: discriminator (1) + operator_idx (4) + deposit_idx (4)"
+            1 + 1 + 4 + 4,
+            "Empty graph nonces should be 10 bytes: kind (1) + discriminator (1) + operator_idx (4) + deposit_idx (4)"
         );
     }
 
@@ -1604,15 +1616,15 @@ mod tests {
         };
         let content = partial.content_bytes();
 
-        // Should just have discriminator + graph_idx
+        // Should just have kind + discriminator + graph_idx
         assert_eq!(
             content.len(),
-            1 + 4 + 4,
-            "Empty graph partials should be 9 bytes: discriminator (1) + operator_idx (4) + deposit_idx (4)"
+            1 + 1 + 4 + 4,
+            "Empty graph partials should be 10 bytes: kind (1) + discriminator (1) + operator_idx (4) + deposit_idx (4)"
         );
     }
 
-    // Verifies Musig2NoncesExchange prepends the outer message kind to nonce bytes.
+    // Verifies Musig2NoncesExchange wraps the nested nonce bytes unchanged.
     #[test]
     fn unsigned_msg_musig2_nonces_exchange_wraps_nested_content() {
         let nonce = MuSig2Nonce::Payout {
@@ -1624,23 +1636,17 @@ mod tests {
         let content = msg.content_bytes();
 
         assert_eq!(
-            content.len(),
-            1 + nonce_content.len(),
-            "Musig2NoncesExchange should be 1 byte longer than the nested nonce content"
+            content, nonce_content,
+            "Musig2NoncesExchange should equal the nested nonce content"
         );
         assert_eq!(
             content[0],
             GossipsubMsgKind::Musig2Nonces as u8,
             "Musig2NoncesExchange discriminator should be 0x01"
         );
-        assert_eq!(
-            &content[1..],
-            &nonce_content,
-            "Musig2NoncesExchange should append the nested nonce bytes unchanged"
-        );
     }
 
-    // Verifies Musig2SignaturesExchange prepends the outer message kind to partial bytes.
+    // Verifies Musig2SignaturesExchange wraps the nested partial bytes unchanged.
     #[test]
     fn unsigned_msg_musig2_signatures_exchange_wraps_nested_content() {
         let partial = MuSig2Partial::Payout {
@@ -1652,23 +1658,17 @@ mod tests {
         let content = msg.content_bytes();
 
         assert_eq!(
-            content.len(),
-            1 + partial_content.len(),
-            "Musig2SignaturesExchange should be 1 byte longer than the nested partial content"
+            content, partial_content,
+            "Musig2SignaturesExchange should equal the nested partial content"
         );
         assert_eq!(
             content[0],
             GossipsubMsgKind::Musig2Signatures as u8,
             "Musig2SignaturesExchange discriminator should be 0x02"
         );
-        assert_eq!(
-            &content[1..],
-            &partial_content,
-            "Musig2SignaturesExchange should append the nested partial bytes unchanged"
-        );
     }
 
-    // Verifies NagRequestExchange prepends the outer message kind to nag request bytes.
+    // Verifies NagRequestExchange wraps the nested nag request bytes unchanged.
     #[test]
     fn unsigned_msg_nag_request_exchange_wraps_nested_content() {
         let nag = NagRequest {
@@ -1680,19 +1680,13 @@ mod tests {
         let content = msg.content_bytes();
 
         assert_eq!(
-            content.len(),
-            1 + nag_content.len(),
-            "NagRequestExchange should be 1 byte longer than the nested nag request content"
+            content, nag_content,
+            "NagRequestExchange should equal the nested nag request content"
         );
         assert_eq!(
             content[0],
             GossipsubMsgKind::NagRequest as u8,
             "NagRequestExchange discriminator should be 0x04"
-        );
-        assert_eq!(
-            &content[1..],
-            &nag_content,
-            "NagRequestExchange should append the nested nag request bytes unchanged"
         );
     }
 
@@ -1748,23 +1742,24 @@ mod tests {
         };
         let content = nag.content_bytes();
 
-        // Check structure: recipient (32) + payload content_bytes (1 + 4)
+        // Check structure: kind (1) + recipient (32) + payload content_bytes (1 + 4)
         assert_eq!(
             content.len(),
-            32 + 1 + 4,
-            "NagRequest should be 37 bytes: recipient (32) + payload (5)"
+            1 + 32 + 1 + 4,
+            "NagRequest should be 38 bytes: kind (1) + recipient (32) + payload (5)"
         );
+        assert_eq!(content[0], 0x04, "kind byte should be 0x04");
         assert_eq!(
-            &content[0..32],
+            &content[1..33],
             &recipient_bytes[..],
-            "First 32 bytes should be the recipient public key"
+            "Bytes 1..33 should be the recipient public key"
         );
         assert_eq!(
-            content[32], 0x00,
+            content[33], 0x00,
             "Payload discriminator should be 0x00 for DepositNonce"
         );
         assert_eq!(
-            &content[33..37],
+            &content[34..38],
             &42u32.to_le_bytes(),
             "deposit_idx should be serialized as little-endian u32"
         );
