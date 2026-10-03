@@ -33,7 +33,9 @@ impl DepositSM {
                 }]
             }
             DepositState::Fulfilled { assignee, .. }
-                if self.context().operator_table().pov_idx() == *assignee =>
+                if self.context().operator_table().pov_idx() == *assignee
+                    // A zero timeout disables the cooperative payout path.
+                    && cfg.cooperative_payout_timeout_blocks() > 0 =>
             {
                 vec![DepositDuty::RequestPayoutNonces {
                     deposit_idx: self.context().deposit_idx(),
