@@ -9,6 +9,28 @@
 # with bundled stub params.
 #
 # Sourced from run_test.sh after `pushd ..`: expects CWD = repo root and consumes `$ASM_REF`.
+
+# Downloads <guest>.elf from the alpenlabs/<guest> release <tag> into $GUEST_ELFS_DIR, checks
+# it against the release's SHA256SUMS, logs its sha256, and prints its path.
+fetch_release_elf() {
+    local guest="$1" ref_type="$2" tag="$3"
+    if [ "$ref_type" != "tag" ]; then
+        echo "ERROR: $guest is pinned by $ref_type $tag; release ELFs need a tag pin" >&2
+        return 1
+    fi
+    local dir="$GUEST_ELFS_DIR/$guest-$tag"
+    local url="https://github.com/alpenlabs/$guest/releases/download/$tag"
+    mkdir -p "$dir"
+    for file in "$guest.elf" SHA256SUMS; do
+        curl -fsSL --proto "=https" --retry 5 --retry-delay 5 --retry-all-errors \
+            -o "$dir/$file" "$url/$file" || return 1
+    done
+    # Command substitution drops `set -e`, so each failure has to return explicitly.
+    ( cd "$dir" && grep "  $guest.elf\$" SHA256SUMS | shasum -a 256 -c - ) >&2 || return 1
+    echo "$guest.elf ($tag) sha256: $(shasum -a 256 "$dir/$guest.elf" | cut -d' ' -f1)" >&2
+    echo "$dir/$guest.elf"
+}
+
 BRIDGE_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     export SP1_PROVER="${SP1_PROVER:-mock}"
@@ -20,31 +42,19 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         mkdir -p "$BRIDGE_PROOF_ASM_PARAMS_DIR"
         export BRIDGE_PROOF_NUM_OPERATORS="${BRIDGE_PROOF_NUM_OPERATORS:-2}"
 
-        # Opt-in: real SP1 Groth16 ASM+Moho proving. Build the asm/moho guest ELFs at the
-        # pinned asm ref, derive their Sp1Groth16 predicates, and (later) point the
-        # asm-runner at the ELFs. Without this, the asm-runner signs native Schnorr
+        # Opt-in: real SP1 Groth16 ASM+Moho proving. Fetch the asm/moho guest ELFs from the
+        # releases of the pinned asm/moho tags, derive their Sp1Groth16 predicates, and (later)
+        # point the asm-runner at the ELFs. Without this, the asm-runner signs native Schnorr
         # attestations and the vk files stay Bip340Schnorr.
         if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
-            ASM_SRC="$(realpath functional-tests)/.asm-src"
-            CURRENT_ASM_COMMIT="$(git -C "$ASM_SRC" rev-parse HEAD 2>/dev/null || true)"
-            TARGET_ASM_COMMIT="$(git -C "$ASM_SRC" rev-parse "$ASM_REF^{commit}" 2>/dev/null || true)"
-            if [ -z "$TARGET_ASM_COMMIT" ] || [ "$CURRENT_ASM_COMMIT" != "$TARGET_ASM_COMMIT" ]; then
-                rm -rf "$ASM_SRC"
-                git clone https://github.com/alpenlabs/asm "$ASM_SRC"
-                git -C "$ASM_SRC" checkout "$ASM_REF"
-            fi
-            echo "Building ASM/Moho SP1 guest ELFs (asm ref $ASM_REF); this is slow"
-            # The asm guest-builder compiles C deps for the riscv guest target; point AR at
-            # the succinct toolchain's llvm-ar so cross-compilation finds a compatible archiver.
-            SP1_AR="$(rustc +succinct --print sysroot)/lib/rustlib/$(rustc +succinct -vV | sed -n 's/^host: //p')/bin/llvm-ar"
-            export AR="$SP1_AR"
-            export AR_riscv64im_unknown_none_elf="$SP1_AR"
-            ( cd "$ASM_SRC" && BUILD_ELF=1 cargo build --release -p strata-asm-sp1-guest-builder )
-            export BRIDGE_PROOF_ASM_ELF_PATH="$ASM_SRC/guest-builder/sp1/elfs/asm.elf"
-            export BRIDGE_PROOF_MOHO_ELF_PATH="$ASM_SRC/guest-builder/sp1/elfs/moho.elf"
+            read -r MOHO_REF_TYPE MOHO_REF < <(extract_cargo_git_ref moho-types)
+            GUEST_ELFS_DIR="$(realpath functional-tests)/.guest-elfs"
+            BRIDGE_PROOF_ASM_ELF_PATH="$(fetch_release_elf asm "$ASM_REF_TYPE" "$ASM_REF")"
+            BRIDGE_PROOF_MOHO_ELF_PATH="$(fetch_release_elf moho "$MOHO_REF_TYPE" "$MOHO_REF")"
+            export BRIDGE_PROOF_ASM_ELF_PATH BRIDGE_PROOF_MOHO_ELF_PATH
 
             # Derive the Sp1Groth16 predicates the bridge proof verifies against. These
-            # match the asm-runner's own (shared sp1 6.2.0 / zkaleido v0.1-beta.2).
+            # match the asm-runner's own, which it derives from the same ELFs.
             cargo build --release -p proof-datatool --features sp1
             # Assign before exporting so a failed derivation trips `set -e`.
             BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"

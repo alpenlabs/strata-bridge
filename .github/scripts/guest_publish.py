@@ -7,13 +7,15 @@ install step.
 
 Subcommands:
     validate    Verify workflow_dispatch inputs before any network/build work.
-    fetch       Download asm-vk.json, moho-vk.json, asm.elf, moho.elf, asm-params.json
-                into $OUTPUT_DIR and resolve the asm tag's commit (asm_rev).
-    summarize   Verify built artifacts, write the bridge + asm-runner manifests, and
-                append a traceability block to $GITHUB_STEP_SUMMARY.
-    upload      Copy the bridge guests (+vkeys) and the asm-runner ELFs to
-                s3://<bucket>/<prefix>/{bridge,asm-runner}/<env>-<version>/, each with
-                a `<name>.sha256` sidecar in `sha256sum -c` format.
+    fetch       Download asm.elf from the alpenlabs/asm release and moho.elf from the
+                alpenlabs/moho release, check them against each release's SHA256SUMS,
+                write asm-vk.json / moho-vk.json from the published predicates, and fetch
+                asm-params.json, all into $OUTPUT_DIR.
+    summarize   Verify built artifacts, write the bridge manifest, and append a
+                traceability block to $GITHUB_STEP_SUMMARY.
+    upload      Copy the bridge guests (+vkeys) to
+                s3://<bucket>/<prefix>/bridge/<env>-<version>/, each with a
+                `<name>.sha256` sidecar in `sha256sum -c` format.
 
 Each subcommand reads its inputs from environment variables documented on the
 per-command function. Shared helpers live in ci_common.py.
@@ -44,9 +46,9 @@ from ci_common import (
 
 # No `/` — git tags and `gh release download` accept it, but
 # actions/upload-artifact rejects names containing `/`, and the artifact name
-# embeds asm_tag directly. Reject here so the failure is fast, not after the
+# embeds the tags directly. Reject here so the failure is fast, not after the
 # ~90-minute guest build.
-ASM_TAG_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
+TAG_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
 REF_RE = re.compile(r"^[A-Za-z0-9._/@:-]+$")
 WHITESPACE_RE = re.compile(r"\s")
 # github.com /blob/ URLs serve HTML, not raw JSON — reject early so the
@@ -61,18 +63,19 @@ BLOB_HINT = (
 
 
 def cmd_validate() -> None:
-    """Env: INPUT_ENV, INPUT_ASM_TAG, INPUT_ASM_PARAMS_URL, INPUT_REF (optional)."""
+    """Env: INPUT_ENV, INPUT_ASM_TAG, INPUT_MOHO_TAG, INPUT_ASM_PARAMS_URL, INPUT_REF (optional)."""
     env = os.environ["INPUT_ENV"]
-    asm_tag = os.environ["INPUT_ASM_TAG"]
     asm_params_url = os.environ["INPUT_ASM_PARAMS_URL"]
     ref = os.environ.get("INPUT_REF", "")
 
     validate_env(env)
 
-    if WHITESPACE_RE.search(asm_tag):
-        fail("asm_tag must not contain whitespace")
-    if not ASM_TAG_RE.fullmatch(asm_tag):
-        fail("asm_tag contains unsupported characters (allowed: [A-Za-z0-9._-])")
+    for name in ("asm_tag", "moho_tag"):
+        tag = os.environ[f"INPUT_{name.upper()}"]
+        if WHITESPACE_RE.search(tag):
+            fail(f"{name} must not contain whitespace")
+        if not TAG_RE.fullmatch(tag):
+            fail(f"{name} contains unsupported characters (allowed: [A-Za-z0-9._-])")
 
     if WHITESPACE_RE.search(asm_params_url):
         fail("asm_params_url must not contain whitespace")
@@ -92,50 +95,84 @@ def cmd_validate() -> None:
 
 # ---- fetch -----------------------------------------------------------------
 
-ASM_REPO = "alpenlabs/asm"
-VK_FILES = ("asm-vk.json", "moho-vk.json")
-# asm.elf / moho.elf ship as release assets next to the vk JSONs; we republish
-# them verbatim under elfs/asm-runner/ so consumers get a stable durable URL.
-ELF_FILES = ("asm.elf", "moho.elf")
-RELEASE_FILES = VK_FILES + ELF_FILES
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256SUMS = "SHA256SUMS"
+# Each guest ships from the alpenlabs/<guest> release as <guest>.elf + <guest>-predicate.txt.
+GUESTS = ("asm", "moho")
+# Release provenance of the guest ELFs, written by `fetch` into OUTPUT_DIR.
+GUESTS_FILE = "guests.json"
 
 
-def fetch_release_assets(asm_tag: str, output_dir: Path) -> None:
-    """Pull the vk JSONs and guest ELFs from the alpenlabs/asm release via `gh`.
+def parse_sha256sums(path: Path) -> dict[str, str]:
+    """Parse a `sha256sum` listing (text or `*` binary mode) into {file name: digest}."""
+    pairs = (
+        line.split(maxsplit=1) for line in path.read_text().splitlines() if line.strip()
+    )
+    return {name.lstrip("*"): digest for digest, name in pairs}
 
-    Assumes alpenlabs/asm is public. If this 404s on a tag known to exist, the
-    repo is likely private — provision a PAT/App installation token with
-    `Contents: read` on alpenlabs/asm and route it via GH_TOKEN.
+
+def fetch_release(guest: str, tag: str, output_dir: Path) -> dict[str, str]:
+    """Download <guest>.elf, its predicate and SHA256SUMS from the release via `gh`,
+    check both files against SHA256SUMS, and return the release metadata.
+
+    Assumes the repo is public. If this 404s on a tag known to exist, the repo is
+    likely private: route a token with `Contents: read` on it via GH_TOKEN.
     """
-    cmd = ["gh", "release", "download", asm_tag, "--repo", ASM_REPO]
-    for name in RELEASE_FILES:
+    repo = f"alpenlabs/{guest}"
+    elf, predicate_file = f"{guest}.elf", f"{guest}-predicate.txt"
+    release_dir = output_dir / guest
+    release_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "gh",
+        "release",
+        "download",
+        tag,
+        "--repo",
+        repo,
+        "--clobber",
+        "--dir",
+        str(release_dir),
+    ]
+    for name in (elf, predicate_file, SHA256SUMS):
         cmd += ["--pattern", name]
-    cmd += ["--dir", str(output_dir)]
     subprocess.run(cmd, check=True)
-    for name in RELEASE_FILES:
-        p = output_dir / name
-        if not p.is_file() or p.stat().st_size == 0:
-            fail(f"missing or empty {name} in {ASM_REPO} release {asm_tag}")
+
+    published = parse_sha256sums(release_dir / SHA256SUMS)
+    for name in (elf, predicate_file):
+        if not (release_dir / name).is_file():
+            fail(f"missing {name} in {repo} release {tag}")
+        actual = sha256_hex(release_dir / name)
+        if published.get(name) != actual:
+            fail(
+                f"{repo} {tag}: {name} sha256 {actual} does not match SHA256SUMS ({published.get(name)})"
+            )
+
+    shutil.copyfile(release_dir / elf, output_dir / elf)
+    predicate = (release_dir / predicate_file).read_text().strip()
+    # The genesis loader reads the vk file as a JSON string holding the predicate.
+    (output_dir / f"{guest}-vk.json").write_text(json.dumps(predicate) + "\n")
+
+    rev = resolve_rev(repo, tag)
+    print(f"{elf}: sha256 {published[elf]} ({repo} {tag} @ {rev})")
+    print(f"{guest} predicate: {predicate}")
+    return {"repo": repo, "tag": tag, "rev": rev, "elf_sha256": published[elf]}
 
 
-def resolve_asm_rev(asm_tag: str) -> str:
-    """Resolve the alpenlabs/asm tag to its full commit SHA via the GitHub API.
+def resolve_rev(repo: str, tag: str) -> str:
+    """Resolve a tag to its full commit SHA via the GitHub API.
 
     The commits endpoint dereferences both lightweight and annotated tags, so it
     returns the underlying commit regardless of tag kind.
     """
     result = subprocess.run(
-        ["gh", "api", f"repos/{ASM_REPO}/commits/{asm_tag}", "--jq", ".sha"],
+        ["gh", "api", f"repos/{repo}/commits/{tag}", "--jq", ".sha"],
         check=True,
         capture_output=True,
         text=True,
     )
     sha = result.stdout.strip()
     if not SHA1_RE.fullmatch(sha):
-        fail(
-            f"could not resolve {ASM_REPO} tag {asm_tag} to a commit sha (got {sha!r})"
-        )
+        fail(f"could not resolve {repo} tag {tag} to a commit sha (got {sha!r})")
     return sha
 
 
@@ -169,8 +206,7 @@ def fetch_asm_params(asm_params_url: str, output_path: Path) -> None:
 
 
 def cmd_fetch() -> None:
-    """Env: ASM_TAG, ASM_PARAMS_URL, OUTPUT_DIR, GH_TOKEN, GITHUB_OUTPUT."""
-    asm_tag = os.environ["ASM_TAG"]
+    """Env: ASM_TAG, MOHO_TAG, ASM_PARAMS_URL, OUTPUT_DIR, GH_TOKEN."""
     asm_params_url = os.environ["ASM_PARAMS_URL"]
     output_dir = Path(os.environ["OUTPUT_DIR"])
     # `gh` reads GH_TOKEN itself; we only verify it's present so a missing token
@@ -179,10 +215,11 @@ def cmd_fetch() -> None:
         fail("GH_TOKEN must be set")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    fetch_release_assets(asm_tag, output_dir)
+    guests = {
+        g: fetch_release(g, os.environ[f"{g.upper()}_TAG"], output_dir) for g in GUESTS
+    }
+    (output_dir / GUESTS_FILE).write_text(json.dumps(guests, indent=2) + "\n")
     fetch_asm_params(asm_params_url, output_dir / "asm-params.json")
-    # Emit the asm commit so summarize/upload can key the asm-runner tree by it.
-    set_outputs(asm_rev=resolve_asm_rev(asm_tag))
 
 
 # ---- summarize -------------------------------------------------------------
@@ -201,15 +238,13 @@ BUNDLED_INPUTS = ("asm-params.json", "asm-vk.json", "moho-vk.json")
 
 
 def cmd_summarize() -> None:
-    """Env: ELF_DIR, INPUTS_DIR, DEPLOY_ENV, ASM_TAG, ASM_REV, ASM_PARAMS_URL, BRIDGE_REF,
-    BRIDGE_SHA, GITHUB_STEP_SUMMARY."""
+    """Env: ELF_DIR, INPUTS_DIR, DEPLOY_ENV, ASM_PARAMS_URL, BRIDGE_REF, BRIDGE_SHA,
+    GITHUB_STEP_SUMMARY."""
     elf_dir = Path(os.environ["ELF_DIR"])
     inputs_dir = Path(os.environ["INPUTS_DIR"])
     # DEPLOY_ENV, not ENV: POSIX reserves `ENV` as a shell startup-file path, so keep
     # it out of the environment of steps that shell out.
     env = validate_env(os.environ["DEPLOY_ENV"])
-    asm_tag = os.environ["ASM_TAG"]
-    asm_rev = os.environ["ASM_REV"]
     asm_params_url = os.environ["ASM_PARAMS_URL"]
     # Caller resolves these from `inputs.ref || github.ref` + `git rev-parse HEAD`
     # post-checkout. We can't fall back to GITHUB_REF/GITHUB_SHA because those
@@ -236,6 +271,7 @@ def cmd_summarize() -> None:
     asm_params = json.loads((inputs_dir / "asm-params.json").read_text())
     genesis = genesis_l1_height(asm_params)
     run_id = os.environ.get("GITHUB_RUN_ID", "")
+    guests = json.loads((inputs_dir / GUESTS_FILE).read_text())
 
     # Copy the exact input bytes alongside the ELFs so the bundle is
     # self-describing — a consumer can rebuild from these to verify.
@@ -247,9 +283,9 @@ def cmd_summarize() -> None:
     input_digests = {name: sha256_hex(elf_dir / name) for name in BUNDLED_INPUTS}
 
     manifest = {
-        "schema": 3,
+        "schema": 4,
         "env": env,
-        "asm_tag": asm_tag,
+        "guests": guests,
         "asm_params_url": asm_params_url,
         "asm_genesis_l1_height": genesis,
         "run_id": run_id,
@@ -268,30 +304,14 @@ def cmd_summarize() -> None:
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
 
-    # asm-runner manifest — provenance for the asm ELFs fetched from the release.
-    # Written into INPUTS_DIR; `upload` copies it to the asm-runner tree as
-    # manifest.json (keyed by <asm_tag>-<asm_sha8>, independent of the bridge version).
-    for name in ELF_FILES:
-        p = inputs_dir / name
-        if not p.is_file() or p.stat().st_size == 0:
-            fail(f"expected asm artifact missing or empty: {p}")
-    asm_manifest = {
-        "schema": 2,
-        "env": env,
-        "asm_tag": asm_tag,
-        "asm_rev": asm_rev,
-        "run_id": run_id,
-        "sha256": {name: sha256_hex(inputs_dir / name) for name in ELF_FILES},
-    }
-    (inputs_dir / "asm-runner-manifest.json").write_text(
-        json.dumps(asm_manifest, indent=2) + "\n", encoding="utf-8"
-    )
-
     lines: list[str] = [
         "## SP1 bridge guest publish",
         "",
         f"- env: `{env}`",
-        f"- asm tag (alpenlabs/asm): `{asm_tag}`",
+        *(
+            f"- {name}.elf: `{g['elf_sha256']}` ({g['repo']} `{g['tag']}` @ `{g['rev']}`)"
+            for name, g in guests.items()
+        ),
         f"- asm-params source: `{asm_params_url}`",
         f"- strata-bridge ref: `{bridge_ref}` @ `{bridge_sha}`",
         "",
@@ -373,18 +393,14 @@ def upload_tree(
 
 
 def cmd_upload() -> None:
-    """Env: ELF_DIR, INPUTS_DIR, ASM_TAG, ASM_REV, S3_BUCKET, S3_PREFIX (default elfs),
-    GITHUB_OUTPUT, GITHUB_STEP_SUMMARY.
+    """Env: ELF_DIR, S3_BUCKET, S3_PREFIX (default elfs), GITHUB_OUTPUT,
+    GITHUB_STEP_SUMMARY.
 
-    Uploads two independently-versioned trees, each ELF/vkey followed by its
-    `<name>.sha256` sidecar:
-      <prefix>/bridge/<env>-<genesis>-<bridge_sha8>/   built guests + vkeys + manifest
-      <prefix>/asm-runner/<env>-<asm_tag>-<asm_sha8>/  asm.elf, moho.elf + manifest
+    Uploads <prefix>/bridge/<env>-<genesis>-<bridge_sha8>/ (built guests + vkeys +
+    manifest), each ELF/vkey followed by its `<name>.sha256` sidecar. The asm and
+    moho ELFs are not republished; their releases are the source of truth.
     """
     elf_dir = Path(os.environ["ELF_DIR"])
-    inputs_dir = Path(os.environ["INPUTS_DIR"])
-    asm_tag = os.environ["ASM_TAG"]
-    asm_rev = os.environ["ASM_REV"]
     bucket = os.environ["S3_BUCKET"]
     prefix = os.environ.get("S3_PREFIX", "elfs")
 
@@ -401,34 +417,15 @@ def cmd_upload() -> None:
     if not VERSION_RE.fullmatch(bridge_version):
         fail(f"bridge version is not S3-key-safe: {bridge_version!r}")
 
-    # asm-runner tree — version pins the asm release the ELFs came from.
-    asm_version = f"{env}-{asm_tag}-{asm_rev[:8]}"
-    if not VERSION_RE.fullmatch(asm_version):
-        fail(f"asm-runner version is not S3-key-safe: {asm_version!r}")
-
     bridge_base = f"s3://{bucket}/{prefix}/bridge/{bridge_version}"
-    asm_base = f"s3://{bucket}/{prefix}/asm-runner/{asm_version}"
-
-    asm_manifest_src = inputs_dir / "asm-runner-manifest.json"
-    asm_manifest = json.loads(asm_manifest_src.read_text())
 
     uris = upload_tree(
         BRIDGE_UPLOAD_FILES, elf_dir, bridge_base, manifest.get("sha256") or {}
     )
-    uris += upload_tree(
-        ELF_FILES, inputs_dir, asm_base, asm_manifest.get("sha256") or {}
-    )
-    # The asm-runner manifest is staged under a distinct local name to avoid
-    # colliding with the bridge manifest; it lands in S3 as manifest.json.
-    asm_manifest_dst = f"{asm_base}/manifest.json"
-    s3_cp(asm_manifest_src, asm_manifest_dst)
-    uris.append(asm_manifest_dst)
 
     set_outputs(
         bridge_version=bridge_version,
-        asm_version=asm_version,
         bridge_s3_base=bridge_base,
-        asm_s3_base=asm_base,
     )
 
     summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
@@ -436,7 +433,6 @@ def cmd_upload() -> None:
         "### S3 upload",
         "",
         f"- bridge: `{bridge_base}/`",
-        f"- asm-runner: `{asm_base}/`",
         "",
         *(f"- `{uri}`" for uri in uris),
         "",
