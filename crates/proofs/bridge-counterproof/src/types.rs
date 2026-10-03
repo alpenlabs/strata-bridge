@@ -1,7 +1,6 @@
 //! Wire types for the bridge counterproof program.
 
 pub use moho_types::{MohoState, RecursiveMohoProof, StateRefAttestation};
-use ssz::Encode as _;
 use ssz_derive::{Decode, Encode};
 pub use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 pub use strata_btc_types::{BitcoinTxOut, BitcoinXOnlyPublicKey, RawBitcoinTx};
@@ -30,8 +29,8 @@ pub struct HeavierChainProof {
     /// Validity proof of `moho_state`.
     pub moho_proof: RecursiveMohoProof,
 
-    /// SSZ-encoded [`OperatorClaimUnlockV1`].
-    pub claim_unlock: Vec<u8>,
+    /// Operator claim unlock committed on the heavier chain.
+    pub claim_unlock: OperatorClaimUnlockV1,
 
     /// Inclusion proof for `claim_unlock` in `moho_state`.
     pub claim_unlock_inclusion_proof: MerkleProofB32,
@@ -39,7 +38,7 @@ pub struct HeavierChainProof {
 
 impl HeavierChainProof {
     /// Creates a new heavier chain proof.
-    pub fn new(
+    pub const fn new(
         moho_state: MohoState,
         moho_proof: RecursiveMohoProof,
         claim_unlock: OperatorClaimUnlockV1,
@@ -48,7 +47,7 @@ impl HeavierChainProof {
         Self {
             moho_state,
             moho_proof,
-            claim_unlock: claim_unlock.as_ssz_bytes(),
+            claim_unlock,
             claim_unlock_inclusion_proof: inclusion_proof,
         }
     }

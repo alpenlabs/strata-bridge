@@ -27,7 +27,6 @@ use strata_bridge_proof::{
 };
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
-use strata_crypto::hash;
 use strata_identifiers::Buf32;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
 use tracing::{info, warn};
@@ -404,7 +403,7 @@ async fn detect_heavier_chain(
         }
 
         // The canonical chain agrees with the operator's commitment; nothing to challenge.
-        if claim_unlock.compute_hash() == hash::raw(&operator_commitment.claim_unlock).0 {
+        if claim_unlock == operator_commitment.claim_unlock {
             return Ok(None);
         }
 
@@ -505,6 +504,7 @@ fn counterproof_operator_keys(
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
+    use strata_crypto::hash;
 
     use super::*;
 

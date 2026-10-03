@@ -1,7 +1,5 @@
 //! Bridge proof statements.
 
-use ssz::Decode;
-use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
 use zkaleido::{ZkVmEnv, ZkVmEnvSsz};
@@ -38,8 +36,6 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
         claim_unlock,
         claim_unlock_inclusion_proof,
     } = zkvm.read_ssz();
-    let claim_unlock_typed = OperatorClaimUnlockV1::from_ssz_bytes(&claim_unlock)
-        .expect("invalid bridge proof: invalid encoding of claim unlock");
 
     // 2: Verify the recursive Moho proof.
     verify_moho_proof(
@@ -60,7 +56,7 @@ fn process_bridge_proof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeProofGenesis)
 
     // 3: Verify the operator claim is included in the bridge-v1 MMR.
     verify_claim_unlock_inclusion(
-        &claim_unlock_typed,
+        &claim_unlock,
         bridge_container,
         &claim_unlock_inclusion_proof,
         "invalid bridge proof: invalid inclusion proof for claim unlock",
@@ -81,6 +77,7 @@ mod tests {
         RecursiveMohoProof, StateRefAttestation,
     };
     use ssz::{Decode, Encode};
+    use strata_asm_proto_bridge::OperatorClaimUnlockV1;
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_identifiers::Buf32;
     use strata_predicate::PredicateKey;
@@ -166,12 +163,12 @@ mod tests {
         let input = BridgeProofInput {
             moho_state,
             moho_proof,
-            claim_unlock: claim.as_ssz_bytes(),
+            claim_unlock: claim.clone(),
             claim_unlock_inclusion_proof: inclusion_proof,
         };
 
         let output = run_bridge_proof(&genesis, input);
-        assert_eq!(output.claim_unlock, claim.as_ssz_bytes());
+        assert_eq!(output.claim_unlock, claim);
         assert_eq!(output.mmr_idx, 0);
         assert_eq!(output.total_pow, [0u8; 32]);
     }
@@ -192,7 +189,7 @@ mod tests {
         let input = BridgeProofInput {
             moho_state,
             moho_proof: reanchor(&moho_proof, forged_genesis_state),
-            claim_unlock: claim.as_ssz_bytes(),
+            claim_unlock: claim.clone(),
             claim_unlock_inclusion_proof: inclusion_proof,
         };
 
@@ -211,12 +208,12 @@ mod tests {
         let input = BridgeProofInput {
             moho_state,
             moho_proof,
-            claim_unlock: claims[1].as_ssz_bytes(),
+            claim_unlock: claims[1].clone(),
             claim_unlock_inclusion_proof: inclusion_proofs[1].clone(),
         };
 
         let output = run_bridge_proof(&genesis, input);
-        assert_eq!(output.claim_unlock, claims[1].as_ssz_bytes());
+        assert_eq!(output.claim_unlock, claims[1]);
         assert_eq!(output.mmr_idx, 1);
         assert_eq!(output.total_pow, [0u8; 32]);
     }

@@ -26,21 +26,21 @@ pub struct BridgeProofInput {
     /// Recursive Moho proof.
     pub moho_proof: RecursiveMohoProof,
 
-    /// SSZ-encoded [`OperatorClaimUnlockV1`].
-    pub claim_unlock: Vec<u8>,
+    /// Operator claim unlock whose inclusion is proven.
+    pub claim_unlock: OperatorClaimUnlockV1,
 
     /// MMR inclusion proof for `claim_unlock` in `moho_state`.
     pub claim_unlock_inclusion_proof: MerkleProofB32,
 }
 
 /// Public values committed by the bridge proof.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct BridgeProofOutput {
     /// Accumulated PoW from the bridge-v1 export container in the Moho state.
     pub total_pow: [u8; 32],
 
-    /// Same wire as [`BridgeProofInput::claim_unlock`].
-    pub claim_unlock: Vec<u8>,
+    /// Same as [`BridgeProofInput::claim_unlock`].
+    pub claim_unlock: OperatorClaimUnlockV1,
 
     /// MMR index at which `claim_unlock` was included.
     pub mmr_idx: u64,
