@@ -3,11 +3,14 @@
 
 use std::time::Instant;
 
+use bitcoind_async_client::Client as BitcoinClient;
+use btc_tracker::event::BlockEvent;
 use strata_bridge_p2p_types::UnsignedGossipsubMsg;
 use strata_bridge_primitives::{
-    covenant::{CovenantId, StakeKey},
+    covenant::CovenantId,
+    operator_set_schedule::OperatorSetSchedule,
     operator_table::OperatorTable,
-    types::BitcoinBlockHeight,
+    types::{BitcoinBlockHeight, OperatorIdx},
 };
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
@@ -32,6 +35,7 @@ use crate::{
 #[expect(missing_debug_implementations)]
 pub struct Pipeline {
     event_mux: EventsMux,
+    bitcoin_client: BitcoinClient,
     registry: SMRegistry,
     persister: Persister,
     dispatcher: DutyDispatcher,
@@ -44,9 +48,11 @@ impl Pipeline {
         registry: SMRegistry,
         persister: Persister,
         dispatcher: DutyDispatcher,
+        bitcoin_client: BitcoinClient,
     ) -> Self {
         Self {
             event_mux,
+            bitcoin_client,
             registry,
             persister,
             dispatcher,
@@ -73,11 +79,13 @@ impl Pipeline {
     pub async fn run(
         self,
         initial_operator_table: OperatorTable,
+        registrations: OperatorSetSchedule,
         start_height: BitcoinBlockHeight,
         activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
         self.run_with_observer(
             initial_operator_table,
+            registrations,
             start_height,
             activation_height,
             || {},
@@ -89,18 +97,23 @@ impl Pipeline {
     pub async fn run_with_observer(
         mut self,
         initial_operator_table: OperatorTable,
+        registrations: OperatorSetSchedule,
         start_height: BitcoinBlockHeight,
         activation_height: BitcoinBlockHeight,
         mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
-        // Resolve the finalized covenant and operator table from the membership pre-pass for
-        // each block. This fixed identity supports only the initial covenant until integration.
+        // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+        // Resolve each block's covenant/table through STR-3670's local history lookup and
+        // integrate that context with registration, canonical indexing, and readiness.
         let covenant = CovenantId::from_operator_table(&initial_operator_table, activation_height)
             .expect("validated initial operator table");
         observability::describe_metrics();
         if let Err(error) = self
-            .bootstrap_stake_sms(&initial_operator_table, start_height, activation_height)
+            .bootstrap_membership(
+                registrations,
+                initial_operator_table.pov_idx(),
+                start_height,
+            )
             .instrument(info_span!("bridge_stake_bootstrap"))
             .await
         {
@@ -155,6 +168,23 @@ impl Pipeline {
                     return Ok::<(), PipelineError>(());
                 }
 
+                if let UnifiedEvent::Block(block_event) = &event {
+                    // A failed pass terminates this pipeline and discards its in-memory changes.
+                    // Persistence and duty dispatch require both passes to succeed.
+                    let batch = process_block(
+                        &self.bitcoin_client,
+                        &mut self.registry,
+                        &initial_operator_table,
+                        covenant,
+                        block_event,
+                    )
+                    .await?;
+
+                    self.commit_batch(batch).await?;
+
+                    return Ok(());
+                }
+
                 // Stage 2+3: Classify and process through Applicator.
                 let mut applicator =
                     Applicator::new(&mut self.registry, Some(initial_operator_table.pov_idx()));
@@ -164,18 +194,6 @@ impl Pipeline {
                     // buried block.
                     UnifiedEvent::SafeHarbour(_) => apply_safe_harbour_scan(&mut applicator)?,
 
-                    UnifiedEvent::Block(block_event) => {
-                        onchain::process_block(
-                            &mut applicator,
-                            &initial_operator_table,
-                            covenant,
-                            block_event,
-                        )?;
-
-                        // While safe harbour is active, drive sweeps and aborts from the post-block
-                        // deposit states; the per-block replay is the retry mechanism.
-                        apply_safe_harbour_scan(&mut applicator)?;
-                    }
                     _ => {
                         trace!(
                             ?event,
@@ -326,30 +344,56 @@ impl Pipeline {
         }
     }
 
-    /// Creates one stake state machine per operator in `operator_table` that does not yet exist in
-    /// the registry. Persists the newly created machines and dispatches any constructor duties
-    /// (only the POV operator's SSM emits `PublishStakeData`).
-    async fn bootstrap_stake_sms(
+    /// Initializes and persists membership and missing stakes before dispatching their duties.
+    async fn bootstrap_membership(
         &mut self,
-        operator_table: &OperatorTable,
+        registrations: OperatorSetSchedule,
+        local_operator: OperatorIdx,
         start_height: BitcoinBlockHeight,
-        activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        let covenant = CovenantId::from_operator_table(operator_table, activation_height)
-            .expect("validated initial operator table");
-        let mut applicator = Applicator::new(&mut self.registry, Some(operator_table.pov_idx()));
-        for operator in operator_table.operator_idxs() {
-            applicator.initialize_stake(
-                StakeKey { covenant, operator },
-                operator_table.clone().into_public(),
-                start_height,
-            )?;
-        }
+        let height = self.registry.latest_gate_height().unwrap_or(start_height);
+        let mut applicator = Applicator::new(&mut self.registry, Some(local_operator));
+        applicator.initialize_operator_set(registrations, height)?;
         let batch = applicator.finish();
-        self.commit_batch(batch).await?;
-
-        Ok(())
+        self.commit_batch(batch).await
     }
+}
+
+/// Applies both block passes and returns their accumulated changes and duties.
+///
+/// On error, discard the registry and recover durable state before processing further events.
+pub(super) async fn process_block(
+    bitcoin_client: &BitcoinClient,
+    registry: &mut SMRegistry,
+    operator_table: &OperatorTable,
+    covenant: CovenantId,
+    block_event: &BlockEvent,
+) -> Result<BatchOutput, PipelineError> {
+    let height = block_event
+        .block
+        .bip34_block_height()
+        .expect("valid block height");
+
+    let gate_height = registry.latest_gate_height();
+
+    // Older replayed blocks must not register deposits using later membership/stake state.
+    // Reaching the gate permits admission checks; it does not establish deposit readiness.
+    let block_reaches_gate = gate_height.is_none_or(|gate| height >= gate);
+
+    let mut applicator = Applicator::new(registry, Some(operator_table.pov_idx()));
+
+    onchain::process_stake_pass(&mut applicator, block_event, bitcoin_client).await?;
+    onchain::process_deposit_graph_pass(
+        &mut applicator,
+        operator_table,
+        covenant,
+        block_reaches_gate,
+        block_event,
+    )?;
+
+    apply_safe_harbour_scan(&mut applicator)?;
+
+    Ok(applicator.finish())
 }
 
 /// Seeds the safe-harbour sweep/abort scan through the applicator; a no-op while the latch is
@@ -514,20 +558,30 @@ mod stake_initialization_tests {
 
     use std::{
         collections::BTreeSet,
+        iter::repeat_n,
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
 
     use bitcoin::{
-        Amount, OutPoint, TxOut,
+        Amount, OutPoint, ScriptBuf, Transaction, TxOut, Witness, XOnlyPublicKey,
+        consensus::encode::serialize_hex,
         hashes::{Hash, sha256},
+        secp256k1::SECP256K1,
     };
+    use bitcoind_async_client::Client as BitcoinClient;
     use btc_tracker::event::{BlockEvent, BlockStatus};
     use libp2p_identity::Keypair;
+    use strata_asm_proto_bridge_txs::unstake::{
+        UnstakeTxHeaderAux, expected_stake_connector_script_pubkey, stake_connector_script,
+    };
     use strata_bridge_db::{
         fdb::{cfg::Config, client::FdbClient},
         traits::BridgeDb,
         types::{FundingAssignment, StakeFundingReservation},
+    };
+    use strata_bridge_p2p_types::{
+        GossipsubMsg, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
     };
     use strata_bridge_primitives::{
         covenant::StakeKey,
@@ -535,26 +589,46 @@ mod stake_initialization_tests {
         operator_table::PublicOperatorTable,
     };
     use strata_bridge_sm::{
-        operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal},
+        deposit::state::DepositState,
+        graph::{
+            duties::{GraphDuty, NagDuty},
+            state::GraphState,
+        },
+        operator_set::{
+            ExitKind, MembershipCause, MembershipUpdate, OperatorSetEvent, OperatorSetSM,
+            OperatorSetSignal,
+        },
         stake::{
             duties::StakeDuty,
             events::{StakeDataReceivedEvent, StakeEvent},
             state::StakeState,
         },
     };
-    use strata_bridge_test_utils::bitcoin::{generate_block_with_height, generate_spending_tx};
+    use strata_bridge_test_utils::{
+        bitcoin::{
+            generate_block_with_height, generate_signature, generate_spending_tx, generate_txid,
+        },
+        musig2::generate_agg_nonce,
+    };
+    use strata_bridge_tx_graph::{musig_functor::StakeFunctor, transactions::prelude::StakeTx};
+    use strata_l1_txfmt::ParseConfig;
+    use tokio::task::JoinHandle;
 
     use crate::{
         applicator::{Applicator, BatchOutput},
         errors::{PipelineError, ProcessError},
-        events_classifier::{offchain, onchain},
+        events_classifier::{exits::parse_exit, offchain, onchain},
         events_mux::UnifiedEvent,
         events_router,
         persister::{PersistError, Persister},
         signals_router,
         sm_registry::{RegistryInsertError, SMRegistry},
         sm_types::{SMId, UnifiedDuty},
-        testing::{random_p2tr_desc, test_empty_registry, test_operator_table},
+        testing::{
+            DrtBuilder, TEST_MAGIC_BYTES, make_confirmed_stake_sm, mock_bitcoin_rpc,
+            random_p2tr_desc, test_empty_registry, test_fdb_config, test_operator_table,
+            test_populated_registry, test_slash, unavailable_bitcoin_client,
+        },
     };
 
     fn registry() -> SMRegistry {
@@ -593,6 +667,57 @@ mod stake_initialization_tests {
         let mut registry = test_empty_registry();
         registry.insert_operator_set(membership).unwrap();
         registry
+    }
+
+    fn nn_script(table: &PublicOperatorTable) -> ScriptBuf {
+        ScriptBuf::new_p2tr(
+            SECP256K1,
+            table.aggregated_btc_key().x_only_public_key().0,
+            None,
+        )
+    }
+
+    async fn mock_exit_inputs(
+        block: &mut BlockEvent,
+        scripts: impl IntoIterator<Item = ScriptBuf>,
+    ) -> (BitcoinClient, JoinHandle<Vec<String>>) {
+        let mut scripts = scripts.into_iter();
+        let mut replies = Vec::new();
+        for tx in &mut block.block.txdata {
+            if let Some(parsed) = parse_exit(TEST_MAGIC_BYTES.into(), tx) {
+                let mut parent = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+                parent.output.push(TxOut {
+                    value: Amount::ONE_SAT,
+                    script_pubkey: scripts.next().expect("one script per exit"),
+                });
+                let input_index = match parsed.kind() {
+                    ExitKind::Slash => 1,
+                    ExitKind::UnstakingIntent => 0,
+                };
+                tx.input[input_index].previous_output = OutPoint::new(parent.compute_txid(), 0);
+                replies.push(format!(
+                    r#"{{"result":"{}","error":null,"id":0}}"#,
+                    serialize_hex(&parent),
+                ));
+            }
+        }
+        assert!(scripts.next().is_none(), "one script per exit");
+        mock_bitcoin_rpc(replies).await
+    }
+
+    fn test_intent(operator: u32, key: XOnlyPublicKey) -> Transaction {
+        let mut tx = test_slash(operator);
+        tx.input.truncate(1);
+        tx.output[0].script_pubkey = ParseConfig::new(TEST_MAGIC_BYTES.into())
+            .encode_script_buf(&UnstakeTxHeaderAux::new(operator).build_tag_data().as_ref())
+            .unwrap();
+        tx.input[0].witness = Witness::from_slice(&[
+            vec![1; 32],
+            vec![2; 64],
+            stake_connector_script([1; 32], key).into_bytes(),
+            vec![3; 33],
+        ]);
+        tx
     }
 
     fn apply_signals(
@@ -647,13 +772,16 @@ mod stake_initialization_tests {
     }
 
     fn retry(registry: &mut SMRegistry) -> BatchOutput {
-        let event = UnifiedEvent::RetryTick;
+        apply_routed(registry, UnifiedEvent::RetryTick)
+    }
+
+    fn apply_routed(registry: &mut SMRegistry, event: UnifiedEvent) -> BatchOutput {
         let events = events_router::route(&event, registry)
             .into_iter()
             .map(
                 |id| match offchain::classify_routed(&id, &event, registry) {
                     offchain::ClassificationOutcome::Classified(event) => (id, event),
-                    other => panic!("retry must classify: {other:?}"),
+                    other => panic!("event must classify: {other:?}"),
                 },
             )
             .collect::<Vec<_>>();
@@ -662,8 +790,683 @@ mod stake_initialization_tests {
         applicator.finish()
     }
 
+    #[tokio::test]
+    async fn processed_membership_replay_skips_exit_lookup_and_advances_lagging_machines() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let table = test_operator_table(3, 0);
+        for height in [99, 100] {
+            let mut registry = registry();
+            let membership = registry.get_operator_set().unwrap().clone();
+            let covenant = membership.current_covenant();
+            let mut stake = make_confirmed_stake_sm(1, table.clone(), generate_txid());
+            let StakeState::Confirmed {
+                last_block_height, ..
+            } = &mut stake.state
+            else {
+                unreachable!()
+            };
+            *last_block_height = height - 1;
+            let stake_key = stake.context().stake_key();
+            let mut exit = test_slash(1);
+            exit.input[1].previous_output =
+                OutPoint::new(stake.state().stake_txid().unwrap(), StakeTx::STAKE_VOUT);
+            registry.insert_stake(stake).unwrap();
+            let populated = test_populated_registry(1);
+            for (&idx, sm) in populated.deposits() {
+                let mut deposit = sm.clone();
+                deposit.state = DepositState::Deposited {
+                    last_block_height: height - 1,
+                };
+                registry.insert_deposit(idx, deposit).unwrap();
+            }
+            for (&idx, sm) in populated.graphs() {
+                let mut graph = sm.clone();
+                let GraphState::Created { last_block_height } = &mut graph.state else {
+                    unreachable!()
+                };
+                *last_block_height = height - 1;
+                registry.insert_graph(idx, graph).unwrap();
+            }
+            let mut block = BlockEvent {
+                block: generate_block_with_height(height),
+                status: BlockStatus::Buried,
+            };
+            block.block.txdata.push(exit);
+            let batch =
+                super::process_block(&bitcoin_client, &mut registry, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            assert_eq!(registry.get_operator_set(), Some(&membership));
+            assert!(matches!(
+                registry.get_stake(&stake_key).unwrap().state(),
+                StakeState::Slashed { .. }
+            ));
+            for (_, deposit) in registry.deposits() {
+                assert_eq!(deposit.state().last_processed_block_height(), Some(&height));
+            }
+            for (_, graph) in registry.graphs() {
+                assert_eq!(graph.state().last_processed_block_height(), Some(&height));
+            }
+            assert!(batch.duties.is_empty());
+            let persisted: BTreeSet<_> =
+                batch.tracker.into_batches().into_iter().flatten().collect();
+            assert_eq!(
+                persisted,
+                registry
+                    .get_all_ids()
+                    .into_iter()
+                    .filter(|id| *id != SMId::OperatorSet)
+                    .collect()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn forged_slash_does_not_remove_a_registered_operator() {
+        let mut registry = registry();
+        let before = registry.get_operator_set().unwrap().current_covenant();
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        block.block.txdata.push(test_slash(1));
+        let (bitcoin_client, server) = mock_exit_inputs(&mut block, [ScriptBuf::new()]).await;
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        let batch = applicator.finish();
+        let membership = registry.get_operator_set().unwrap();
+        assert_eq!(membership.current_covenant(), before);
+        assert!(!membership.exited_operators().contains(&1));
+        assert!(batch.duties.is_empty());
+    }
+
+    #[tokio::test]
+    async fn historical_intent_is_valid_without_a_local_stake_and_forged_intents_are_ignored() {
+        let mut registry = registry();
+        let original = registry
+            .get_operator_set()
+            .unwrap()
+            .current_operator_table()
+            .unwrap();
+        let old_key = original.aggregated_btc_key().x_only_public_key().0;
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        block.block.txdata.push(test_slash(0));
+        let (bitcoin_client, server) = mock_exit_inputs(&mut block, [nn_script(&original)]).await;
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        assert!(applicator.finish().duties.is_empty());
+
+        // The operator has exited, so this node observes the successor without local stakes.
+        assert_eq!(registry.num_stakes(), 0);
+        let attacker_key = test_operator_table(1, 0)
+            .aggregated_btc_key()
+            .x_only_public_key()
+            .0;
+        block.block = generate_block_with_height(102);
+        block.block.txdata.extend([
+            test_intent(1, attacker_key),
+            test_intent(1, old_key),
+            test_intent(1, old_key),
+        ]);
+        let (bitcoin_client, server) = mock_exit_inputs(
+            &mut block,
+            [
+                expected_stake_connector_script_pubkey([1; 32], attacker_key),
+                ScriptBuf::new(),
+                expected_stake_connector_script_pubkey([1; 32], old_key),
+            ],
+        )
+        .await;
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        assert!(applicator.finish().duties.is_empty());
+        let membership = registry.get_operator_set().unwrap();
+        assert!(membership.exited_operators().contains(&1));
+        let exits: Vec<_> = membership
+            .membership_history()
+            .iter()
+            .filter_map(|snapshot| match &snapshot.cause {
+                MembershipCause::Exit(exit) => Some(exit),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(exits.len(), 2);
+        assert_eq!(
+            exits[1].txid,
+            block.block.txdata.last().unwrap().compute_txid()
+        );
+        assert_eq!(registry.num_stakes(), 0);
+    }
+
+    #[tokio::test]
+    async fn same_block_exit_validation_uses_only_configurations_established_so_far() {
+        for reversed in [false, true] {
+            let mut registry = registry();
+            let original = registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap();
+            let intermediate = PublicOperatorTable::from_entries(
+                original
+                    .operator_idxs()
+                    .into_iter()
+                    .filter(|idx| *idx != 1)
+                    .map(|idx| {
+                        (
+                            idx,
+                            original.idx_to_p2p_key(&idx).unwrap().clone(),
+                            original.idx_to_btc_key(&idx).unwrap(),
+                        )
+                    })
+                    .collect(),
+            )
+            .unwrap();
+            let mut block = BlockEvent {
+                block: generate_block_with_height(101),
+                status: BlockStatus::Buried,
+            };
+            let (operators, scripts) = if reversed {
+                ([2, 1], [nn_script(&intermediate), nn_script(&original)])
+            } else {
+                ([1, 2], [nn_script(&original), nn_script(&intermediate)])
+            };
+            block.block.txdata.extend(operators.map(test_slash));
+            let (bitcoin_client, server) = mock_exit_inputs(&mut block, scripts).await;
+            let mut applicator = Applicator::new(&mut registry, Some(0));
+            onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+                .await
+                .unwrap();
+            server.await.unwrap();
+            let batch = applicator.finish();
+            publication_key(&batch.duties);
+            let members = registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap()
+                .operator_idxs();
+            assert_eq!(
+                members,
+                if reversed {
+                    BTreeSet::from([0, 2])
+                } else {
+                    BTreeSet::from([0])
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn late_exit_fetch_failure_discards_uncommitted_block_effects_on_recovery() {
+        let table = test_operator_table(3, 0);
+        let mut registry = registry();
+        let covenant = registry.get_operator_set().unwrap().current_covenant();
+        let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+        for operator in table.operator_idxs() {
+            let mut stake = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+            if operator == 0 {
+                let StakeState::Confirmed {
+                    last_block_height,
+                    stake_data,
+                    mut summary,
+                    ..
+                } = stake.state
+                else {
+                    unreachable!()
+                };
+                summary.stake = stake_tx.compute_txid();
+                let fields = StakeFunctor {
+                    unstaking_intent: [()],
+                    unstaking: [(), ()],
+                };
+                stake.state = StakeState::UnstakingSigned {
+                    last_block_height,
+                    stake_data,
+                    summary,
+                    agg_nonces: fields.map(|_| generate_agg_nonce()).boxed(),
+                    signatures: fields.map(|_| generate_signature()).boxed(),
+                };
+            }
+            registry.insert_stake(stake).unwrap();
+        }
+        let initial = registry.clone();
+        let stake_key = StakeKey {
+            covenant,
+            operator: 0,
+        };
+        let mut parent = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+        parent.output.push(TxOut {
+            value: Amount::ONE_SAT,
+            script_pubkey: nn_script(&table.clone().into_public()),
+        });
+        let mut first_exit = test_slash(1);
+        first_exit.input[1].previous_output = OutPoint::new(parent.compute_txid(), 0);
+        let second_exit = test_slash(2);
+        let failed_input = parse_exit(TEST_MAGIC_BYTES.into(), &second_exit)
+            .unwrap()
+            .source();
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        block.block.txdata.extend([
+            stake_tx,
+            first_exit,
+            DrtBuilder::aligned(&table, &registry.cfg().deposit).build(),
+            second_exit,
+        ]);
+        let (bitcoin_client, server) = mock_bitcoin_rpc(vec![
+            format!(
+                r#"{{"result":"{}","error":null,"id":0}}"#,
+                serialize_hex(&parent)
+            ),
+            r#"{"result":null,"error":{"code":-5,"message":"missing input"},"id":0}"#.into(),
+        ])
+        .await;
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-late-exit-fetch-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        persister
+            .persist_batch(registry.get_all_ids().into_iter().collect(), &registry)
+            .await
+            .unwrap();
+
+        let Err(error) =
+            super::process_block(&bitcoin_client, &mut registry, &table, covenant, &block).await
+        else {
+            panic!("failed fetch must not yield a committable batch");
+        };
+        assert!(
+            matches!(error, PipelineError::ExitInput { outpoint, .. } if outpoint == failed_input)
+        );
+        assert_eq!(server.await.unwrap().len(), 2);
+        assert!(
+            matches!(
+                registry.get_stake(&stake_key).unwrap().state(),
+                StakeState::Confirmed { .. }
+            ),
+            "the earlier stake confirmation must run before the later fetch fails"
+        );
+        assert_eq!(registry.get_operator_set(), initial.get_operator_set());
+        assert_eq!(registry.num_deposits(), 0);
+        assert_eq!(registry.graphs().count(), 0);
+
+        // A fatal processing error discards the pipeline's registry and pending duties.
+        drop(registry);
+        let mut restored = persister
+            .recover_registry(initial.cfg().clone())
+            .await
+            .unwrap();
+        for (key, stake) in initial.stakes() {
+            assert_eq!(restored.get_stake(key), Some(stake));
+        }
+        assert_eq!(restored.get_operator_set(), initial.get_operator_set());
+        let (bitcoin_client, server) = mock_exit_inputs(
+            &mut block,
+            repeat_n(nn_script(&table.clone().into_public()), 2),
+        )
+        .await;
+        let batch = super::process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+            .await
+            .unwrap();
+        assert_eq!(server.await.unwrap().len(), 2);
+        assert_eq!(publication_key(&batch.duties).operator, 0);
+        assert_eq!(
+            restored
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap()
+                .operator_idxs(),
+            BTreeSet::from([0])
+        );
+        assert_eq!(restored.num_deposits(), 0);
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn same_block_parent_is_fetched_during_the_membership_stake_pass() {
+        let table = test_operator_table(3, 0);
+        let mut registry = registry();
+        let covenant = registry.get_operator_set().unwrap().current_covenant();
+        let mut parent = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+        parent.output.push(TxOut {
+            value: Amount::ONE_SAT,
+            script_pubkey: nn_script(&table.clone().into_public()),
+        });
+        let mut exit = test_slash(1);
+        exit.input[1].previous_output = OutPoint::new(parent.compute_txid(), 0);
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        block.block.txdata.extend([parent.clone(), exit]);
+        let (bitcoin_client, server) = mock_bitcoin_rpc(vec![format!(
+            r#"{{"result":"{}","error":null,"id":0}}"#,
+            serialize_hex(&parent),
+        )])
+        .await;
+        let batch = super::process_block(&bitcoin_client, &mut registry, &table, covenant, &block)
+            .await
+            .unwrap();
+        let requests = server.await.unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].contains(&parent.compute_txid().to_string()));
+        assert!(
+            registry
+                .get_operator_set()
+                .unwrap()
+                .exited_operators()
+                .contains(&1)
+        );
+        assert_eq!(publication_key(&batch.duties).operator, 0);
+    }
+
+    #[tokio::test]
+    async fn block_exits_precede_admin_and_initialize_only_the_final_membership() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let mut registry = registry();
+        let script = nn_script(
+            &registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap(),
+        );
+        // No local StakeSM exists for either the known exit or the unknown registration.
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        assert!(applicator.finish().duties.is_empty());
+        block.block = generate_block_with_height(102);
+        block
+            .block
+            .txdata
+            .extend([test_slash(99), test_slash(1), test_slash(1), test_slash(2)]);
+        let (bitcoin_client, server) =
+            mock_exit_inputs(&mut block, repeat_n(script.clone(), 4)).await;
+        let exit_index = block.block.txdata.len() as u32 - 3;
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        let batch = applicator.finish();
+        let final_key = publication_key(&batch.duties);
+        assert_eq!(registry.get_stake_ids(), vec![final_key]);
+        let membership = registry.get_operator_set().unwrap();
+        let history = membership.membership_history();
+        assert_eq!(history.len(), 4, "initial, two unique exits, admin no-op");
+        assert!(matches!(
+            &history[1].cause,
+            MembershipCause::Exit(exit) if exit.operator_idx == 1 && exit.tx_index == exit_index
+        ));
+        assert!(matches!(&history[2].cause, MembershipCause::Exit(exit) if exit.operator_idx == 2));
+        assert!(matches!(
+            &history[3].cause,
+            MembershipCause::Admin {
+                effective: false,
+                ..
+            }
+        ));
+        assert_eq!(membership.current_covenant().activation_height, 100);
+        assert_eq!(
+            &membership.membership_history().last().unwrap().members,
+            &BTreeSet::from([0])
+        );
+        assert_eq!(
+            batch.tracker.into_batches(),
+            vec![BTreeSet::from([SMId::OperatorSet, SMId::Stake(final_key),])]
+        );
+        let before = membership.clone();
+        let bitcoin_client = unavailable_bitcoin_client();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        let replay = applicator.finish();
+        assert!(replay.duties.is_empty());
+        assert!(replay.tracker.into_batches().is_empty());
+        assert_eq!(registry.get_operator_set(), Some(&before));
+    }
+
+    #[tokio::test]
+    async fn observer_tracks_exits_and_admin_without_creating_participant_stakes() {
+        let mut registry = registry();
+        let script = nn_script(
+            &registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap(),
+        );
+        for height in [101, 102] {
+            let mut block = BlockEvent {
+                block: generate_block_with_height(height),
+                status: BlockStatus::Buried,
+            };
+            if height == 101 {
+                block.block.txdata.push(test_slash(0));
+            }
+            let (bitcoin_client, server) = mock_exit_inputs(
+                &mut block,
+                repeat_n(script.clone(), usize::from(height == 101)),
+            )
+            .await;
+            let mut applicator = Applicator::new(&mut registry, Some(0));
+            onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+                .await
+                .unwrap();
+            server.await.unwrap();
+            assert!(applicator.finish().duties.is_empty());
+        }
+        assert_eq!(registry.num_stakes(), 0);
+        let membership = registry.get_operator_set().unwrap();
+        assert_eq!(
+            &membership.membership_history().last().unwrap().members,
+            &BTreeSet::from([2])
+        );
+        assert_eq!(membership.current_covenant().activation_height, 102);
+    }
+
+    #[tokio::test]
+    async fn successor_membership_closes_admission_but_keeps_historical_work_running() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let source = registry();
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(source.get_operator_set().unwrap().clone())
+            .unwrap();
+        let table = test_operator_table(3, 0);
+        let covenant = registry.get_operator_set().unwrap().current_covenant();
+        for operator in table.operator_idxs() {
+            registry
+                .insert_stake(make_confirmed_stake_sm(
+                    operator,
+                    table.clone(),
+                    generate_txid(),
+                ))
+                .unwrap();
+        }
+        let mut initial_block = BlockEvent {
+            block: generate_block_with_height(100),
+            status: BlockStatus::Buried,
+        };
+        initial_block
+            .block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-successor-admission-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let batch = super::process_block(
+            &bitcoin_client,
+            &mut registry,
+            &table,
+            covenant,
+            &initial_block,
+        )
+        .await
+        .unwrap();
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 1);
+        let mut request = DrtBuilder::aligned(&table, &registry.cfg().deposit).build();
+        request.input[0].previous_output = OutPoint::new(generate_txid(), 0);
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        block.block.txdata.extend([request, test_slash(1)]);
+        let (bitcoin_client, server) =
+            mock_exit_inputs(&mut block, [nn_script(&table.clone().into_public())]).await;
+        let batch = super::process_block(&bitcoin_client, &mut registry, &table, covenant, &block)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(
+            registry.num_deposits(),
+            1,
+            "old-covenant DRT must not enter after membership changes"
+        );
+        assert_ne!(
+            registry.get_operator_set().unwrap().current_covenant(),
+            covenant
+        );
+        assert_eq!(
+            registry.num_stakes(),
+            5,
+            "three historical and two successor stakes"
+        );
+        publication_key(&duties);
+        assert_eq!(
+            registry
+                .get_deposit(&0)
+                .unwrap()
+                .state()
+                .last_processed_block_height(),
+            Some(&101)
+        );
+        for (_, graph) in registry.graphs() {
+            assert_eq!(graph.state().last_processed_block_height(), Some(&101));
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
     #[test]
-    fn membership_transition_initializes_exact_members_at_processing_height() {
+    fn params_bootstrap_schedules_boundaries_and_preserves_existing_stakes() {
+        let source = registry();
+        let registrations = OperatorSetSchedule::new(
+            source
+                .get_operator_set()
+                .unwrap()
+                .registrations()
+                .iter()
+                .map(|op| {
+                    ScheduledOperator::new(
+                        op.index(),
+                        op.covenant_key(),
+                        op.p2p_key().clone(),
+                        op.payout_descriptor().clone(),
+                        op.activation_height(),
+                        (op.index() == 1).then_some(102),
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+        .unwrap();
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .initialize_operator_set(registrations.clone(), 100)
+            .unwrap();
+        let initial = applicator.finish();
+        publication_key(&initial.duties);
+        assert_eq!(registry.num_stakes(), 3);
+        assert_eq!(
+            registry.get_operator_set().unwrap().pending_updates(),
+            &[MembershipUpdate {
+                activation_height: 102,
+                additions: BTreeSet::new(),
+                removals: BTreeSet::from([1]),
+            }]
+        );
+        let stakes = registry
+            .stakes()
+            .map(|(key, sm)| (*key, sm.clone()))
+            .collect::<Vec<_>>();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .initialize_operator_set(registrations, 999)
+            .unwrap();
+        let replay = applicator.finish();
+        assert!(replay.duties.is_empty());
+        assert!(replay.tracker.into_batches().is_empty());
+        assert_eq!(
+            registry
+                .stakes()
+                .map(|(key, sm)| (*key, sm.clone()))
+                .collect::<Vec<_>>(),
+            stakes
+        );
+    }
+
+    #[tokio::test]
+    async fn membership_transition_initializes_exact_members_at_processing_height() {
+        let bitcoin_client = unavailable_bitcoin_client();
         let mut registry = registry();
         let mut applicator = Applicator::new(&mut registry, Some(0));
         advance_membership(&mut applicator, 101);
@@ -693,24 +1496,17 @@ mod stake_initialization_tests {
 
         // Constructor advancement already accounts for 102; the ordinary block path must not
         // deliver another current-height event or persist it again. The next block advances once.
-        let table = registry
-            .get_operator_set()
-            .unwrap()
-            .current_operator_table()
-            .unwrap()
-            .with_pov(0)
-            .unwrap();
         for (height, advances) in [(102, false), (103, true), (103, false)] {
             let mut applicator = Applicator::new(&mut registry, Some(0));
-            onchain::process_block(
+            onchain::process_stake_pass(
                 &mut applicator,
-                &table,
-                key.covenant,
                 &BlockEvent {
                     block: generate_block_with_height(height),
                     status: BlockStatus::Buried,
                 },
+                &bitcoin_client,
             )
+            .await
             .unwrap();
             let BatchOutput { duties, tracker } = applicator.finish();
             assert!(duties.is_empty());
@@ -858,6 +1654,360 @@ mod stake_initialization_tests {
     }
 
     #[tokio::test]
+    async fn partial_deposit_registration_preserves_indices_and_peer_nag_recovery() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let table = test_operator_table(3, 0);
+        let mut initial = registry();
+        let covenant = initial.get_operator_set().unwrap().current_covenant();
+        for operator in table.operator_idxs() {
+            initial
+                .insert_stake(make_confirmed_stake_sm(
+                    operator,
+                    table.clone(),
+                    generate_txid(),
+                ))
+                .unwrap();
+        }
+        let mut block = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        for _ in 0..4 {
+            let mut request = DrtBuilder::aligned(&table, &initial.cfg().deposit).build();
+            request.input[0].previous_output = OutPoint::new(generate_txid(), 0);
+            block.block.txdata.push(request);
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-registration-crash-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut expected = initial.clone();
+        let batch = super::process_block(&bitcoin_client, &mut expected, &table, covenant, &block)
+            .await
+            .unwrap();
+        persister
+            .persist_batches(batch.tracker, &expected)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 4);
+        for committed_deposits in 0..=4 {
+            for id in expected.get_deposit_ids() {
+                db.delete_deposit(id).await.unwrap();
+            }
+            persister
+                .persist_batch(initial.get_all_ids().into_iter().collect(), &initial)
+                .await
+                .unwrap();
+            let mut working = initial.clone();
+            let mut failing = persister.clone();
+            // Three stake cursors and membership must all precede every registration.
+            failing.fail_after_batches(4 + committed_deposits);
+            let batch =
+                super::process_block(&bitcoin_client, &mut working, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            let result = failing.persist_batches(batch.tracker, &working).await;
+            if committed_deposits < 4 {
+                assert!(matches!(result, Err(PersistError::InjectedFailure)));
+            } else {
+                result.unwrap();
+                assert_eq!(batch.duties.len(), 4);
+            }
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.get_deposit_ids(),
+                (0..committed_deposits as u32).collect::<Vec<_>>(),
+                "partial registration must persist a prefix in transaction order"
+            );
+            for id in restored.get_deposit_ids() {
+                assert_eq!(
+                    restored
+                        .graphs()
+                        .filter(|(idx, _)| idx.deposit == id)
+                        .count(),
+                    3,
+                    "a deposit and all its graphs must recover atomically"
+                );
+            }
+            let batch =
+                super::process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            let duties = batch.duties;
+            assert_eq!(
+                duties.len(),
+                4 - committed_deposits,
+                "replay constructs only registrations whose commit was lost"
+            );
+            assert_eq!(
+                restored.deposits().collect::<Vec<_>>(),
+                expected.deposits().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                restored.graphs().collect::<Vec<_>>(),
+                expected.graphs().collect::<Vec<_>>()
+            );
+            let batch =
+                super::process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            assert!(batch.duties.is_empty());
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            assert!(!retry(&mut restored).duties.iter().any(|duty| matches!(
+                duty,
+                UnifiedDuty::Graph(GraphDuty::GenerateGraphData { .. })
+            )));
+            // A watchtower missing the owner's graph data requests it through the normal nag
+            // path, including when the owner's constructor dispatch was lost in the crash.
+            let mut peer = test_empty_registry();
+            for (&id, graph) in restored.graphs().filter(|(id, _)| id.operator == 0) {
+                let mut graph = graph.clone();
+                graph.context.operator_table = graph
+                    .context
+                    .operator_table
+                    .clone()
+                    .into_public()
+                    .with_pov(1)
+                    .unwrap();
+                peer.insert_graph(id, graph).unwrap();
+            }
+            let nags = apply_routed(&mut peer, UnifiedEvent::NagTick).duties;
+            assert_eq!(
+                nags.len(),
+                4,
+                "each recovered graph must request its missing data"
+            );
+            for duty in nags {
+                let UnifiedDuty::Graph(GraphDuty::Nag {
+                    duty:
+                        NagDuty::NagGraphData {
+                            graph_idx,
+                            operator_idx,
+                            operator_pubkey,
+                        },
+                }) = duty
+                else {
+                    panic!("expected a graph data nag, got {duty:?}");
+                };
+                assert_eq!(operator_idx, 0);
+                let request = UnifiedEvent::GossipMessage(GossipsubMsg {
+                    signature: vec![],
+                    key: table.idx_to_p2p_key(&1).unwrap().clone(),
+                    unsigned: UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                        recipient: operator_pubkey,
+                        payload: NagRequestPayload::GraphData { graph_idx },
+                    }),
+                });
+                let response = apply_routed(&mut restored, request);
+                assert!(
+                    matches!(response.duties.as_slice(),
+                    [UnifiedDuty::Graph(GraphDuty::GenerateGraphData { graph_idx: target, covenant: actual, .. })]
+                        if *target == graph_idx && *actual == covenant),
+                    "peer nag must recover graph construction from its persisted context"
+                );
+                assert!(response.tracker.into_batches().is_empty());
+            }
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn every_block_write_boundary_recovers() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let table = test_operator_table(3, 0);
+        let mut initial = registry();
+        let covenant = initial.get_operator_set().unwrap().current_covenant();
+        for operator in table.operator_idxs() {
+            initial
+                .insert_stake(make_confirmed_stake_sm(
+                    operator,
+                    table.clone(),
+                    generate_txid(),
+                ))
+                .unwrap();
+        }
+        let mut preceding = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        for _ in 0..2 {
+            let mut request = DrtBuilder::aligned(&table, &initial.cfg().deposit).build();
+            request.input[0].previous_output = OutPoint::new(generate_txid(), 0);
+            preceding.block.txdata.push(request);
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-block-crash-matrix-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let batch =
+            super::process_block(&bitcoin_client, &mut initial, &table, covenant, &preceding)
+                .await
+                .unwrap();
+        persister
+            .persist_batches(batch.tracker, &initial)
+            .await
+            .unwrap();
+        let duties = batch.duties;
+        assert_eq!(duties.len(), 2);
+        let block = BlockEvent {
+            block: generate_block_with_height(102),
+            status: BlockStatus::Buried,
+        };
+        let mut expected = initial.clone();
+        let mut applicator = Applicator::new(&mut expected, Some(0));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        let first = applicator.finish();
+        let successor = publication_key(&first.duties);
+        let first_writes = first.tracker.into_batches().len();
+        assert_eq!(
+            first_writes, 4,
+            "three historical stakes and the atomic successor group"
+        );
+        let mut applicator = Applicator::new(&mut expected, Some(0));
+        onchain::process_deposit_graph_pass(&mut applicator, &table, covenant, true, &block)
+            .unwrap();
+        let second = applicator.finish();
+        assert!(second.duties.is_empty());
+        let second_writes = second.tracker.into_batches().len();
+        assert_eq!(second_writes, 8, "two deposits and six historical graphs");
+        let total_writes = first_writes + second_writes;
+        // Includes before pass one, every partial first/second pass, and after all commits
+        // before dispatch. Group order is deliberately unspecified.
+        for writes in 0..=total_writes {
+            for key in expected.get_stake_ids() {
+                if initial.get_stake(&key).is_none() {
+                    db.delete_stake_state(key).await.unwrap();
+                }
+            }
+            persister
+                .persist_batch(initial.get_all_ids().into_iter().collect(), &initial)
+                .await
+                .unwrap();
+            let mut working = initial.clone();
+            let mut failing = persister.clone();
+            failing.fail_after_batches(writes);
+            let batch =
+                super::process_block(&bitcoin_client, &mut working, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            let result = failing.persist_batches(batch.tracker, &working).await;
+            if writes < total_writes {
+                assert!(
+                    matches!(result, Err(PersistError::InjectedFailure)),
+                    "boundary {writes} must fail persistence: {result:?}"
+                );
+            } else {
+                result.unwrap();
+                assert_eq!(publication_key(&batch.duties), successor);
+            }
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            if writes < first_writes {
+                for (id, sm) in restored.deposits() {
+                    assert_eq!(
+                        Some(sm),
+                        initial.get_deposit(id),
+                        "second-pass state committed before first-pass persistence completed"
+                    );
+                }
+                for (id, sm) in restored.graphs() {
+                    assert_eq!(Some(sm), initial.get_graph(id));
+                }
+            } else {
+                assert_eq!(restored.get_operator_set(), expected.get_operator_set());
+                assert_eq!(
+                    restored.stakes().collect::<Vec<_>>(),
+                    expected.stakes().collect::<Vec<_>>()
+                );
+            }
+            // The production recovery start can include H-1 when only part of H committed.
+            let batch =
+                super::process_block(&bitcoin_client, &mut restored, &table, covenant, &preceding)
+                    .await
+                    .unwrap();
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            let batch =
+                super::process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.get_operator_set(),
+                expected.get_operator_set(),
+                "boundary {writes}"
+            );
+            assert_eq!(
+                restored.stakes().collect::<Vec<_>>(),
+                expected.stakes().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                restored.deposits().collect::<Vec<_>>(),
+                expected.deposits().collect::<Vec<_>>()
+            );
+            assert_eq!(
+                restored.graphs().collect::<Vec<_>>(),
+                expected.graphs().collect::<Vec<_>>()
+            );
+            let batch =
+                super::process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+                    .await
+                    .unwrap();
+            assert!(batch.duties.is_empty());
+            persister
+                .persist_batches(batch.tracker, &restored)
+                .await
+                .unwrap();
+            // If the crash lost constructor dispatch, ordinary retry recovers publication.
+            let retried = retry(&mut restored);
+            assert!(retried.duties.iter().any(|duty| matches!(duty,
+                UnifiedDuty::Stake { stake_key, duty: StakeDuty::PublishStakeData { .. } }
+                    if *stake_key == successor)));
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
     async fn initialization_failure_and_post_commit_recovery_preserve_funding_identity() {
         let suffix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -865,7 +2015,7 @@ mod stake_initialization_tests {
             .as_nanos();
         let (client, guard) = FdbClient::setup(Config {
             root_directory: format!("test-stake-initialization-{suffix}"),
-            ..Default::default()
+            ..test_fdb_config()
         })
         .await
         .unwrap();
@@ -970,6 +2120,142 @@ mod stake_initialization_tests {
             Some(reservation)
         );
         assert_eq!(recovered.num_stakes(), 2);
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+}
+
+#[cfg(test)]
+mod block_persistence_tests {
+    use std::{
+        sync::Arc,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bitcoin::OutPoint;
+    use btc_tracker::event::BlockStatus;
+    use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
+    use strata_bridge_sm::stake::state::StakeState;
+    use strata_bridge_test_utils::{
+        bitcoin::{
+            generate_block_with_height, generate_signature, generate_spending_tx, generate_txid,
+        },
+        musig2::generate_agg_nonce,
+    };
+    use strata_bridge_tx_graph::musig_functor::StakeFunctor;
+
+    use super::*;
+    use crate::testing::{
+        DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm,
+        test_fdb_config, test_operator_table, test_populated_registry, unavailable_bitcoin_client,
+    };
+
+    #[tokio::test]
+    async fn durable_block_replay_cannot_admit_an_older_unready_request() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
+        let mut registry = test_populated_registry(0);
+        let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+        for operator in table.operator_idxs() {
+            let mut stake = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+            if operator == TEST_POV_IDX {
+                let StakeState::Confirmed {
+                    last_block_height,
+                    stake_data,
+                    mut summary,
+                    ..
+                } = stake.state
+                else {
+                    unreachable!()
+                };
+                summary.stake = stake_tx.compute_txid();
+                let fields = StakeFunctor {
+                    unstaking_intent: [()],
+                    unstaking: [(), ()],
+                };
+                stake.state = StakeState::UnstakingSigned {
+                    last_block_height,
+                    stake_data,
+                    summary,
+                    agg_nonces: fields.map(|_| generate_agg_nonce()).boxed(),
+                    signatures: fields.map(|_| generate_signature()).boxed(),
+                };
+            }
+            registry.insert_stake(stake).unwrap();
+        }
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-block-gate-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut old = BlockEvent {
+            block: generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1),
+            status: BlockStatus::Buried,
+        };
+        old.block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let batch = process_block(&bitcoin_client, &mut registry, &table, covenant, &old)
+            .await
+            .unwrap();
+        assert!(batch.duties.is_empty());
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        assert_eq!(registry.num_deposits(), 0);
+        let mut next = BlockEvent {
+            block: generate_block_with_height(INITIAL_BLOCK_HEIGHT + 2),
+            status: BlockStatus::Buried,
+        };
+        next.block.txdata.push(stake_tx);
+        next.block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let batch = process_block(&bitcoin_client, &mut registry, &table, covenant, &next)
+            .await
+            .unwrap();
+        assert_eq!(batch.duties.len(), 1);
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        let mut restored = persister
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        let deposit = restored.get_deposit(&0).unwrap().clone();
+        let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &old)
+            .await
+            .unwrap();
+        assert!(batch.duties.is_empty());
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &next)
+            .await
+            .unwrap();
+        assert!(batch.duties.is_empty());
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        assert_eq!(restored.num_deposits(), 1);
+        assert_eq!(restored.get_deposit(&0), Some(&deposit));
+        assert_eq!(
+            restored.latest_gate_height(),
+            Some(INITIAL_BLOCK_HEIGHT + 2)
+        );
         drop(persister);
         drop(db);
         drop(guard);

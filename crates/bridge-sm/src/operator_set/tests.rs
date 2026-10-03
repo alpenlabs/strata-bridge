@@ -1,12 +1,13 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, slice};
 
 use bitcoin::{
-    Txid, XOnlyPublicKey,
+    OutPoint, ScriptBuf, Txid, XOnlyPublicKey,
     hashes::Hash,
     hex::FromHex,
-    secp256k1::{PublicKey, Secp256k1, SecretKey},
+    secp256k1::{PublicKey, SECP256K1, Secp256k1, SecretKey},
 };
 use bitcoin_bosd::Descriptor;
+use strata_asm_proto_bridge_txs::slash::{SlashInfo, SlashTxHeaderAux};
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
@@ -14,8 +15,8 @@ use strata_bridge_primitives::{
 };
 
 use super::{
-    ConfirmedExit, ExitKind, MembershipUpdate, OperatorSetError, OperatorSetEvent, OperatorSetSM,
-    OperatorSetSignal,
+    ConfirmedExit, ExitKind, ExitObservation, MembershipUpdate, OperatorSetError, OperatorSetEvent,
+    OperatorSetSM, OperatorSetSignal, ParsedExit,
 };
 use crate::state_machine::StateMachine;
 
@@ -813,5 +814,86 @@ fn registration_update_marks_only_changed_inputs_as_mutated() {
     assert_eq!(
         sm, before,
         "Repeating the same schedule event must leave the complete state unchanged"
+    );
+}
+
+#[test]
+fn exit_validation_rejects_an_operator_outside_the_historical_signing_set() {
+    let sm = OperatorSetSM::new(10, schedule(), vec![update(20, &[2], &[1])]).unwrap();
+    let original_key = sm
+        .current_operator_table()
+        .unwrap()
+        .aggregated_btc_key()
+        .x_only_public_key()
+        .0;
+    let observation = ExitObservation {
+        parsed: ParsedExit::Slash(SlashInfo::new(
+            SlashTxHeaderAux::new(2),
+            OutPoint::null().into(),
+        )),
+        txid: Txid::all_zeros(),
+        tx_index: 1,
+        spent_output_script: ScriptBuf::new_p2tr(SECP256K1, original_key, None),
+    };
+    assert!(
+        sm.validate_exits(11, slice::from_ref(&observation))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        sm.validate_exits(10, slice::from_ref(&observation)),
+        Err(OperatorSetError::HistoryUnavailable(10)),
+    );
+    let mut advanced = sm;
+    for height in 11..=20 {
+        advanced.apply_block(height, &[]).unwrap();
+    }
+    let recovered: OperatorSetSM =
+        postcard::from_bytes(&postcard::to_allocvec(&advanced).unwrap()).unwrap();
+    // Being active now does not authorize this registration under a configuration it never joined.
+    assert!(
+        recovered
+            .validate_exits(21, &[observation])
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn exit_validation_does_not_use_history_from_later_blocks() {
+    let mut sm = OperatorSetSM::new(10, schedule(), vec![update(20, &[2], &[1])]).unwrap();
+    for height in 11..=20 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    let key = sm
+        .current_operator_table()
+        .unwrap()
+        .aggregated_btc_key()
+        .x_only_public_key()
+        .0;
+    let observation = ExitObservation {
+        parsed: ParsedExit::Slash(SlashInfo::new(
+            SlashTxHeaderAux::new(0),
+            OutPoint::null().into(),
+        )),
+        txid: Txid::all_zeros(),
+        tx_index: 1,
+        spent_output_script: ScriptBuf::new_p2tr(SECP256K1, key, None),
+    };
+    let recovered: OperatorSetSM =
+        postcard::from_bytes(&postcard::to_allocvec(&sm).unwrap()).unwrap();
+    assert!(
+        recovered
+            .validate_exits(11, slice::from_ref(&observation))
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        recovered.validate_exits(9, slice::from_ref(&observation)),
+        Err(OperatorSetError::HistoryUnavailable(9))
+    );
+    assert_eq!(
+        recovered.validate_exits(21, &[observation.clone(), observation]),
+        Err(OperatorSetError::UnorderedExits)
     );
 }

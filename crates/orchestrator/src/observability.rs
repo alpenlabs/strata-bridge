@@ -326,6 +326,7 @@ pub(crate) const fn pipeline_error_class(error: &PipelineError) -> &'static str 
     match error {
         PipelineError::Process(error) => process_error_class(error),
         PipelineError::Persist(error) => persist_error_class(error),
+        PipelineError::ExitInput { .. } => "exit_input_unavailable",
     }
 }
 
@@ -341,6 +342,8 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
 
 pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
     match error {
+        #[cfg(test)]
+        PersistError::InjectedFailure => "injected_failure",
         PersistError::DbErr(_) => "database",
         PersistError::RegistryInvariant(_) | PersistError::StakeIdentityMismatch => {
             "registry_invariant"
