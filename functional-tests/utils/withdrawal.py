@@ -2,13 +2,28 @@ import logging
 from dataclasses import dataclass
 
 from constants import (
+    CLAIM_PAYOUT_VOUT,
     CONTEST_PAYOUT_VOUT,
+    CONTEST_SLASH_VOUT,
     CONTEST_WATCHTOWER_0_VOUT,
     COUNTERPROOF_ACK_NACK_VOUT,
+    DT_DEPOSIT_VOUT,
 )
 from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
 from utils.deposit import wait_until_utxo_spent
 from utils.utils import find_utxo_spender_txid, wait_until
+
+
+def tx_inputs(bitcoin_rpc, txid: str) -> list[tuple[str, int]]:
+    """The (txid, vout) outpoints a confirmed or mempool tx spends."""
+    tx = bitcoin_rpc.proxy.getrawtransaction(txid, True)
+    return [(vin["txid"], vin["vout"]) for vin in tx.get("vin", [])]
+
+
+def _spender_inputs(bitcoin_rpc, txid: str, vout: int) -> tuple[str, list[tuple[str, int]]]:
+    """The tx spending `txid:vout`, and the outpoints it spends."""
+    spender_txid = find_utxo_spender_txid(bitcoin_rpc, txid, vout)
+    return spender_txid, tx_inputs(bitcoin_rpc, spender_txid)
 
 
 @dataclass
@@ -109,52 +124,28 @@ def wait_until_claim_posted(
     return result["active_claim"]
 
 
-def wait_until_bridge_proof_posted(
-    bridge_rpc,
-    deposit_idx: int,
-    timeout=450,
-) -> None:
-    """Wait until the pending withdrawal's assigned claim phase is 'bridge_proof_posted'."""
-
+def _wait_until_claim_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase, timeout) -> None:
     def check():
         info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
         if info_data is None:
             return False
         info = RpcPendingWithdrawalInfo.from_json(info_data)
-        if info.assigned_claim is None:
-            return False
-        return info.assigned_claim.phase == RpcClaimPhase.BRIDGE_PROOF_POSTED
+        return info.assigned_claim is not None and info.assigned_claim.phase == phase
 
     wait_until(
         check,
         timeout=timeout,
         step=1,
-        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to bridge_proof_posted",
+        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to {phase.value}",
     )
 
 
-def wait_until_counter_proof_posted(
-    bridge_rpc,
-    deposit_idx: int,
-    timeout=450,
-) -> None:
-    """Wait until the pending withdrawal's assigned claim phase is 'counter_proof_posted'."""
+def wait_until_bridge_proof_posted(bridge_rpc, deposit_idx: int, timeout=450) -> None:
+    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.BRIDGE_PROOF_POSTED, timeout)
 
-    def check():
-        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
-        if info_data is None:
-            return False
-        info = RpcPendingWithdrawalInfo.from_json(info_data)
-        if info.assigned_claim is None:
-            return False
-        return info.assigned_claim.phase == RpcClaimPhase.COUNTER_PROOF_POSTED
 
-    wait_until(
-        check,
-        timeout=timeout,
-        step=1,
-        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to counter_proof_posted",
-    )
+def wait_until_counter_proof_posted(bridge_rpc, deposit_idx: int, timeout=450) -> None:
+    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.COUNTER_PROOF_POSTED, timeout)
 
 
 def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> str:
@@ -168,10 +159,7 @@ def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> 
     payout output.
     """
     wait_until_utxo_spent(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT, timeout=timeout)
-    ack_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
-
-    ack_tx = bitcoin_rpc.proxy.getrawtransaction(ack_txid, True)
-    ack_inputs = [(vin["txid"], vin["vout"]) for vin in ack_tx.get("vin", [])]
+    ack_txid, ack_inputs = _spender_inputs(bitcoin_rpc, contest_txid, CONTEST_PAYOUT_VOUT)
     assert len(ack_inputs) == 2, (
         f"ACK candidate {ack_txid} must have 2 inputs, got {len(ack_inputs)}: {ack_inputs}"
     )
@@ -185,13 +173,11 @@ def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> 
         f"expected vout {COUNTERPROOF_ACK_NACK_VOUT}"
     )
 
-    counterproof_tx = bitcoin_rpc.proxy.getrawtransaction(counterproof_txid, True)
-    cp_inputs = counterproof_tx.get("vin", [])
+    cp_inputs = tx_inputs(bitcoin_rpc, counterproof_txid)
     assert len(cp_inputs) == 1, (
         f"counterproof candidate {counterproof_txid} must have 1 input, got {len(cp_inputs)}"
     )
-    cp_in_txid = cp_inputs[0].get("txid")
-    cp_in_vout = cp_inputs[0].get("vout")
+    cp_in_txid, cp_in_vout = cp_inputs[0]
     assert cp_in_txid == contest_txid and cp_in_vout >= CONTEST_WATCHTOWER_0_VOUT, (
         f"counterproof candidate {counterproof_txid} spends {cp_in_txid}:{cp_in_vout}, "
         f"expected contest:{CONTEST_WATCHTOWER_0_VOUT}+"
@@ -205,27 +191,71 @@ def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> 
     return ack_txid
 
 
-def wait_until_bridge_proof_timedout(
-    bridge_rpc,
-    deposit_idx: int,
-    timeout=600,
-) -> None:
-    """Wait until the pending withdrawal's assigned claim phase is 'bridge_proof_timedout'."""
+def wait_until_bridge_proof_timedout(bridge_rpc, deposit_idx: int, timeout=600) -> None:
+    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.BRIDGE_PROOF_TIMEDOUT, timeout)
 
-    def check():
-        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
-        if info_data is None:
-            return False
-        info = RpcPendingWithdrawalInfo.from_json(info_data)
-        if info.assigned_claim is None:
-            return False
-        return info.assigned_claim.phase == RpcClaimPhase.BRIDGE_PROOF_TIMEDOUT
 
-    wait_until(
-        check,
-        timeout=timeout,
-        step=1,
-        error_msg=(
-            f"Claim phase for deposit {deposit_idx} did not advance to bridge_proof_timedout"
-        ),
+def wait_until_counterproof_nack(bitcoin_rpc, counterproof_txid: str, timeout=600) -> str:
+    """Wait until a counterproof's ACK/NACK output is spent, verify the spender has the
+    NACK shape, and return its txid.
+
+    NACK and ACK race for the same output, so shape is what tells them apart — never
+    timing. A NACK is the graph owner's immediate key-path spend under `wt_i_fault` and
+    has exactly ONE input, the counterproof's ACK/NACK output. An ACK is the
+    counterprover's CSV `nack_timelock` script-path spend and has TWO, that same output
+    plus the contest payout output.
+    """
+    wait_until_utxo_spent(
+        bitcoin_rpc, counterproof_txid, COUNTERPROOF_ACK_NACK_VOUT, timeout=timeout
     )
+    nack_txid, nack_inputs = _spender_inputs(
+        bitcoin_rpc, counterproof_txid, COUNTERPROOF_ACK_NACK_VOUT
+    )
+    assert len(nack_inputs) == 1, (
+        f"NACK candidate {nack_txid} must have exactly 1 input, got {len(nack_inputs)}: "
+        f"{nack_inputs}. Two inputs means the counterproof was ACKed, not NACKed"
+    )
+    logging.info(
+        f"Counterproof NACK {nack_txid} spends {counterproof_txid}:{COUNTERPROOF_ACK_NACK_VOUT}"
+    )
+    return nack_txid
+
+
+def wait_until_all_nackd(bridge_rpc, deposit_idx: int, timeout=600) -> None:
+    """The state machine only enters 'all_nackd' once *every* watchtower slot's counterproof
+    has been NACKed, so this is the single check that no counterproof slipped through."""
+    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.ALL_NACKD, timeout)
+
+
+def assert_contested_payout_shape(
+    bitcoin_rpc,
+    contested_payout_txid: str,
+    *,
+    deposit_txid: str,
+    claim_txid: str,
+    contest_txid: str,
+) -> None:
+    """Assert the tx is a `contested_payout`: exactly four inputs, being the deposit UTXO,
+    the claim payout output, and the contest's payout and slash outputs.
+
+    Checking all four rules out both alternatives that could otherwise spend the contest
+    payout output: a `counterproof_ack` (2 inputs) and a `slash` (which would take the
+    contest slash output instead).
+    """
+    inputs = tx_inputs(bitcoin_rpc, contested_payout_txid)
+    expected = {
+        (deposit_txid, DT_DEPOSIT_VOUT),
+        (claim_txid, CLAIM_PAYOUT_VOUT),
+        (contest_txid, CONTEST_PAYOUT_VOUT),
+        (contest_txid, CONTEST_SLASH_VOUT),
+    }
+    assert len(inputs) == 4, (
+        f"contested_payout candidate {contested_payout_txid} must have 4 inputs, "
+        f"got {len(inputs)}: {inputs}"
+    )
+    assert set(inputs) == expected, (
+        f"contested_payout candidate {contested_payout_txid} spends {sorted(inputs)}, "
+        f"expected {sorted(expected)}"
+    )
+
+    logging.info(f"Contested payout {contested_payout_txid} has the expected 4-input shape")

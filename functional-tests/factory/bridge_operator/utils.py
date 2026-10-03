@@ -175,8 +175,8 @@ def _dev_mode_from_env() -> bool:
 
     Set by the SP1 proof workflow: the checked-in Mosaic circuit fixture pins an all-zero
     counterproof vkey, which never matches the freshly built SP1 counterproof ELF, so the
-    startup check aborts every bridge before the proof tests can run. Remove once STR-3889
-    supplies a circuit generated with the run's counterproof vkey.
+    startup check aborts every bridge before the proof tests can run. MOSAIC_CIRCUIT_MODE=full
+    generates a circuit from that vkey (STR-3889), so it is only needed under the toy circuit.
     """
     return os.environ.get("BRIDGE_DEV_MODE") == "1"
 
