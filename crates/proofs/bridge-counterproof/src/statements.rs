@@ -115,13 +115,11 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
                 claim_unlock_inclusion_proof: heavier_inclusion_proof,
             } = heavier_chain_proof;
 
-            let (total_pow, bridge_proof_claim_unlock, mmr_idx) = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
-                .ok()
-                .and_then(|output| {
-                    OperatorClaimUnlockV1::from_ssz_bytes(&output.claim_unlock)
-                        .ok()
-                        .map(|claim_unlock| (output.total_pow, claim_unlock, output.mmr_idx))
-                })
+            let BridgeProofOutput {
+                total_pow,
+                claim_unlock: bridge_proof_claim_unlock,
+                mmr_idx,
+            } = BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
                 .expect("if public values of bridge proof are invalid, then the bridge proof is invalid (use CounterproofMode::InvalidBridgeProof)");
 
             // Fail if `heavier_moho_proof` is invalid.
@@ -156,9 +154,6 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             if heavier_bridge_container.entries_mmr().num_entries() <= mmr_idx {
                 break 'heavier_chain;
             }
-
-            let heavier_claim_unlock = OperatorClaimUnlockV1::from_ssz_bytes(&heavier_claim_unlock)
-                .expect("invalid heavier chain: invalid claim unlock encoding");
 
             // Fail if `heavier_claim_unlock` is not at index `mmr_idx`.
             if heavier_inclusion_proof.index != mmr_idx {
@@ -316,9 +311,7 @@ pub fn commits_to_different_claim(
 ) -> bool {
     let expected = OperatorClaimUnlockV1::new(game_idx.get() - 1, operator_pubkey);
     BridgeProofOutput::from_ssz_bytes(bridge_proof_receipt.public_values().as_bytes())
-        .ok()
-        .and_then(|output| OperatorClaimUnlockV1::from_ssz_bytes(&output.claim_unlock).ok())
-        .is_some_and(|claim_unlock| claim_unlock != expected)
+        .is_ok_and(|output| output.claim_unlock != expected)
 }
 
 #[cfg(test)]
@@ -389,7 +382,7 @@ mod tests {
     fn bridge_proof_receipt(claim_unlock: &OperatorClaimUnlockV1) -> ProofReceipt {
         let output = BridgeProofOutput {
             total_pow: BRIDGE_PROOF_POW,
-            claim_unlock: claim_unlock.as_ssz_bytes(),
+            claim_unlock: claim_unlock.clone(),
             mmr_idx: 0,
         };
         ProofReceipt::new(Proof::new(vec![]), PublicValues::new(output.as_ssz_bytes()))
@@ -981,21 +974,6 @@ mod tests {
                 moho_vk: PredicateKey::always_accept(),
             });
             assert_eq!(output.game_idx, GAME_IDX.get());
-        }
-
-        #[test]
-        #[should_panic(expected = "invalid heavier chain: invalid claim unlock encoding")]
-        fn counterproof_invalid_if_heavier_claim_unlock_malformed() {
-            let mut input = INPUT_FOR_HEAVIER_CHAIN.clone();
-            if let CounterproofMode::HeavierChain(ref mut heavier_chain) = input.mode {
-                heavier_chain.claim_unlock = vec![];
-            }
-
-            let _ = run_counterproof(RuntimeArgs {
-                input,
-                bridge_proof_vk: PredicateKey::always_accept(),
-                moho_vk: PredicateKey::always_accept(),
-            });
         }
 
         #[test]

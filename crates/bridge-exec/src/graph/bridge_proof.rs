@@ -6,7 +6,7 @@ use bitcoin::XOnlyPublicKey;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
@@ -156,10 +156,8 @@ async fn fetch_bridge_proof_input(
         "resolved last-seen block hash for bridge proof anchor"
     );
 
-    let operator_claim_unlock =
-        OperatorClaimUnlockV1::new(deposit_idx, Buf32(operator_pubkey.serialize()));
-    let claim_unlock = operator_claim_unlock.as_ssz_bytes();
-    let leaf_hash = operator_claim_unlock.compute_hash();
+    let claim_unlock = OperatorClaimUnlockV1::new(deposit_idx, Buf32(operator_pubkey.serialize()));
+    let leaf_hash = claim_unlock.compute_hash();
 
     let asm = &output_handles.asm_rpc_client;
     let moho_state = asm
