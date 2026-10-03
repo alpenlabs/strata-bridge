@@ -13,9 +13,9 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootMerkleBranch, TaprootSpendInfo},
     Address, Network, ScriptBuf, TapLeafHash, TapNodeHash, TapSighashType, Transaction, TxOut,
-    Witness, XOnlyPublicKey,
+    Witness,
 };
-use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
+use secp256k1::{Message, Parity, SecretKey};
 use serde::{Deserialize, Serialize};
 use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
@@ -281,10 +281,9 @@ impl<'a> Arbitrary<'a> for TaprootWitness {
                     Parity::Odd
                 };
 
-                // Generate a random secret key and derive the internal key
-                let secret_key = SecretKey::new(&mut OsRng);
-                let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
-                let (internal_key, _) = XOnlyPublicKey::from_keypair(&keypair);
+                let secret_key = SecretKey::from_slice(&<[u8; 32]>::arbitrary(u)?)
+                    .map_err(|_e| arbitrary::Error::IncorrectFormat)?;
+                let (internal_key, _) = secret_key.x_only_public_key(SECP256K1);
 
                 // Arbitrary Taproot merkle branch (vector of 32-byte hashes)
                 const BRANCH_LENGTH: usize = 10;
@@ -483,5 +482,15 @@ mod tests {
             create_taproot_addr(&network, spend_path).is_ok(),
             "should support scripts with some internal key"
         );
+    }
+
+    #[test]
+    fn test_taproot_witness_arbitrary_is_deterministic() {
+        let bytes = [0x01; 512];
+        let first = TaprootWitness::arbitrary(&mut arbitrary::Unstructured::new(&bytes));
+        let second = TaprootWitness::arbitrary(&mut arbitrary::Unstructured::new(&bytes));
+
+        assert!(matches!(first, Ok(TaprootWitness::Script { .. })));
+        assert_eq!(first, second);
     }
 }
