@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use strata_asm_common::SpecId;
 use strata_bridge_proof::{
     BridgeProofGenesis, load_genesis_from_env as load_bridge_proof_genesis_from_env,
     load_genesis_from_paths as load_bridge_proof_genesis_from_paths,
@@ -17,16 +18,21 @@ pub fn load_genesis_from_paths(
     asm_params_path: &Path,
     asm_vk_path: &Path,
     moho_vk_path: &Path,
+    asm_genesis_spec_id: SpecId,
 ) -> BridgeCounterproofGenesis {
-    let bridge_proof_genesis =
-        load_bridge_proof_genesis_from_paths(asm_params_path, asm_vk_path, moho_vk_path);
+    let bridge_proof_genesis = load_bridge_proof_genesis_from_paths(
+        asm_params_path,
+        asm_vk_path,
+        moho_vk_path,
+        asm_genesis_spec_id,
+    );
     from_bridge_proof_genesis(bridge_proof_vk, bridge_proof_genesis)
 }
 
 /// Builds a [`BridgeCounterproofGenesis`] from a known bridge-proof predicate key, with Moho
 /// anchors from paths supplied via [`strata_bridge_proof::ASM_PARAMS_PATH_ENV`],
 /// [`strata_bridge_proof::ASM_VK_PATH_ENV`], and [`strata_bridge_proof::MOHO_VK_PATH_ENV`]
-/// (all required).
+/// (all required), under the spec from [`strata_bridge_proof::ASM_GENESIS_SPEC_ID_ENV`].
 pub fn load_genesis_from_predicate(bridge_proof_vk: PredicateKey) -> BridgeCounterproofGenesis {
     from_bridge_proof_genesis(bridge_proof_vk, load_bridge_proof_genesis_from_env())
 }

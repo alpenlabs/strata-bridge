@@ -5,6 +5,7 @@ These dataclasses mirror the Rust configuration structures in bin/asm-runner/src
 
 from dataclasses import dataclass
 
+from constants import ASM_SPEC_ID
 from factory.common_cfg import Duration
 
 
@@ -70,9 +71,10 @@ class Sp1Source:
 
 @dataclass
 class AsmArtifactConfig:
-    """An ASM program the prover can prove; its host must resolve to `predicate`."""
+    """An ASM program the prover can prove; its host must resolve to the predicate
+    `[[execution.targets]]` lists for `spec_id`."""
 
-    predicate: str
+    spec_id: int
     source: NativeSource | Sp1Source
 
 
@@ -102,15 +104,15 @@ class ExecutionTargetConfig:
 
 @dataclass
 class ExecutionConfig:
-    """Genesis ASM predicate and the programs this runner can execute."""
+    """Genesis ASM spec and the programs this runner can execute."""
 
-    genesis_predicate: str
+    genesis_spec_id: int
     targets: list[ExecutionTargetConfig]
 
     @classmethod
     def single(cls, predicate: str) -> "ExecutionConfig":
-        """A chain that starts on, and only runs, `predicate` as spec 0."""
-        return cls(predicate, [ExecutionTargetConfig(predicate, spec_id=0)])
+        """A chain that starts on, and only runs, `predicate` as `ASM_SPEC_ID`."""
+        return cls(ASM_SPEC_ID, [ExecutionTargetConfig(predicate, spec_id=ASM_SPEC_ID)])
 
 
 @dataclass

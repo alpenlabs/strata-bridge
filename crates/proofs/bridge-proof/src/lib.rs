@@ -7,7 +7,7 @@ pub mod types;
 pub use moho_recursive_proof::MohoRecursiveOutput;
 pub use types::{
     BridgeProofGenesis, BridgeProofInput, BridgeProofOutput, MerkleProofB32, MohoState,
-    OperatorClaimUnlock, RecursiveMohoProof,
+    OperatorClaimUnlockV1, RecursiveMohoProof,
 };
 
 cfg_if::cfg_if! {
@@ -16,7 +16,7 @@ cfg_if::cfg_if! {
         pub mod host;
         pub mod program;
 
-        pub use genesis::{ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV, load_genesis_from_env, load_genesis_from_paths};
+        pub use genesis::{ASM_GENESIS_SPEC_ID_ENV, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV, asm_genesis_spec_id_from_env, load_genesis_from_env, load_genesis_from_paths};
         pub use host::{BridgeProofHost, ProofBackendConfig, build_host};
         pub use program::BridgeProofProgram;
     }

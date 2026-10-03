@@ -29,9 +29,9 @@ NUM_FULFILLMENTS = 2
 
 
 def operator_claim_unlock_leaf(deposit_idx: int, operator_xonly_pk: bytes) -> bytes:
-    # `OperatorClaimUnlock` codec serialization is a big-endian u32 deposit index
+    # `OperatorClaimUnlockV1` SSZ encoding is a little-endian u32 deposit index
     # followed by the operator's 32-byte x-only pubkey; the leaf is sha256 over it.
-    buf = struct.pack(">I", deposit_idx) + operator_xonly_pk
+    buf = struct.pack("<I", deposit_idx) + operator_xonly_pk
     return hashlib.sha256(buf).digest()
 
 

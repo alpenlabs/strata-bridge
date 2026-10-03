@@ -8,7 +8,7 @@ use btc_tracker::event::TxStatus;
 use metrics::counter;
 use musig2::secp256k1::schnorr::Signature;
 use ssz::Decode;
-use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
 use strata_bridge_connectors::prelude::{ContestCounterproofWitness, ContestProofConnector};
@@ -27,7 +27,6 @@ use strata_bridge_proof::{
 };
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
-use strata_crypto::hash;
 use strata_identifiers::Buf32;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
 use tracing::{info, warn};
@@ -387,7 +386,7 @@ async fn detect_heavier_chain(
         return Ok(None);
     }
 
-    let claim_unlock = OperatorClaimUnlock::new(deposit_idx, operator_pubkey);
+    let claim_unlock = OperatorClaimUnlockV1::new(deposit_idx, operator_pubkey);
 
     let inclusion_proof = if container.entries_mmr().num_entries() <= operator_commitment.mmr_idx {
         // The guest ignores the claim unlock and its inclusion proof when the
@@ -404,7 +403,7 @@ async fn detect_heavier_chain(
         }
 
         // The canonical chain agrees with the operator's commitment; nothing to challenge.
-        if claim_unlock.compute_hash() == hash::raw(&operator_commitment.claim_unlock).0 {
+        if claim_unlock == operator_commitment.claim_unlock {
             return Ok(None);
         }
 
@@ -446,7 +445,7 @@ async fn fetch_canonical_moho_state(
 async fn fetch_canonical_inclusion_proof(
     output_handles: &OutputHandles,
     anchor_hash: bitcoin::BlockHash,
-    claim_unlock: &OperatorClaimUnlock,
+    claim_unlock: &OperatorClaimUnlockV1,
 ) -> Result<MerkleProofB32, ExecutorError> {
     let inclusion_bytes = output_handles
         .asm_rpc_client
@@ -505,7 +504,7 @@ fn counterproof_operator_keys(
 #[cfg(test)]
 mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
-    use strata_codec::encode_to_vec;
+    use strata_crypto::hash;
 
     use super::*;
 
@@ -529,11 +528,11 @@ mod tests {
     }
 
     #[test]
-    fn claim_unlock_compute_hash_matches_raw_hash_of_codec_encoding() {
+    fn claim_unlock_compute_hash_matches_raw_hash_of_ssz_encoding() {
         let table = test_operator_table(3, 0);
         let operator_pubkey = table.idx_to_btc_x_only_key(&2).unwrap();
-        let claim_unlock = OperatorClaimUnlock::new(7, Buf32(operator_pubkey.serialize()));
-        let committed_bytes = encode_to_vec(&claim_unlock).expect("claim unlock must encode");
+        let claim_unlock = OperatorClaimUnlockV1::new(7, Buf32(operator_pubkey.serialize()));
+        let committed_bytes = ssz::Encode::as_ssz_bytes(&claim_unlock);
         assert_eq!(claim_unlock.compute_hash(), hash::raw(&committed_bytes).0);
     }
 
@@ -541,7 +540,7 @@ mod tests {
     fn claim_unlock_identifies_the_operator_by_its_x_only_key() {
         let table = test_operator_table(3, 0);
         let operator_pubkey = table.idx_to_btc_x_only_key(&2).unwrap();
-        let claim_unlock = OperatorClaimUnlock::new(7, Buf32(operator_pubkey.serialize()));
+        let claim_unlock = OperatorClaimUnlockV1::new(7, Buf32(operator_pubkey.serialize()));
 
         let expected = table
             .idx_to_btc_key(&2)

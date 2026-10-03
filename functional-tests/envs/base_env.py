@@ -7,6 +7,7 @@ import flexitest
 
 from constants import (
     ASM_PARAMS_DIR,
+    ASM_SPEC_ID,
     NATIVE_TEST_ASM_SIGNING_KEY,
     NATIVE_TEST_MOHO_SIGNING_KEY,
 )
@@ -165,7 +166,7 @@ class BaseEnv(flexitest.EnvConfig):
             max_concurrent_proofs=4,
             proof_db_path=proof_db_path,
             moho=moho_source,
-            asm_artifacts=[AsmArtifactConfig(predicate=self.asm_predicate, source=asm_source)],
+            asm_artifacts=[AsmArtifactConfig(spec_id=ASM_SPEC_ID, source=asm_source)],
         )
 
     @property

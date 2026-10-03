@@ -1,5 +1,5 @@
 [execution]
-genesis_predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+genesis_spec_id = 0
 
 [[execution.targets]]
 predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
@@ -32,7 +32,7 @@ kind = "native"
 signing_key = "0202020202020202020202020202020202020202020202020202020202020202"
 
 [[orchestrator.asm_artifacts]]
-predicate = "Bip340Schnorr:1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+spec_id = 0
 
 [orchestrator.asm_artifacts.source]
 kind = "native"

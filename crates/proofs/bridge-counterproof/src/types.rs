@@ -2,9 +2,8 @@
 
 pub use moho_types::{MohoState, RecursiveMohoProof, StateRefAttestation};
 use ssz_derive::{Decode, Encode};
-pub use strata_asm_proto_bridge::OperatorClaimUnlock;
+pub use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 pub use strata_btc_types::{BitcoinTxOut, BitcoinXOnlyPublicKey, RawBitcoinTx};
-use strata_codec::encode_to_vec;
 pub use strata_merkle::MerkleProofB32;
 use strata_predicate::PredicateKey;
 
@@ -30,8 +29,8 @@ pub struct HeavierChainProof {
     /// Validity proof of `moho_state`.
     pub moho_proof: RecursiveMohoProof,
 
-    /// [`OperatorClaimUnlock`] encoded via `strata_codec::Codec`.
-    pub claim_unlock: Vec<u8>,
+    /// Operator claim unlock committed on the heavier chain.
+    pub claim_unlock: OperatorClaimUnlockV1,
 
     /// Inclusion proof for `claim_unlock` in `moho_state`.
     pub claim_unlock_inclusion_proof: MerkleProofB32,
@@ -39,17 +38,16 @@ pub struct HeavierChainProof {
 
 impl HeavierChainProof {
     /// Creates a new heavier chain proof.
-    pub fn new(
+    pub const fn new(
         moho_state: MohoState,
         moho_proof: RecursiveMohoProof,
-        claim_unlock: OperatorClaimUnlock,
+        claim_unlock: OperatorClaimUnlockV1,
         inclusion_proof: MerkleProofB32,
     ) -> Self {
         Self {
             moho_state,
             moho_proof,
-            claim_unlock: encode_to_vec::<OperatorClaimUnlock>(&claim_unlock)
-                .expect("encode to vector should never fail"),
+            claim_unlock,
             claim_unlock_inclusion_proof: inclusion_proof,
         }
     }

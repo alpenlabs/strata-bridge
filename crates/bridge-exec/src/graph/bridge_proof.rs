@@ -7,7 +7,7 @@ use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use ssz::Decode;
-use strata_asm_proto_bridge::OperatorClaimUnlock;
+use strata_asm_proto_bridge::OperatorClaimUnlockV1;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_asm_rpc::traits::{AsmMohoApiClient, AsmProofApiClient};
 use strata_bridge_connectors::{Connector, prelude::ContestProofConnector};
@@ -18,8 +18,6 @@ use strata_bridge_proof::{
 };
 use strata_bridge_proof_common::{ProofError, prove};
 use strata_bridge_tx_graph::transactions::bridge_proof::{BridgeProofData, BridgeProofTx};
-use strata_codec::encode_to_vec;
-use strata_crypto::hash;
 use strata_identifiers::Buf32;
 use tracing::{info, warn};
 use zkaleido::ZkVmError;
@@ -158,11 +156,8 @@ async fn fetch_bridge_proof_input(
         "resolved last-seen block hash for bridge proof anchor"
     );
 
-    let operator_claim_unlock =
-        OperatorClaimUnlock::new(deposit_idx, Buf32(operator_pubkey.serialize()));
-    let claim_unlock = encode_to_vec(&operator_claim_unlock)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("encode claim_unlock: {e}")))?;
-    let leaf_hash = hash::raw(&claim_unlock).0;
+    let claim_unlock = OperatorClaimUnlockV1::new(deposit_idx, Buf32(operator_pubkey.serialize()));
+    let leaf_hash = claim_unlock.compute_hash();
 
     let asm = &output_handles.asm_rpc_client;
     let moho_state = asm

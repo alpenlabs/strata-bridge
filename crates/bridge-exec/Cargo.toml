@@ -27,8 +27,6 @@ strata-bridge-tx-graph.workspace = true
 strata-asm-proto-bridge.workspace = true
 strata-asm-proto-bridge-txs.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
-strata-codec.workspace = true
-strata-crypto.workspace = true
 strata-identifiers.workspace = true
 strata-l1-txfmt.workspace = true
 strata-mosaic-client-api.workspace = true
@@ -53,6 +51,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
+strata-crypto.workspace = true
 
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
