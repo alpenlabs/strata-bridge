@@ -39,6 +39,11 @@ MAX_BRIDGE_TIMEOUT = (1 << 16) - 1
 BITCOIND_RPC_TIMEOUT_SECS = 120
 # Budget for a freshly spawned bitcoind to answer RPC and bind its ZMQ publishers.
 BITCOIND_READY_TIMEOUT_SECS = 60
+# bitcoind's `-rpcservertimeout` (default 30s): how long a half-written request may hold an
+# HTTP connection. Bounds the stall a garbled request costs whoever sent it.
+BITCOIND_RPC_SERVER_TIMEOUT_SECS = 10
+# A single `wait_until` poll slower than this (or than its own `step`) is logged at WARNING.
+SLOW_POLL_WARN_SECS = 5
 
 # Test signing keys for the asm-runner's native backend (asm-stf + moho hosts).
 NATIVE_TEST_ASM_SIGNING_KEY = "01" * 32

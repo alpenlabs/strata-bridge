@@ -6,7 +6,14 @@ from constants import (
     CONTEST_WATCHTOWER_0_VOUT,
     COUNTERPROOF_ACK_NACK_VOUT,
 )
-from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
+from rpc.client import RpcError
+from rpc.types import (
+    RpcClaimPhase,
+    RpcPendingWithdrawalInfo,
+    RpcReimbursementStatus,
+    RpcReimbursementStatusInProgress,
+    reimbursement_status_from_json,
+)
 from utils.deposit import wait_until_utxo_spent
 from utils.utils import find_utxo_spender_txid, wait_until
 
@@ -109,28 +116,64 @@ def wait_until_claim_posted(
     return result["active_claim"]
 
 
-def wait_until_bridge_proof_posted(
-    bridge_rpc,
-    deposit_idx: int,
-    timeout=450,
+_P = RpcClaimPhase
+# Phases that are the target or provably after it, per the graph SM transitions. Branches that
+# bypass the target are excluded (bridge_proof_timedout never counts as bridge_proof_posted).
+_AT_OR_PAST: dict[RpcClaimPhase, frozenset[RpcClaimPhase]] = {
+    _P.BRIDGE_PROOF_POSTED: frozenset(
+        {_P.BRIDGE_PROOF_POSTED, _P.COUNTER_PROOF_POSTED, _P.ALL_NACKD, _P.ACKED}
+    ),
+    _P.COUNTER_PROOF_POSTED: frozenset({_P.COUNTER_PROOF_POSTED, _P.ALL_NACKD, _P.ACKED}),
+    _P.BRIDGE_PROOF_TIMEDOUT: frozenset({_P.BRIDGE_PROOF_TIMEDOUT}),
+}
+# Terminal reimbursement statuses that imply the target was passed.
+_TERMINAL_PAST: dict[RpcClaimPhase, frozenset[str]] = {
+    _P.BRIDGE_PROOF_POSTED: frozenset({"complete", "slashed"}),
+    _P.COUNTER_PROOF_POSTED: frozenset({"complete", "slashed"}),
+    _P.BRIDGE_PROOF_TIMEDOUT: frozenset({"slashed"}),
+}
+
+
+def _wait_until_claim_phase_reached(
+    bridge_rpc, deposit_idx: int, target: RpcClaimPhase, timeout: int
 ) -> None:
-    """Wait until the pending withdrawal's assigned claim phase is 'bridge_proof_posted'."""
+    """Poll `stratabridge_reimbursementStatus` until the assigned operator's claim is at or past
+    `target`.
+
+    Unlike `pendingWithdrawalInfo`, this RPC keeps answering after the graph reaches
+    Withdrawn/Slashed/Aborted and after the deposit is spent, so a slow poll cannot miss a
+    short-lived phase.
+    """
+    last: dict[str, RpcReimbursementStatus | None] = {"status": None}
 
     def check():
-        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
-        if info_data is None:
+        try:
+            data = bridge_rpc.stratabridge_reimbursementStatus(deposit_idx)
+        except RpcError:  # -32600 until the deposit has an assignee
             return False
-        info = RpcPendingWithdrawalInfo.from_json(info_data)
-        if info.assigned_claim is None:
-            return False
-        return info.assigned_claim.phase == RpcClaimPhase.BRIDGE_PROOF_POSTED
+        status = reimbursement_status_from_json(data)
+        if status != last["status"]:
+            logging.info(f"deposit {deposit_idx} reimbursement status: {status}")
+            last["status"] = status
+        if isinstance(status, RpcReimbursementStatusInProgress):
+            return RpcClaimPhase(status.phase) in _AT_OR_PAST[target]
+        return status.status in _TERMINAL_PAST[target]
 
     wait_until(
         check,
         timeout=timeout,
         step=1,
-        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to bridge_proof_posted",
+        error_msg=f"Claim phase for deposit {deposit_idx} did not reach {target.value}",
     )
+
+
+def wait_until_bridge_proof_posted(
+    bridge_rpc,
+    deposit_idx: int,
+    timeout=450,
+) -> None:
+    """Wait until the assigned claim's phase has reached 'bridge_proof_posted'."""
+    _wait_until_claim_phase_reached(bridge_rpc, deposit_idx, _P.BRIDGE_PROOF_POSTED, timeout)
 
 
 def wait_until_counter_proof_posted(
@@ -138,23 +181,8 @@ def wait_until_counter_proof_posted(
     deposit_idx: int,
     timeout=450,
 ) -> None:
-    """Wait until the pending withdrawal's assigned claim phase is 'counter_proof_posted'."""
-
-    def check():
-        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
-        if info_data is None:
-            return False
-        info = RpcPendingWithdrawalInfo.from_json(info_data)
-        if info.assigned_claim is None:
-            return False
-        return info.assigned_claim.phase == RpcClaimPhase.COUNTER_PROOF_POSTED
-
-    wait_until(
-        check,
-        timeout=timeout,
-        step=1,
-        error_msg=f"Claim phase for deposit {deposit_idx} did not advance to counter_proof_posted",
-    )
+    """Wait until the assigned claim's phase has reached 'counter_proof_posted'."""
+    _wait_until_claim_phase_reached(bridge_rpc, deposit_idx, _P.COUNTER_PROOF_POSTED, timeout)
 
 
 def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> str:
@@ -210,22 +238,5 @@ def wait_until_bridge_proof_timedout(
     deposit_idx: int,
     timeout=600,
 ) -> None:
-    """Wait until the pending withdrawal's assigned claim phase is 'bridge_proof_timedout'."""
-
-    def check():
-        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
-        if info_data is None:
-            return False
-        info = RpcPendingWithdrawalInfo.from_json(info_data)
-        if info.assigned_claim is None:
-            return False
-        return info.assigned_claim.phase == RpcClaimPhase.BRIDGE_PROOF_TIMEDOUT
-
-    wait_until(
-        check,
-        timeout=timeout,
-        step=1,
-        error_msg=(
-            f"Claim phase for deposit {deposit_idx} did not advance to bridge_proof_timedout"
-        ),
-    )
+    """Wait until the assigned claim's phase has reached 'bridge_proof_timedout'."""
+    _wait_until_claim_phase_reached(bridge_rpc, deposit_idx, _P.BRIDGE_PROOF_TIMEDOUT, timeout)
