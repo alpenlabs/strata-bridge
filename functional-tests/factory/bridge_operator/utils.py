@@ -81,6 +81,7 @@ def generate_config_toml(
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
         max_fee_rate=bridge_config_params.max_fee_rate,
         max_active_deposits=bridge_config_params.max_active_deposits,
+        deposit_index_offset=bridge_config_params.deposit_index_offset,
         dev=bridge_config_params.dev or _dev_mode_from_env(),
         allow_unsafe_timelocks=bridge_config_params.allow_unsafe_timelocks,
         secret_service_client=SecretServiceClientConfig(
