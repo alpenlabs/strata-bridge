@@ -16,7 +16,11 @@ on:
           - staging
           - prod
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships asm-vk.json and moho-vk.json (e.g. v0.1-alpha.11).
+        description: Tag in alpenlabs/asm whose release ships asm.elf and its predicate (e.g. v0.4.0).
+        required: true
+        type: string
+      moho_tag:
+        description: Tag in alpenlabs/moho whose release ships moho.elf and its predicate (e.g. v0.4.0).
         required: true
         type: string
       asm_params_url:
@@ -41,7 +45,7 @@ on:
         type: string
 
 concurrency:
-  group: publish-guests-and-circuit-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}
+  group: publish-guests-and-circuit-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}-${{ inputs.moho_tag }}
   cancel-in-progress: false
 
 permissions: {}
@@ -56,6 +60,7 @@ jobs:
     with:
       env: ${{ inputs.env }}
       asm_tag: ${{ inputs.asm_tag }}
+      moho_tag: ${{ inputs.moho_tag }}
       asm_params_url: ${{ inputs.asm_params_url }}
       asm_genesis_spec_id: ${{ inputs.asm_genesis_spec_id }}
       ref: ${{ inputs.ref }}
