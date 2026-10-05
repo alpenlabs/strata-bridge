@@ -113,6 +113,9 @@ class BridgeConfigParams:
     retry_interval_secs: int = 10
     prometheus_metrics: bool = False
     dev: bool = False
+    # Index of the first deposit in a deposit sequence; omitted when `None` so the node uses its
+    # default of zero.
+    deposit_index_offset: int | None = None
 
 
 @dataclass
@@ -132,6 +135,7 @@ class BridgeOperatorConfig:
     shutdown_timeout: Duration
     cooperative_payout_timeout: int
     max_fee_rate: int
+    deposit_index_offset: int | None
     dev: bool
     secret_service_client: SecretServiceClientConfig
     btc_client: BtcClientConfig
