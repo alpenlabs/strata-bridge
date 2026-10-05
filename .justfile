@@ -25,7 +25,7 @@ build:
 # Build the SP1 guest ELF using bundled stub params (skips reading real params)
 [group('build')]
 build-stub-elf:
-    SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
+    SKIP_PARAMS=1 BRIDGE_PROOF_ASM_GENESIS_SPEC_ID=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
 
 # Run unit tests
 [group('test')]

@@ -23,6 +23,10 @@ on:
         description: HTTPS URL to fetch asm-params.json from (raw URL, not a github.com /blob/ view URL).
         required: true
         type: string
+      asm_genesis_spec_id:
+        description: ASM spec the chain's genesis anchor was built under (the asm-runner's execution.genesis_spec_id). Baked into both guests.
+        required: true
+        type: string
       ref:
         description: strata-bridge git ref to build. Defaults to the branch selected in the UI.
         required: false
@@ -53,6 +57,7 @@ jobs:
       env: ${{ inputs.env }}
       asm_tag: ${{ inputs.asm_tag }}
       asm_params_url: ${{ inputs.asm_params_url }}
+      asm_genesis_spec_id: ${{ inputs.asm_genesis_spec_id }}
       ref: ${{ inputs.ref }}
 
   circuit-gen:

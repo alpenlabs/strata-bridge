@@ -58,7 +58,7 @@ jobs:
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
 
       - name: Build SP1 bridge-proof and counterproof guests with bundled stub params
-        run: SKIP_PARAMS=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release --features docker-build
+        run: SKIP_PARAMS=1 BRIDGE_PROOF_ASM_GENESIS_SPEC_ID=1 cargo build --locked -p strata-bridge-sp1-guest-builder --release --features docker-build
 
   guest-build-success:
     name: Check that guest build passed

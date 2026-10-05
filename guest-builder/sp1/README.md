@@ -5,11 +5,12 @@ the path to the resulting ELF.
 
 ## Build inputs (release builds only)
 
-| Env var                            | Format     | Stub fallback under `SKIP_PARAMS=1` |
-|------------------------------------|------------|-------------------------------------|
-| `BRIDGE_PROOF_ASM_PARAMS_PATH`     | JSON file  | `stub/asm-params.json`              |
-| `BRIDGE_PROOF_ASM_VK_PATH`         | JSON file  | `stub/asm-vk.json`                  |
-| `BRIDGE_PROOF_MOHO_VK_PATH`        | JSON file  | `stub/moho-vk.json`                 |
+| Env var                            | Format      | Stub fallback under `SKIP_PARAMS=1` |
+|------------------------------------|-------------|-------------------------------------|
+| `BRIDGE_PROOF_ASM_PARAMS_PATH`     | JSON file   | `stub/asm-params.json`              |
+| `BRIDGE_PROOF_ASM_VK_PATH`         | JSON file   | `stub/asm-vk.json`                  |
+| `BRIDGE_PROOF_MOHO_VK_PATH`        | JSON file   | `stub/moho-vk.json`                 |
+| `BRIDGE_PROOF_ASM_GENESIS_SPEC_ID` | ASM spec ID | none, always required               |
 
 If either env var is unset on a release build and `SKIP_PARAMS` is not set, the build
 script panics with a message naming the missing variable and the `SKIP_PARAMS=1`
@@ -39,7 +40,7 @@ verify the program **compiles** without provisioning real inputs.
 > **Warning.** `SKIP_PARAMS` builds embeds a stale Moho VK — **not deployable**.
 
 ```bash
-SKIP_PARAMS=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
+SKIP_PARAMS=1 BRIDGE_PROOF_ASM_GENESIS_SPEC_ID=1 cargo build -p strata-bridge-sp1-guest-builder --release --features build-elf
 ```
 
 Or via the `.justfile` recipe:
