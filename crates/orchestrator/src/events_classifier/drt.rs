@@ -1,5 +1,5 @@
-//! Pure validation of deposit request transactions against a bridge configuration and active
-//! operator set.
+//! Pure validation of deposit request transactions against a bridge configuration and covenant
+//! membership.
 
 use bitcoin::{Amount, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
 use strata_asm_proto_bridge_txs::{
@@ -37,7 +37,7 @@ pub(super) enum ValidationError {
     #[error("DRT output value {actual} is below required {required}")]
     OutputValueBelowRequired { actual: Amount, required: Amount },
     /// Output-1's P2TR script does not match the script reconstructed from the depositor's
-    /// recovery pubkey, the active N-of-N aggregated key, and the bridge's recovery delay.
+    /// recovery pubkey, the covenant's N-of-N aggregated key, and the bridge's recovery delay.
     /// The DRT is therefore not cooperatively spendable by the bridge.
     #[error("DRT output script does not match expected P2TR locking script")]
     LockingScriptMismatch,
@@ -54,15 +54,15 @@ pub(super) fn is_our_drt_envelope(tx: &Transaction, cfg: &DepositSMCfg) -> bool 
         && tag.tx_type() == BridgeTxType::DepositRequest as u8
 }
 
-/// Validates a candidate DRT against the bridge configuration and active operator set, and
-/// returns the parts a `DepositSM` needs.
+/// Validates a candidate DRT against the bridge configuration and the membership of the covenant
+/// it must be addressed to, and returns the parts a `DepositSM` needs.
 ///
 /// The caller must have already verified the SPS-50 envelope via [`is_our_drt_envelope`];
 /// passing a tx that fails the envelope check yields [`ValidationError::Structure`].
-pub(super) fn validate_candidate(
+pub(super) fn validate_candidate<Pov>(
     tx: &Transaction,
     cfg: &DepositSMCfg,
-    active_operator_table: &OperatorTable,
+    covenant_table: &OperatorTable<Pov>,
 ) -> Result<Valid, ValidationError> {
     let drt_info = parse_drt(tx).map_err(ValidationError::Structure)?;
 
@@ -85,10 +85,7 @@ pub(super) fn validate_candidate(
         });
     }
 
-    let n_of_n = active_operator_table
-        .aggregated_btc_key()
-        .x_only_public_key()
-        .0;
+    let n_of_n = covenant_table.aggregated_btc_key().x_only_public_key().0;
     let expected_script =
         create_deposit_request_locking_script(recovery_pk_bytes, n_of_n, cfg.recovery_delay);
     if drt_output.script_pubkey != expected_script {
@@ -212,6 +209,16 @@ mod tests {
 
         let valid = validate_candidate(&builder.build(), &cfg, &operator_table)
             .expect("aligned DRT must validate");
+        assert_eq!(
+            validate_candidate(
+                &builder.build(),
+                &cfg,
+                &operator_table.clone().into_public()
+            )
+            .expect("aligned DRT must validate against the public covenant table"),
+            valid,
+            "validation must not depend on the local participant",
+        );
 
         assert_eq!(
             valid.depositor_pubkey, expected_pk,
