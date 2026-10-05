@@ -3,11 +3,10 @@
 //! Active only in `--release` **and** with the `build-elf` feature enabled.
 //! For `guest-bridge-proof`, reads `BRIDGE_PROOF_ASM_PARAMS_PATH`,
 //! `BRIDGE_PROOF_ASM_VK_PATH`, and `BRIDGE_PROOF_MOHO_VK_PATH` (or `stub/`
-//! files under `SKIP_PARAMS=1`) plus the optional `BRIDGE_PROOF_ASM_GENESIS_SPEC_ID`
-//! (default 0), writes the SSZ-encoded `BridgeProofGenesis`
-//! to `guest-bridge-proof/build/genesis.bin`, and compiles the SP1 guest ELF
-//! directly into `<crate>/elfs/bridge-proof.elf` (referenced at runtime via
-//! [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]). The bridge-proof
+//! files under `SKIP_PARAMS=1`) plus the required `BRIDGE_PROOF_ASM_GENESIS_SPEC_ID`,
+//! writes the SSZ-encoded `BridgeProofGenesis` to `guest-bridge-proof/build/genesis.bin`,
+//! and compiles the SP1 guest ELF directly into `<crate>/elfs/bridge-proof.elf` (referenced at
+//! runtime via [`strata_bridge_sp1_guest_builder::BRIDGE_PROOF_ELF_PATH`]). The bridge-proof
 //! ELF's Groth16 verifying key is then derived and threaded into the
 //! `guest-counterproof` build as the `bridge_proof_vk` trust anchor, so the
 //! counterproof can actually verify (and refute) embedded bridge-proof
@@ -36,8 +35,8 @@ mod release {
     use strata_bridge_counterproof::load_genesis_from_paths as load_counterproof_genesis_from_paths;
     use strata_bridge_proof::{
         asm_genesis_spec_id_from_env,
-        load_genesis_from_paths as load_bridge_proof_genesis_from_paths, ASM_GENESIS_SPEC_ID_ENV,
-        ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
+        load_genesis_from_paths as load_bridge_proof_genesis_from_paths, SpecId,
+        ASM_GENESIS_SPEC_ID_ENV, ASM_PARAMS_PATH_ENV, ASM_VK_PATH_ENV, MOHO_VK_PATH_ENV,
     };
     use strata_bridge_proof_common::host::{
         sp1_groth16_predicate_key, sp1_groth16_predicate_string_from_key, sp1_program_vkey_hash,
@@ -80,7 +79,14 @@ mod release {
         // 1) Build the bridge-proof guest first; its Groth16 VK is an input to the counterproof's
         //    genesis.
         let (asm_params_path, asm_vk_path, moho_vk_path) = resolve_genesis_inputs();
-        write_bridge_proof_genesis(&asm_params_path, &asm_vk_path, &moho_vk_path);
+        let asm_genesis_spec_id = asm_genesis_spec_id_from_env();
+        println!("cargo:warning=bridge guests baking in ASM genesis spec {asm_genesis_spec_id}");
+        write_bridge_proof_genesis(
+            &asm_params_path,
+            &asm_vk_path,
+            &moho_vk_path,
+            asm_genesis_spec_id,
+        );
         build_guest(BRIDGE_PROOF_GUEST_DIR, BRIDGE_PROOF_ELF_NAME);
         let bridge_proof_vk = emit_predicate(
             BRIDGE_PROOF_ELF_NAME,
@@ -96,6 +102,7 @@ mod release {
             &asm_params_path,
             &asm_vk_path,
             &moho_vk_path,
+            asm_genesis_spec_id,
         );
         build_guest(COUNTERPROOF_GUEST_DIR, COUNTERPROOF_ELF_NAME);
         let _ = emit_predicate(
@@ -121,7 +128,12 @@ mod release {
         (asm_params_path, asm_vk_path, moho_vk_path)
     }
 
-    fn write_bridge_proof_genesis(asm_params_path: &Path, asm_vk_path: &Path, moho_vk_path: &Path) {
+    fn write_bridge_proof_genesis(
+        asm_params_path: &Path,
+        asm_vk_path: &Path,
+        moho_vk_path: &Path,
+        asm_genesis_spec_id: SpecId,
+    ) {
         let build_out_dir = Path::new(BRIDGE_PROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
 
@@ -132,7 +144,7 @@ mod release {
             asm_params_path,
             asm_vk_path,
             moho_vk_path,
-            asm_genesis_spec_id_from_env(),
+            asm_genesis_spec_id,
         );
         // Surface the genesis baked into this ELF; it pins the trust anchors the guest verifies
         // against.
@@ -146,6 +158,7 @@ mod release {
         asm_params_path: &Path,
         asm_vk_path: &Path,
         moho_vk_path: &Path,
+        asm_genesis_spec_id: SpecId,
     ) {
         let build_out_dir = Path::new(COUNTERPROOF_GUEST_DIR).join("build");
         let genesis_out_file = build_out_dir.join("genesis.bin");
@@ -158,7 +171,7 @@ mod release {
             asm_params_path,
             asm_vk_path,
             moho_vk_path,
-            asm_genesis_spec_id_from_env(),
+            asm_genesis_spec_id,
         );
         println!("cargo:warning=counterproof ELF baking in genesis: {genesis:?}");
         fs::write(&genesis_out_file, genesis.as_ssz_bytes())

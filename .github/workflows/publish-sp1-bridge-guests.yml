@@ -19,6 +19,10 @@ on:
         description: HTTPS URL to fetch asm-params.json from (use raw.githubusercontent.com or a release-asset URL, not a github.com /blob/ view URL).
         required: true
         type: string
+      asm_genesis_spec_id:
+        description: ASM spec the chain's genesis anchor was built under (the asm-runner's execution.genesis_spec_id). Baked into both guests.
+        required: true
+        type: string
       ref:
         description: strata-bridge git ref to build. Defaults to the branch selected in the UI.
         required: false
@@ -37,6 +41,10 @@ on:
         type: string
       asm_params_url:
         description: HTTPS URL to fetch asm-params.json from (raw URL, not a /blob/ view URL).
+        required: true
+        type: string
+      asm_genesis_spec_id:
+        description: ASM spec the chain's genesis anchor was built under (the asm-runner's execution.genesis_spec_id).
         required: true
         type: string
       ref:
@@ -97,6 +105,7 @@ jobs:
           INPUT_ENV: ${{ inputs.env }}
           INPUT_ASM_TAG: ${{ inputs.asm_tag }}
           INPUT_ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
+          INPUT_ASM_GENESIS_SPEC_ID: ${{ inputs.asm_genesis_spec_id }}
           INPUT_REF: ${{ inputs.ref }}
         run: python3 .github/scripts/guest_publish.py validate
 
@@ -132,6 +141,7 @@ jobs:
           BRIDGE_PROOF_ASM_PARAMS_PATH: ${{ runner.temp }}/bridge-genesis/asm-params.json
           BRIDGE_PROOF_ASM_VK_PATH: ${{ runner.temp }}/bridge-genesis/asm-vk.json
           BRIDGE_PROOF_MOHO_VK_PATH: ${{ runner.temp }}/bridge-genesis/moho-vk.json
+          BRIDGE_PROOF_ASM_GENESIS_SPEC_ID: ${{ inputs.asm_genesis_spec_id }}
         run: |
           set -euo pipefail
           unset SKIP_PARAMS
@@ -145,6 +155,7 @@ jobs:
           ASM_TAG: ${{ inputs.asm_tag }}
           ASM_REV: ${{ steps.fetch.outputs.asm_rev }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
+          ASM_GENESIS_SPEC_ID: ${{ inputs.asm_genesis_spec_id }}
           BRIDGE_REF: ${{ inputs.ref || github.ref }}
           BRIDGE_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: python3 .github/scripts/guest_publish.py summarize

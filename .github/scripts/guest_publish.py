@@ -60,14 +60,24 @@ BLOB_HINT = (
 )
 
 
+def validate_spec_id(spec_id: str) -> int:
+    # SpecId is a u16 in asm.
+    if not spec_id.isdigit() or int(spec_id) > 0xFFFF:
+        fail(f"asm_genesis_spec_id must be a u16, got {spec_id!r}")
+    return int(spec_id)
+
+
 def cmd_validate() -> None:
-    """Env: INPUT_ENV, INPUT_ASM_TAG, INPUT_ASM_PARAMS_URL, INPUT_REF (optional)."""
+    """Env: INPUT_ENV, INPUT_ASM_TAG, INPUT_ASM_PARAMS_URL, INPUT_ASM_GENESIS_SPEC_ID,
+    INPUT_REF (optional)."""
     env = os.environ["INPUT_ENV"]
     asm_tag = os.environ["INPUT_ASM_TAG"]
     asm_params_url = os.environ["INPUT_ASM_PARAMS_URL"]
+    asm_genesis_spec_id = os.environ["INPUT_ASM_GENESIS_SPEC_ID"]
     ref = os.environ.get("INPUT_REF", "")
 
     validate_env(env)
+    validate_spec_id(asm_genesis_spec_id)
 
     if WHITESPACE_RE.search(asm_tag):
         fail("asm_tag must not contain whitespace")
@@ -201,8 +211,8 @@ BUNDLED_INPUTS = ("asm-params.json", "asm-vk.json", "moho-vk.json")
 
 
 def cmd_summarize() -> None:
-    """Env: ELF_DIR, INPUTS_DIR, DEPLOY_ENV, ASM_TAG, ASM_REV, ASM_PARAMS_URL, BRIDGE_REF,
-    BRIDGE_SHA, GITHUB_STEP_SUMMARY."""
+    """Env: ELF_DIR, INPUTS_DIR, DEPLOY_ENV, ASM_TAG, ASM_REV, ASM_PARAMS_URL,
+    ASM_GENESIS_SPEC_ID, BRIDGE_REF, BRIDGE_SHA, GITHUB_STEP_SUMMARY."""
     elf_dir = Path(os.environ["ELF_DIR"])
     inputs_dir = Path(os.environ["INPUTS_DIR"])
     # DEPLOY_ENV, not ENV: POSIX reserves `ENV` as a shell startup-file path, so keep
@@ -211,6 +221,7 @@ def cmd_summarize() -> None:
     asm_tag = os.environ["ASM_TAG"]
     asm_rev = os.environ["ASM_REV"]
     asm_params_url = os.environ["ASM_PARAMS_URL"]
+    asm_genesis_spec_id = validate_spec_id(os.environ["ASM_GENESIS_SPEC_ID"])
     # Caller resolves these from `inputs.ref || github.ref` + `git rev-parse HEAD`
     # post-checkout. We can't fall back to GITHUB_REF/GITHUB_SHA because those
     # always describe the dispatch event, not the (possibly overridden) build ref.
@@ -252,6 +263,7 @@ def cmd_summarize() -> None:
         "asm_tag": asm_tag,
         "asm_params_url": asm_params_url,
         "asm_genesis_l1_height": genesis,
+        "asm_genesis_spec_id": asm_genesis_spec_id,
         "run_id": run_id,
         "strata_bridge": {"ref": bridge_ref, "sha": bridge_sha},
         "predicates": {
@@ -293,6 +305,7 @@ def cmd_summarize() -> None:
         f"- env: `{env}`",
         f"- asm tag (alpenlabs/asm): `{asm_tag}`",
         f"- asm-params source: `{asm_params_url}`",
+        f"- asm genesis spec: `{asm_genesis_spec_id}`",
         f"- strata-bridge ref: `{bridge_ref}` @ `{bridge_sha}`",
         "",
         "Artifact also contains `manifest.json` plus the verbatim input JSONs"

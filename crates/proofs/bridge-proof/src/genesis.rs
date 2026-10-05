@@ -21,8 +21,9 @@ pub const ASM_VK_PATH_ENV: &str = "BRIDGE_PROOF_ASM_VK_PATH";
 /// Path to `moho-vk.json`. Required input for [`load_genesis_from_env`].
 pub const MOHO_VK_PATH_ENV: &str = "BRIDGE_PROOF_MOHO_VK_PATH";
 
-/// ASM spec the chain's genesis anchor was built under. Optional input for
-/// [`load_genesis_from_env`]; defaults to [`StrataAsmSpec::ID`].
+/// ASM spec the chain's genesis anchor was built under. Required input for
+/// [`load_genesis_from_env`]: the anchor records its spec, so a wrong value bakes in a genesis
+/// that no Moho proof of the real chain builds on.
 pub const ASM_GENESIS_SPEC_ID_ENV: &str = "BRIDGE_PROOF_ASM_GENESIS_SPEC_ID";
 
 /// Builds a [`BridgeProofGenesis`] directly from file paths.
@@ -62,12 +63,16 @@ pub fn load_genesis_from_env() -> BridgeProofGenesis {
     )
 }
 
-/// Reads [`ASM_GENESIS_SPEC_ID_ENV`], falling back to [`StrataAsmSpec::ID`] when unset.
+/// Reads [`ASM_GENESIS_SPEC_ID_ENV`].
+///
+/// # Panics
+///
+/// If the variable is unset or not a spec ID.
 pub fn asm_genesis_spec_id_from_env() -> SpecId {
-    std::env::var(ASM_GENESIS_SPEC_ID_ENV).map_or(StrataAsmSpec::ID, |id| {
-        id.parse()
-            .unwrap_or_else(|e| panic!("{ASM_GENESIS_SPEC_ID_ENV}={id} is not a spec ID: {e}"))
-    })
+    let id = std::env::var(ASM_GENESIS_SPEC_ID_ENV)
+        .unwrap_or_else(|_| panic!("{ASM_GENESIS_SPEC_ID_ENV} must be set"));
+    id.parse()
+        .unwrap_or_else(|e| panic!("{ASM_GENESIS_SPEC_ID_ENV}={id} is not a spec ID: {e}"))
 }
 
 fn derive_anchor_attestation(
