@@ -10,7 +10,7 @@ use secp256k1::XOnlyPublicKey;
 use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
 use strata_bridge_primitives::{
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
-    types::P2POperatorPubKey,
+    types::{DepositIdx, GameIndex, P2POperatorPubKey},
 };
 use strata_l1_txfmt::MagicBytes;
 use strata_predicate::PredicateKey;
@@ -69,6 +69,13 @@ pub struct ProtocolParams {
 
     /// The denomination of deposits in the bridge.
     pub deposit_amount: Amount,
+
+    /// The index of the first deposit registered in a deposit sequence.
+    ///
+    /// Covenant participants must use the same value. A sequence with retained deposits
+    /// continues from its existing indices instead. Defaults to zero.
+    #[serde(default, deserialize_with = "deserialize_deposit_index_offset")]
+    pub deposit_index_offset: DepositIdx,
 
     /// The amount staked by an operator.
     pub stake_amount: Amount,
@@ -404,6 +411,17 @@ where
         .ok_or_else(|| serde::de::Error::custom("fee rate in sat/vb overflows"))
 }
 
+/// Rejects offsets without a [`GameIndex`], which can never be allocated.
+fn deserialize_deposit_index_offset<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<DepositIdx, D::Error> {
+    let offset = DepositIdx::deserialize(deserializer)?;
+    GameIndex::try_from(offset).map_err(|_| {
+        D::Error::custom(format!("deposit_index_offset {offset} has no game index"))
+    })?;
+    Ok(offset)
+}
+
 /// Deserialize a timelock in blocks, rejecting zero since it leaves the timelocked leaf
 /// unspendable.
 fn deserialize_timelock<'de, D>(deserializer: D) -> Result<u16, D::Error>
@@ -442,6 +460,45 @@ mod tests {
     // Two valid ed25519 public keys for test fixtures (taken from docker/vol).
     const P2P_KEY_1: &str = "0de7729dcbeb5069136ee4bff1c4f2fd822fe8fbc9b518df434d4f0c6312d8f5";
     const P2P_KEY_2: &str = "255ab0da6d468a22910a7cf54021763417c63c28bbafd4e2359daf103bb61e9d";
+
+    #[test]
+    fn deposit_index_offset_defaults_to_zero() {
+        let params: Params = toml::from_str(&params_toml(&valid_admin_section())).unwrap();
+        assert_eq!(params.protocol.deposit_index_offset, 0);
+    }
+
+    #[test]
+    fn deposit_index_offset_round_trips_absolute_indices() {
+        for offset in [0, 1200, 4_294_967_294i64] {
+            let input = params_toml(&valid_admin_section()).replace(
+                "[protocol]",
+                &format!("[protocol]\ndeposit_index_offset = {offset}"),
+            );
+            let params: Params = toml::from_str(&input).unwrap();
+            assert_eq!(params.protocol.deposit_index_offset, offset as DepositIdx);
+
+            let serialized = toml::to_string(&params).unwrap();
+            let round_trip: Params = toml::from_str(&serialized).unwrap();
+            assert_eq!(
+                round_trip.protocol.deposit_index_offset,
+                offset as DepositIdx
+            );
+        }
+    }
+
+    #[test]
+    fn deposit_index_offset_rejects_indices_without_a_game_index() {
+        for offset in [-1, 4_294_967_295, 4_294_967_296i64] {
+            let input = params_toml(&valid_admin_section()).replace(
+                "[protocol]",
+                &format!("[protocol]\ndeposit_index_offset = {offset}"),
+            );
+            assert!(
+                toml::from_str::<Params>(&input).is_err(),
+                "accepted offset {offset}"
+            );
+        }
+    }
 
     #[test]
     fn test_params_serde_toml() {

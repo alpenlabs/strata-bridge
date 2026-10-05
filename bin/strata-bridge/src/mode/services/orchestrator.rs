@@ -330,7 +330,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
         max_active_deposits: config.max_active_deposits,
-        deposit_index_offset: 0,
+        deposit_index_offset: params.protocol.deposit_index_offset,
     }
 }
 
@@ -351,5 +351,22 @@ fn build_exec_config(
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         bury_depth: u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32"),
         graph_sm_cfg: sm_config.graph.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::test_config, mode::services::test_fixtures::test_params};
+
+    #[test]
+    fn sm_config_carries_the_protocol_deposit_index_offset() {
+        let mut params = test_params();
+        params.protocol.deposit_index_offset = 1200;
+        assert_eq!(
+            build_sm_config(&test_config(), &params).deposit_index_offset,
+            1200,
+            "The registry must allocate from the offset supplied in the protocol params"
+        );
     }
 }
