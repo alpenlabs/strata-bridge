@@ -845,7 +845,6 @@ mod tests {
         Amount, OutPoint, TxOut, Witness, consensus::encode::serialize_hex, hashes::Hash, key::rand,
     };
     use btc_tracker::event::{BlockEvent, BlockStatus};
-    use libp2p_identity::Keypair;
     use strata_asm_proto_bridge_txs::{
         BRIDGE_SUBPROTOCOL_ID,
         constants::BridgeTxType,
@@ -853,10 +852,7 @@ mod tests {
     };
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
     use strata_bridge_p2p_types::NagRequestPayload;
-    use strata_bridge_primitives::{
-        operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
-        types::{GraphIdx, P2POperatorPubKey},
-    };
+    use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
         graph::{
@@ -884,9 +880,9 @@ mod tests {
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
             insert_confirmed_stake, insert_created_stake, insert_deposit_with_graphs,
-            make_confirmed_stake_sm, mock_bitcoin_rpc, random_p2tr_desc, test_empty_registry,
-            test_fdb_config, test_operator_table, test_populated_registry, test_sm_config,
-            unavailable_bitcoin_client,
+            insert_test_membership, make_confirmed_stake_sm, mock_bitcoin_rpc, test_empty_registry,
+            test_fdb_config, test_membership_table, test_operator_table, test_populated_registry,
+            test_sm_config, unavailable_bitcoin_client,
         },
     };
 
@@ -1533,7 +1529,7 @@ mod tests {
 
     #[tokio::test]
     async fn durable_first_pass_preserves_historical_preimage_for_second_pass_burn() {
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let table = test_membership_table();
         let covenant = test_covenant(&table);
         let graph_idx = GraphIdx {
             deposit: 0,
@@ -1541,37 +1537,7 @@ mod tests {
         };
         let preimage = [0x42; 32];
         let mut registry = test_empty_registry();
-        let registrations = table
-            .operator_idxs()
-            .into_iter()
-            .map(|index| {
-                ScheduledOperator::new(
-                    index,
-                    table.idx_to_btc_key(&index).unwrap().x_only_public_key().0,
-                    Keypair::generate_ed25519()
-                        .public()
-                        .try_into_ed25519()
-                        .unwrap()
-                        .to_bytes()
-                        .to_vec()
-                        .into(),
-                    random_p2tr_desc(),
-                    INITIAL_BLOCK_HEIGHT,
-                    None,
-                )
-                .unwrap()
-            })
-            .collect();
-        registry
-            .insert_operator_set(
-                OperatorSetSM::new(
-                    INITIAL_BLOCK_HEIGHT,
-                    OperatorSetSchedule::new(registrations).unwrap(),
-                    vec![],
-                )
-                .unwrap(),
-            )
-            .unwrap();
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
         for operator in table.operator_idxs() {
             registry
                 .insert_stake(make_confirmed_stake_sm(
