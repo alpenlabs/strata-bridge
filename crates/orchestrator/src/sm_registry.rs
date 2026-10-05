@@ -16,7 +16,7 @@ use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
-    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GameIndex, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     cross_sm_context::CrossSmContext,
@@ -91,7 +91,7 @@ pub enum RegistryInsertError {
     /// Equal identities must have the same full indexed membership.
     #[error("conflicting membership for stake {0}")]
     CovenantMembershipMismatch(StakeKey),
-    /// The maximum deposit index has been reached.
+    /// No further deposit index can be allocated with a game index.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
     /// The configured offset is reserved for a covenant that includes the local operator.
@@ -373,22 +373,28 @@ impl SMRegistry {
     /// # Errors
     ///
     /// Returns [`RegistryInsertError::OffsetOutsideLocalCovenant`] if a sequence would be started
-    /// for a covenant that excludes `local_operator`.
+    /// for a covenant that excludes `local_operator`, and
+    /// [`RegistryInsertError::DepositIdxExhausted`] if the next index has no [`GameIndex`].
     pub fn next_deposit_idx<Pov>(
         &self,
         previous: Option<DepositIdx>,
         covenant: &OperatorTable<Pov>,
         local_operator: OperatorIdx,
     ) -> Result<DepositIdx, RegistryInsertError> {
-        match previous {
+        let next_idx = match previous {
             Some(previous) => previous
                 .checked_add(1)
-                .ok_or(RegistryInsertError::DepositIdxExhausted(previous)),
-            None if covenant.contains_idx(&local_operator) => Ok(self.first_deposit_idx()),
-            None => Err(RegistryInsertError::OffsetOutsideLocalCovenant(
-                local_operator,
-            )),
-        }
+                .ok_or(RegistryInsertError::DepositIdxExhausted(previous))?,
+            None if covenant.contains_idx(&local_operator) => self.first_deposit_idx(),
+            None => {
+                return Err(RegistryInsertError::OffsetOutsideLocalCovenant(
+                    local_operator,
+                ));
+            }
+        };
+        GameIndex::try_from(next_idx)
+            .map_err(|_| RegistryInsertError::DepositIdxExhausted(next_idx))?;
+        Ok(next_idx)
     }
 
     /// Returns the index of the first deposit in a sequence.
@@ -1098,6 +1104,36 @@ mod tests {
             registry.next_deposit_idx(registry.last_deposit_idx(), &local_covenant(), TEST_POV_IDX),
             Ok(MAX_IDX + 1)
         );
+    }
+
+    #[test]
+    fn next_deposit_idx_rejects_indices_without_a_game_index() {
+        let last_game_idx = DepositIdx::MAX - 1;
+
+        let registry = test_empty_registry();
+        assert_eq!(
+            registry.next_deposit_idx(Some(last_game_idx), &local_covenant(), TEST_POV_IDX),
+            Err(RegistryInsertError::DepositIdxExhausted(DepositIdx::MAX)),
+            "An index after {last_game_idx} has no game index and must not be allocated"
+        );
+
+        for (offset, expected) in [
+            (last_game_idx, Ok(last_game_idx)),
+            (
+                DepositIdx::MAX,
+                Err(RegistryInsertError::DepositIdxExhausted(DepositIdx::MAX)),
+            ),
+        ] {
+            let registry = SMRegistry::new(SMConfig {
+                deposit_index_offset: offset,
+                ..test_sm_config()
+            });
+            assert_eq!(
+                registry.next_deposit_idx(None, &local_covenant(), TEST_POV_IDX),
+                expected,
+                "A sequence may start at offset {offset} only if it has a game index"
+            );
+        }
     }
 
     #[test]
