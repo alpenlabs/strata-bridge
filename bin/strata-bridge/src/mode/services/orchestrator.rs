@@ -330,6 +330,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
         max_active_deposits: config.max_active_deposits,
+        deposit_index_offset: 0,
     }
 }
 
