@@ -32,8 +32,10 @@ const DEFAULT_GOSSIPSUB_TOPIC: &str = "strata";
 
 /// Maximum transmit size for gossipsub messages (64 KiB, libp2p's default).
 ///
-/// The largest bridge message, a graph's nonces, is about `660 + 264N` bytes for `N` operators.
-/// The limit also caps what a peer can make us buffer per inbound event slot.
+/// This caps the operator set. The largest bridge message, a graph's nonces, is `660 + 264N` bytes
+/// for `N` operators, and strata-p2p v0.3.7 sends payloads at two bytes per byte, so up to 120
+/// operators fit. Raise the limit before admitting more. It also caps what a peer can make us
+/// buffer per inbound event slot.
 const GOSSIPSUB_MAX_TRANSMIT_SIZE: usize = 64 * 1024;
 
 /// Creates permissive peer score parameters that don't penalize peers.
