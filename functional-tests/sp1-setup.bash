@@ -26,7 +26,8 @@ fetch_release_elf() {
             -o "$dir/$file" "$url/$file" || return 1
     done
     # Command substitution drops `set -e`, so each failure has to return explicitly.
-    ( cd "$dir" && grep "  $guest.elf\$" SHA256SUMS | shasum -a 256 -c - ) >&2 || return 1
+    # Match both sha256sum line forms: `<digest>  <name>` (text) and `<digest> *<name>` (binary).
+    ( cd "$dir" && grep -E " [ *]$guest\.elf\$" SHA256SUMS | shasum -a 256 -c - ) >&2 || return 1
     echo "$guest.elf ($tag) sha256: $(shasum -a 256 "$dir/$guest.elf" | cut -d' ' -f1)" >&2
     echo "$dir/$guest.elf"
 }
