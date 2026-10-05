@@ -35,6 +35,7 @@ class Keys:
 
 @dataclass
 class BridgeProtocolParams:
+    deposit_index_offset: int = 0
     bury_depth: int = 2
     magic_bytes: str = ASM_MAGIC_BYTES
     deposit_amount: int = 1_000_000_000
