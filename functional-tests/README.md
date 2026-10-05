@@ -104,9 +104,10 @@ uv run python entry.py
 ```
 
 > A few groups are deliberately skipped by the no-arg run because they're
-> too expensive to drag into a default regression sweep. Today that's just
-> `proofs/` (the SP1 end-to-end proof tests). They still run when you
-> pick them by path (`-t …`) or by group (`-g proofs`). The list lives in
+> too expensive to drag into a default regression sweep. Today that's
+> `proofs/` (the SP1 end-to-end proof tests) and `full_mosaic/` (the real
+> Mosaic circuit tests). They still run when you pick them by path (`-t …`)
+> or by group (`-g proofs`). The list lives in
 > `SKIP_GROUPS_BY_DEFAULT` in [`entry.py`](entry.py).
 
 ## Running in SP1 proving mode
@@ -151,6 +152,48 @@ regtest `bitcoind` (the `network-extbtc` environment).
    to keep the ASM/Moho layer as native Schnorr attestations. Real Groth16 proving
    (and the extra ELF builds) only happens under `SP1_PROVER` ≠ `mock`.
 
+### Full mosaic circuit mode
+
+Builds on SP1 proving mode above. `MOSAIC_CIRCUIT_MODE=full` replaces the bundled 768 KB
+toy circuit, whose output is just the game index's parity, with the real g16
+SP1-Groth16 verifier circuit, generated every run from that run's counterproof vkey (see
+[`g16-setup.bash`](g16-setup.bash)). Only [`tests/full_mosaic/`](tests/full_mosaic/)
+needs it.
+
+1. In `sp1-env.bash`, on top of the SP1 settings, set:
+
+   ```bash
+   export MOSAIC_CIRCUIT_MODE=full
+   export MOSAIC_CUT_AND_CHOOSE=full           # 181/174; `reduced` (5/3) needs ~310 GB instead
+   export BRIDGE_DEV_MODE=0                    # required under full
+   export BRIDGE_PROOF_SP1_STALE_ARTIFACTS=1   # required by the invalid-counterproof test
+   ```
+
+2. Start a fresh regtest `bitcoind` exactly as in step 1 of SP1 proving mode.
+
+3. Run ONE test (keep a laptop awake with `caffeinate`):
+
+   ```bash
+   caffeinate -ims ./run_test.sh -t tests/full_mosaic/fn_valid_counterproof_acked.py
+   ```
+
+4. Stop `bitcoind`, delete its datadir, and repeat steps 2 and 3 for
+   `tests/full_mosaic/fn_invalid_counterproof_nackd.py`. Each test needs its own fresh
+   chain; `entry.py` refuses `-g full_mosaic`.
+
+5. Reclaim the disk: `rm -rf _dd/<run-id> _dd/.g16-runs`.
+
+Measured on an Apple M4 Max (16 cores, 64 GB RAM), full cut-and-choose:
+
+| | Valid test | Invalid test |
+|---|---|---|
+| Wall clock | ~3h05m | ~3h15m to 3h25m |
+| Peak disk | ~760 GB | ~760 GB |
+| Peak RSS | 13-42 GiB (circuit generation) | 13-42 GiB |
+
+The phase breakdown, the log-archive command, and troubleshooting are in the
+[group README](tests/full_mosaic/README.md).
+
 ### SP1 env vars
 
 Defaults come from [`sp1-env.bash.sample`](sp1-env.bash.sample). Override any of
@@ -165,6 +208,15 @@ them inline (e.g. `SP1_PROVER=cpu ./run_test.sh ...`) or by editing your local
 | `NETWORK_RPC_URL` | `https://rpc.production.succinct.xyz` | Point at a different Succinct prover network endpoint. |
 | `NETWORK_PRIVATE_KEY` | _(unset)_ | **Required** for `SP1_PROVER=network`. Your Succinct prover account key; the network rejects requests without it. |
 | `BRIDGE_PROOF_SP1_ASM` | `1` | `0` keeps the ASM/Moho layer as native Schnorr attestations (`Bip340Schnorr`) and skips the asm/moho guest ELF builds; `1` builds them and the bridge verifies real `Sp1Groth16` predicates. |
+| `BRIDGE_DEV_MODE` | `1` | Skips the bridge startup consistency checks. Set `0` under `MOSAIC_CIRCUIT_MODE=full`, where the circuit is generated from the run's counterproof vkey so `verify_mosaic_vkey` passes on its merits (closes STR-3889); `run_test.sh` refuses full mode with `1`. |
+| `MOSAIC_CIRCUIT_MODE` | `mock` | `full` generates the real g16 Groth16 circuit for this run and points mosaic at it (see [Full mosaic circuit mode](#full-mosaic-circuit-mode)). Selects the circuit artifact only. |
+| `MOSAIC_CUT_AND_CHOOSE` | `reduced` | Cut-and-choose parameters, independent of the circuit: `reduced` builds mosaic with `--features=reduced-circuits` (`N_CIRCUITS`/`N_OPEN_CIRCUITS` = 5/3), `full` omits it (181/174). Disk follows the `N - K` retained tables, 2 vs 7. |
+| `G16_REF` | `G16_DEFAULT_REF` in `circuit-gen.yml` | alpenlabs/g16 ref to build `g16-pipeline` from (full mode only). |
+| `G16_DIR` | _(unset)_ | Existing g16 checkout to use; otherwise cloned into `.g16-src/`. |
+| `G16_RUNS_DIR` | `_dd/.g16-runs` | Where the g16 pipeline writes the circuit (needs a large mount). |
+| `G16_MIN_FREE_GB` | `600` (`reduced`) / `800` (`full`) | Disk preflight threshold, checked before the guest builds and again before generation; covers the circuit plus the garbled tables and FoundationDB that share the mount. |
+| `MOSAIC_CIRCUIT_PATH` | _(unset)_ | Full mode only: reuse this `v5c.ckt` instead of generating one (valid while the counterproof vkey is unchanged; refused under `mock`). |
+| `BRIDGE_PROOF_SP1_STALE_ARTIFACTS` | `0` | `1` builds a second, deliberately stale guest ELF pair from stub params, used by `tests/full_mosaic/fn_invalid_counterproof_nackd.py` to forge an invalid counterproof. |
 
 ## Running with code coverage
 
