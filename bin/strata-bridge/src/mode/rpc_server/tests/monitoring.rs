@@ -179,6 +179,7 @@ fn test_sm_config() -> SMConfig {
                 stake_amount: Amount::from_sat(20_000),
             },
         }),
+        deposit_index_offset: 0,
     }
 }
 

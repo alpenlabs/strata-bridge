@@ -45,7 +45,7 @@ use super::{drt, exits::resolve_exit_observation};
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
-    sm_registry::{ActiveOperatorSnapshot, SMRegistry, SnapshotError},
+    sm_registry::{ActiveOperatorSnapshot, RegistryInsertError, SMRegistry, SnapshotError},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -248,7 +248,8 @@ pub(crate) fn process_deposit_graph_pass(
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
 /// Returns `Ok(Vec::new())` unless every requested covenant member has an available stake,
-/// or if the transaction is already registered or fails DRT validation.
+/// or if the transaction is already registered or fails DRT validation. A request that would
+/// start a deposit sequence for a covenant that excludes the local operator is skipped.
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
     full_operator_table: &OperatorTable,
@@ -320,7 +321,23 @@ fn try_register_deposit(
         "passed validation; registering DSM / GSMs from active operator snapshot"
     );
 
-    let deposit_idx = applicator.registry().next_deposit_idx()?;
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+    // Supply the progress of the request's covenant sequence once admission is no longer
+    // limited to the initial covenant. Until then, every registered deposit shares one sequence.
+    let previous = applicator.registry().last_deposit_idx();
+    let deposit_idx = match applicator.registry().next_deposit_idx(
+        previous,
+        &active_operator_table,
+        full_operator_table.pov_idx(),
+    ) {
+        Ok(deposit_idx) => deposit_idx,
+        // An incorrect starting height can replay requests from before this node joined.
+        Err(err @ RegistryInsertError::OffsetOutsideLocalCovenant(_)) => {
+            warn!(%err, %drt_txid, "skipping DRT for a covenant without the local operator");
+            return Ok(Vec::new());
+        }
+        Err(err) => return Err(err.into()),
+    };
     let deposit_data = DepositData {
         deposit_idx,
         deposit_request_outpoint,

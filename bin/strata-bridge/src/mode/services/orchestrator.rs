@@ -329,6 +329,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         deposit: Arc::new(deposit_config),
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
+        deposit_index_offset: 0,
     }
 }
 
