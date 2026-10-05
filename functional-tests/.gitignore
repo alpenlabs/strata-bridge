@@ -19,4 +19,4 @@ sp1-env.bash
 _asm_params/
 
 # asm repo checkout (pinned rev) used to build the ASM/Moho SP1 guest ELFs
-.asm-src/
+.guest-elfs/

@@ -144,12 +144,13 @@ regtest `bitcoind` (the `network-extbtc` environment).
    from it, and bakes it into the guest ELF (no manual params step) so proofs verify
    against the actual chain.
 
-   With `BRIDGE_PROOF_SP1_ASM=1` (default in the sample), `run_test.sh` also builds the
-   ASM and Moho SP1 guest ELFs (cloning the asm repo at its pinned rev into `.asm-src/`)
-   and runs the asm-runner's SP1 backend, so the ASM/Moho proofs are real SP1 Groth16
-   proofs the bridge verifies via `Sp1Groth16` predicates. Set `BRIDGE_PROOF_SP1_ASM=0`
-   to keep the ASM/Moho layer as native Schnorr attestations. Real Groth16 proving
-   (and the extra ELF builds) only happens under `SP1_PROVER` ≠ `mock`.
+   With `BRIDGE_PROOF_SP1_ASM=1` (default in the sample), `run_test.sh` also downloads the
+   ASM and Moho SP1 guest ELFs from the alpenlabs/asm and alpenlabs/moho releases of the
+   tags pinned in `Cargo.toml` (into `.guest-elfs/`, checked against each release's
+   `SHA256SUMS`) and runs the asm-runner's SP1 backend, so the ASM/Moho proofs are real
+   SP1 Groth16 proofs the bridge verifies via `Sp1Groth16` predicates. Set
+   `BRIDGE_PROOF_SP1_ASM=0` to keep the ASM/Moho layer as native Schnorr attestations.
+   Real Groth16 proving only happens under `SP1_PROVER` ≠ `mock`.
 
 ### SP1 env vars
 
@@ -164,7 +165,7 @@ them inline (e.g. `SP1_PROVER=cpu ./run_test.sh ...`) or by editing your local
 | `SP1_PROOF_STRATEGY` | `reserved` | Succinct Network proof-request strategy (e.g. `reserved`, `hosted`, `auction`). Only used when `SP1_PROVER=network`. |
 | `NETWORK_RPC_URL` | `https://rpc.production.succinct.xyz` | Point at a different Succinct prover network endpoint. |
 | `NETWORK_PRIVATE_KEY` | _(unset)_ | **Required** for `SP1_PROVER=network`. Your Succinct prover account key; the network rejects requests without it. |
-| `BRIDGE_PROOF_SP1_ASM` | `1` | `0` keeps the ASM/Moho layer as native Schnorr attestations (`Bip340Schnorr`) and skips the asm/moho guest ELF builds; `1` builds them and the bridge verifies real `Sp1Groth16` predicates. |
+| `BRIDGE_PROOF_SP1_ASM` | `1` | `0` keeps the ASM/Moho layer as native Schnorr attestations (`Bip340Schnorr`) and skips the asm/moho guest ELF downloads; `1` downloads them and the bridge verifies real `Sp1Groth16` predicates. |
 
 ## Running with code coverage
 
