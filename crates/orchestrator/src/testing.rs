@@ -135,6 +135,7 @@ pub(crate) fn test_sm_config() -> SMConfig {
         graph: test_graph_sm_cfg(),
         stake: test_stake_sm_cfg(),
         max_active_deposits: None,
+        deposit_index_offset: 0,
     }
 }
 
