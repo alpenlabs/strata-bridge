@@ -87,3 +87,26 @@ vulnerabilities:
       challenger. The workspace delegates proving to SP1 rather than driving
       this challenger directly; it is not a remotely reachable path in the
       running bridge node.
+
+  - id: GHSA-5j98-2g5x-46v6
+    statement: |
+      hickory-resolver 0.25.2 — Resolver::lookup() / Resolver::lookup_ip()
+      return Ok(...) when DNSSEC validation determines a response is bogus.
+
+      Dependency path:
+        hickory-resolver 0.25.2
+          -> libp2p-dns 0.44.0
+            -> libp2p 0.56.0 -> strata-p2p
+
+      Why unfixable: the fix exists only in hickory-resolver >= 0.26.2. The
+      0.26 line is reachable only via libp2p 0.57 (libp2p-dns 0.45.0), but
+      strata-p2p (both the v0.3.7 tag used here and the latest v0.4.0)
+      still requires libp2p ^0.56, so the bump is blocked on strata-p2p.
+
+      Required fix: strata-p2p bumps libp2p to 0.57, then this workspace
+      bumps strata-p2p and libp2p.
+
+      Risk: none in practice. The flaw only affects resolvers with DNSSEC
+      validation enabled, and libp2p-dns builds hickory-resolver with only
+      the `system-config` and `tokio` features — no `dnssec-*` feature is
+      enabled anywhere in the graph, so validation is not compiled in.
