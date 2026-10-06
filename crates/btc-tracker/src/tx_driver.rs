@@ -374,7 +374,7 @@ mod tests {
 
 #[cfg(test)]
 mod e2e_tests {
-    use std::{collections::VecDeque, path::PathBuf, sync::Arc};
+    use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 
     use algebra::predicate;
     use bitcoin::{
@@ -383,7 +383,7 @@ mod e2e_tests {
     };
     use bitcoind_async_client::Client as BitcoinClient;
     use corepc_node::{client::client_sync::Auth, vtype::FundRawTransaction, CookieValues, Output};
-    use futures::join;
+    use futures::{join, TryFutureExt};
     use serial_test::serial;
     use strata_bridge_common::logging;
     use strata_bridge_test_utils::prelude::wait_for_height;
@@ -680,6 +680,142 @@ mod e2e_tests {
             .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
             .await?;
         info!("OP_RETURN burn transaction appeared in mempool");
+
+        Ok(())
+    }
+
+    // Spends `prevout` (worth `input_value`) back to `recipient` with RBF enabled, paying `fee`.
+    fn sign_rbf_spend(
+        bitcoind: &corepc_node::Node,
+        prevout: OutPoint,
+        input_value: Amount,
+        recipient: &bitcoin::Address,
+        fee: Amount,
+    ) -> Result<Transaction, Box<dyn std::error::Error>> {
+        let unsigned = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: prevout,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: input_value - fee,
+                script_pubkey: recipient.script_pubkey(),
+            }],
+        };
+
+        Ok(bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&unsigned)?
+            .into_model()?
+            .tx)
+    }
+
+    // Mines 101 blocks to `address` and returns the first block's matured coinbase outpoint and
+    // value.
+    async fn mature_coinbase(
+        bitcoind: &corepc_node::Node,
+        address: &bitcoin::Address,
+    ) -> Result<(OutPoint, Amount), Box<dyn std::error::Error>> {
+        let blocks = bitcoind
+            .client
+            .generate_to_address(101, address)?
+            .into_model()?;
+        debug!("waiting for test funds to mature");
+        wait_for_height(bitcoind, 101).await?;
+        debug!("test funds matured");
+
+        let spendable_block = bitcoind.client.get_block(
+            *blocks
+                .0
+                .first()
+                .expect("generate_to_address must return mined block hashes"),
+        )?;
+        let coinbase_tx = spendable_block
+            .coinbase()
+            .expect("mined block must contain a coinbase transaction");
+
+        Ok((
+            OutPoint::new(coinbase_tx.compute_txid(), 0),
+            coinbase_tx.output[0].value,
+        ))
+    }
+
+    // A reorg returns the transaction to the mempool, so the drive job completes once it is buried
+    // again.
+    #[tokio::test]
+    #[serial]
+    async fn tx_drive_reorg() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init_from_env("tx_drive_reorg");
+
+        let (driver, bitcoind) = setup().await?;
+
+        let new_address = bitcoind.client.new_address()?;
+        let (prevout, input_value) = mature_coinbase(&bitcoind, &new_address).await?;
+
+        let signed = sign_rbf_spend(
+            &bitcoind,
+            prevout,
+            input_value,
+            &new_address,
+            Amount::from_sat(10_000),
+        )?;
+        let txid = signed.compute_txid();
+
+        info!(%txid, "driving transaction to burial across a reorg");
+        let drive_to_buried = driver
+            .drive(signed.clone(), TxStatus::is_buried)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>);
+
+        let reorg_then_bury = async {
+            driver
+                .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
+                .await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            let mined_in = bitcoind
+                .client
+                .generate_to_address(1, &new_address)?
+                .into_model()?
+                .0
+                .remove(0);
+            driver.drive(signed.clone(), TxStatus::is_mined).await?;
+            // Let the ZMQ client record the block before it is disconnected again.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            info!(%mined_in, "invalidating the block containing the transaction");
+            bitcoind
+                .client
+                .call::<()>("invalidateblock", &[mined_in.to_string().into()])?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            // Regtest clamps block timestamps to median-time-past + 1 when blocks are mined this
+            // quickly, so re-mining the same mempool on the same parent would reproduce the exact
+            // block that was just invalidated and the node would reject it. Add another transaction
+            // so the replacement block differs.
+            bitcoind
+                .client
+                .send_to_address(&new_address, Amount::ONE_BTC)?;
+
+            // Mine a fresh chain deep enough to bury the transaction again.
+            for _ in 0..(crate::constants::DEFAULT_BURY_DEPTH + 2) {
+                bitcoind.client.generate_to_address(1, &new_address)?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+
+            Ok::<(), Box<dyn std::error::Error>>(())
+        };
+
+        // `try_join` fails fast on an error from either future.
+        tokio::time::timeout(
+            Duration::from_secs(90),
+            futures::future::try_join(drive_to_buried, reorg_then_bury),
+        )
+        .await
+        .expect("drive must resolve after the reorg")?;
 
         Ok(())
     }
