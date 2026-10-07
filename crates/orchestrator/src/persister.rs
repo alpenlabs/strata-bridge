@@ -9,7 +9,7 @@ use std::{
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
 use thiserror::Error;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{
     observability,
@@ -119,6 +119,20 @@ impl Persister {
     /// Creates a new persister with the given database instance.
     pub const fn new(db: Arc<FdbClient>) -> Self {
         Self { db }
+    }
+
+    /// Persists each tracked causal group, stopping if any group fails to commit.
+    pub async fn persist_batches(
+        &self,
+        tracker: PersistenceTracker,
+        registry: &SMRegistry,
+    ) -> Result<(), PersistError> {
+        let batches = tracker.into_batches();
+        info!(count = %batches.len(), "persisting updated state machines batches");
+        for batch in batches {
+            self.persist_batch(batch, registry).await?;
+        }
+        Ok(())
     }
 
     /// Persists the state of the given state machines to disk as a single atomic batch.
