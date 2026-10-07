@@ -1,6 +1,5 @@
 //! Unit tests for the Stake State Machine.
 
-mod covenant_context;
 mod introspection;
 mod nag_received;
 mod nag_tick;
@@ -216,10 +215,10 @@ static TEST_CFG: LazyLock<Arc<StakeSMCfg>> = LazyLock::new(|| {
 });
 /// Stake state machine context.
 static TEST_CTX: LazyLock<StakeSMCtx> =
-    LazyLock::new(|| StakeSMCtx::new(TEST_POV_IDX, TEST_OPERATOR_TABLE.clone(), 101));
+    LazyLock::new(|| StakeSMCtx::new(TEST_POV_IDX, TEST_OPERATOR_TABLE.clone()));
 /// Stake state machine context for a non-POV operator tracking the POV operator's stake.
 static TEST_NONPOV_CTX: LazyLock<StakeSMCtx> =
-    LazyLock::new(|| StakeSMCtx::new(TEST_POV_IDX, TEST_NONPOV_OPERATOR_TABLE.clone(), 101));
+    LazyLock::new(|| StakeSMCtx::new(TEST_POV_IDX, TEST_NONPOV_OPERATOR_TABLE.clone()));
 
 // ┌───────────────────────────────────────────────────────────────────┐
 // │                          Stake Graph                              │

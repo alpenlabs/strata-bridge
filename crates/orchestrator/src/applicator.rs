@@ -150,7 +150,7 @@ impl<'a> Applicator<'a> {
 
                 for signal in output.signals {
                     for (target_id, target_event) in
-                        signals_router::route_signal(self.registry, signal)?
+                        signals_router::route_signal(self.registry, signal)
                     {
                         if mutated {
                             self.tracker.link(sm_id, target_id);
@@ -182,7 +182,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use bitcoin::{Amount, OutPoint, hashes::sha256};
-    use strata_bridge_primitives::{covenant::CovenantId, types::GraphIdx};
+    use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_sm::{
         deposit::{
             events::{DepositEvent, NewBlockEvent as DepositNewBlock, UserTakeBackEvent},
@@ -313,7 +313,6 @@ mod tests {
     fn test_graph_sm(graph_idx: GraphIdx) -> GraphSM {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let gsm_ctx = GraphSMCtx {
-            covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
             graph_idx,
             deposit_outpoint: OutPoint::default(),
             stake_outpoint: OutPoint::default(),

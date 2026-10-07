@@ -92,9 +92,7 @@ pub(crate) fn classify_routed(
     };
 
     if let Some(UnsignedGossipsubMsg::NagRequestExchange(nag_request)) = gossip {
-        let Some(target_sm_id) = nag_target_sm_id(&nag_request.payload, sm_registry) else {
-            return ClassificationOutcome::ExpectedDrop;
-        };
+        let target_sm_id = nag_target_sm_id(&nag_request.payload);
         if let Some(pov_p2p_key) = pov_p2p_key_for_sm(sm_registry, &target_sm_id)
             && nag_request.recipient != pov_p2p_key
         {
@@ -223,8 +221,7 @@ pub(crate) fn classify_unsigned_gossip(
             operator_idx,
             unstaking_input,
         } => {
-            let Some(stake_key) = sm_registry.resolve_legacy_stake_key(*operator_idx) else { return vec![]; };
-            let sm_id = SMId::Stake(stake_key);
+            let sm_id = SMId::Stake(*operator_idx);
             let Some(sender_idx) = sm_registry.lookup_operator(&sm_id, key) else {
                 warn!(
                     %operator_idx,
@@ -342,8 +339,7 @@ pub(crate) fn classify_unsigned_gossip(
                 operator_idx,
                 nonces,
             } => sm_registry
-                .resolve_legacy_stake_key(*operator_idx)
-                .and_then(|stake_key| sm_registry.lookup_operator(&SMId::Stake(stake_key), key))
+                .lookup_operator(&SMId::Stake(*operator_idx), key)
                 .into_iter()
                 .filter_map(|sender_idx| {
                     let parsed: Result<Vec<_>, _> =
@@ -486,8 +482,7 @@ pub(crate) fn classify_unsigned_gossip(
                     operator_idx,
                     partials,
                 } => sm_registry
-                    .resolve_legacy_stake_key(*operator_idx)
-                    .and_then(|stake_key| sm_registry.lookup_operator(&SMId::Stake(stake_key), key))
+                    .lookup_operator(&SMId::Stake(*operator_idx), key)
                     .into_iter()
                     .filter_map(|sender_idx| {
                         let parsed: Result<Vec<_>, _> = partials
@@ -556,7 +551,7 @@ pub(crate) fn classify_unsigned_gossip(
         }
 
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => {
-            let Some(sm_id) = nag_target_sm_id(&nag_request.payload, sm_registry) else { return vec![]; };
+            let sm_id = nag_target_sm_id(&nag_request.payload);
 
             info!(
                 target_sm = %sm_id,
@@ -568,7 +563,6 @@ pub(crate) fn classify_unsigned_gossip(
 
             // Router guarantees target SM exists for routed events.
             let missing_sm_message = match &sm_id {
-                SMId::OperatorSet => return vec![],
                 SMId::Deposit(_) => "router should route nags only to existing deposit SMs",
                 SMId::Graph(_) => "router should route nags only to existing graph SMs",
                 SMId::Stake(_) => "router should route nags only to existing stake SMs",
@@ -644,8 +638,8 @@ pub(crate) fn classify_unsigned_gossip(
     }
 }
 
-fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Option<SMId> {
-    Some(match payload {
+const fn nag_target_sm_id(payload: &NagRequestPayload) -> SMId {
+    match payload {
         NagRequestPayload::DepositNonce { deposit_idx }
         | NagRequestPayload::DepositPartial { deposit_idx }
         | NagRequestPayload::PayoutNonce { deposit_idx }
@@ -657,15 +651,12 @@ fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Optio
         | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
         NagRequestPayload::UnstakingData { operator_idx }
         | NagRequestPayload::UnstakingNonces { operator_idx }
-        | NagRequestPayload::UnstakingPartials { operator_idx } => {
-            SMId::Stake(registry.resolve_legacy_stake_key(*operator_idx)?)
-        }
-    })
+        | NagRequestPayload::UnstakingPartials { operator_idx } => SMId::Stake(*operator_idx),
+    }
 }
 
 fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POperatorPubKey> {
     match sm_id {
-        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|sm| sm.context().operator_table().pov_p2p_key().clone()),
@@ -684,7 +675,6 @@ fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POpera
 /// the event matching `sm_id`'s type, paired with the entry whose `deposit_idx` matches.
 fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEvent> {
     match sm_id {
-        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => entries.iter().find_map(|entry| {
             (entry.deposit_idx() == *deposit_idx).then(|| {
                 DepositEvent::WithdrawalAssigned(DepositEvents::WithdrawalAssignedEvent {
@@ -712,7 +702,6 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
 
 fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
-        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|_| DepositEvent::NagTick(DepositEvents::NagTickEvent).into()),
@@ -727,7 +716,6 @@ fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> 
 
 fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
-        SMId::OperatorSet => None,
         SMId::Deposit(deposit_idx) => sm_registry
             .get_deposit(deposit_idx)
             .map(|_| DepositEvent::RetryTick(RetryTickEvent).into()),
@@ -742,7 +730,6 @@ fn classify_retry_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent
 
 fn classify_mosaic_event(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
-        SMId::OperatorSet => None,
         SMId::Stake(_) => {
             error!("got unexpected SMId::Stake for mosaic event");
             None

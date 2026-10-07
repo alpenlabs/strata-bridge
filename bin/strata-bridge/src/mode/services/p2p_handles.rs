@@ -49,34 +49,24 @@ pub(in crate::mode) async fn init_p2p_handles(
             .verifying_key()
             .to_bytes();
     let my_key = LibP2pEdPublicKey::try_from_bytes(&pubkey).expect("infallible");
-    let other_operators: Vec<(P2POperatorPubKey, LibP2pEdPublicKey)> = params
+    let other_operators: Vec<LibP2pEdPublicKey> = params
         .keys
-        .operators
+        .covenant
         .iter()
-        .filter(|operator| operator.p2p_key().as_ref() != my_key.to_bytes().as_slice())
-        .map(|operator| {
-            let p2p_key =
-                LibP2pEdPublicKey::try_from_bytes(operator.p2p_key().as_ref()).map_err(|_| {
-                    anyhow!(
-                        "invalid p2p key for scheduled operator {}",
-                        operator.index()
-                    )
-                })?;
-            Ok((operator.p2p_key().clone(), p2p_key))
-        })
-        .collect::<anyhow::Result<_>>()?;
+        .filter(|&cov| cov.p2p != my_key)
+        .map(|cov| cov.p2p.clone())
+        .collect();
 
     let allowlist: Vec<PeerId> = other_operators
-        .iter()
-        .map(|(_, pk)| {
-            let pk: LibP2pPublicKey = pk.clone().into();
+        .clone()
+        .into_iter()
+        .map(|pk| {
+            let pk: LibP2pPublicKey = pk.into();
             PeerId::from(pk)
         })
         .collect();
-    let signers_allowlist: Vec<P2POperatorPubKey> = other_operators
-        .into_iter()
-        .map(|(p2p_key, _)| p2p_key)
-        .collect();
+    let signers_allowlist: Vec<P2POperatorPubKey> =
+        other_operators.into_iter().map(Into::into).collect();
 
     let P2PConfig {
         idle_connection_timeout,

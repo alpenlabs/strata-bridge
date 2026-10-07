@@ -209,13 +209,6 @@ where
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");
     spawn_orchestrator_stale_monitor(orchestrator_stale_after(config), health_registry.clone());
     let pipeline_health_registry = health_registry.clone();
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-3621>
-    // Replace this single-covenant bootstrap assumption with the initial covenant and its
-    // effective admin activation height from reconciled params/persisted membership.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4046>
-    // Bootstrap only the initial covenant here. Pre-staking must derive each future target's
-    // covenant identity from the params schedule and its effective admin activation heights.
-    let activation_height = params.genesis_height;
     executor.spawn_critical_async_with_shutdown("orchestrator", |shutdown_guard| async move {
         let pipeline = orchestrator_pipeline;
 
@@ -233,7 +226,7 @@ where
             // Handle pipeline completion (this should indicate an error as this is supposed to run indefinitely)
             pipeline_complete = tokio::task::spawn(async move {
                 pipeline
-                    .run_with_observer(operator_table, start_height, activation_height, move || {
+                    .run_with_observer(operator_table, start_height, move || {
                         pipeline_health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "event_processed");
                     })
                     .await
@@ -315,9 +308,9 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         },
         payout_descs: params
             .keys
-            .operators
+            .covenant
             .iter()
-            .map(|operator| operator.payout_descriptor().clone())
+            .map(|cov| cov.payout_descriptor.clone())
             .collect(),
         bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
         counterproof_predicate: params.protocol.counterproof_predicate.clone(),

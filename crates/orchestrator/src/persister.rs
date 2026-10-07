@@ -203,10 +203,7 @@ impl Persister {
             .await
             .map_err(PersistError::DbErr)?
         {
-            if operator_idx != stake_sm.context().operator_idx() {
-                return Err(PersistError::StakeIdentityMismatch);
-            }
-            registry.insert_stake(stake_sm)?;
+            registry.insert_stake(operator_idx, stake_sm)?;
         }
 
         if let Some(address) = self
@@ -233,17 +230,6 @@ pub enum PersistError {
     #[error("registry invariant violation: {0}")]
     RegistryInvariant(#[from] RegistryInsertError),
 
-    /// The legacy row key conflicts with its stake context.
-    #[error("stored stake owner does not match its context")]
-    StakeIdentityMismatch,
-    /// Multiple runtime covenants cannot be written to an operator-only legacy row.
-    #[error("legacy stake storage cannot represent multiple covenants")]
-    CovenantStorageRequired,
-    /// The membership row and atomic storage integration are not installed.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4043>
-    // Add the membership component to ordinary storage batches.
-    #[error("operator set storage integration is required")]
-    OperatorSetStorageRequired,
     /// A tracked state machine was absent when its atomic write batch was constructed.
     #[error("state machine {0} is missing from the registry during persistence")]
     MissingStateMachine(SMId),
@@ -257,7 +243,6 @@ fn build_write_batch(
 
     for sm_id in batch {
         match sm_id {
-            SMId::OperatorSet => return Err(PersistError::OperatorSetStorageRequired),
             SMId::Deposit(deposit_idx) => {
                 let deposit_sm = sm_registry
                     .get_deposit(&deposit_idx)
@@ -271,10 +256,6 @@ fn build_write_batch(
                 write_batch.add_graph(graph_sm.clone());
             }
             SMId::Stake(operator_idx) => {
-                if sm_registry.resolve_legacy_stake_key(operator_idx.operator) != Some(operator_idx)
-                {
-                    return Err(PersistError::CovenantStorageRequired);
-                }
                 let stake_sm = sm_registry
                     .get_stake(&operator_idx)
                     .ok_or(PersistError::MissingStateMachine(sm_id))?;
@@ -459,50 +440,5 @@ mod tests {
         let collected = all_ids(&batches);
         let expected: BTreeSet<SMId> = ids.into_iter().collect();
         assert_eq!(collected, expected);
-    }
-}
-
-#[cfg(test)]
-mod covenant_storage_tests {
-    use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
-
-    use super::*;
-    use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_set_sm,
-        test_operator_table,
-    };
-
-    #[test]
-    fn legacy_write_batch_rejects_multiple_covenants_before_writing() {
-        let mut registry = test_empty_registry();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        let mut keys = BTreeSet::new();
-        for height in [100, 200] {
-            let (sm, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), height), 101);
-            keys.insert(SMId::Stake(sm.context().stake_key()));
-            registry.insert_stake(sm).unwrap();
-        }
-        for key in &keys {
-            assert!(matches!(
-                build_write_batch(BTreeSet::from([*key]), &registry),
-                Err(PersistError::CovenantStorageRequired)
-            ));
-        }
-        assert!(matches!(
-            build_write_batch(keys, &registry),
-            Err(PersistError::CovenantStorageRequired)
-        ));
-    }
-
-    #[test]
-    fn operator_set_cannot_be_silently_omitted_from_a_write_batch() {
-        let mut registry = test_empty_registry();
-        registry
-            .insert_operator_set(test_operator_set_sm())
-            .unwrap();
-        assert!(matches!(
-            build_write_batch(BTreeSet::from([SMId::OperatorSet]), &registry),
-            Err(PersistError::OperatorSetStorageRequired)
-        ));
     }
 }

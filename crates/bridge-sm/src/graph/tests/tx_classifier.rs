@@ -99,7 +99,6 @@ mod tests {
     ) -> GraphSM {
         GraphSM {
             context: GraphSMCtx {
-                covenant: test_graph_sm_ctx().covenant,
                 graph_idx: GraphIdx {
                     deposit: TEST_DEPOSIT_IDX,
                     operator: graph_owner_idx,

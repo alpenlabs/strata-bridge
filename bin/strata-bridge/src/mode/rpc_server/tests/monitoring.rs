@@ -11,7 +11,6 @@ use secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::NOfNConnector;
 use strata_bridge_orchestrator::sm_registry::{SMConfig, SMRegistry};
 use strata_bridge_primitives::{
-    covenant::CovenantId,
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
@@ -77,14 +76,12 @@ fn test_graph_data() -> DepositParams {
 }
 
 fn test_graph_ctx() -> GraphSMCtx {
-    let operator_table = test_operator_table(3, TEST_POV_IDX);
     GraphSMCtx {
-        covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
         graph_idx: test_graph_idx(),
         deposit_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 7),
         stake_outpoint: OutPoint::new(bitcoin::Txid::all_zeros(), 8),
         unstaking_image: sha256::Hash::hash(b"test"),
-        operator_table,
+        operator_table: test_operator_table(3, TEST_POV_IDX),
     }
 }
 

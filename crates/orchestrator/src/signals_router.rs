@@ -3,12 +3,10 @@
 use strata_bridge_sm::{
     deposit::events::DepositEvent,
     graph::events::GraphEvent,
-    operator_set::OperatorSetSignal,
     signals::{DepositSignal, DepositToGraph, GraphSignal, GraphToDeposit, Signal},
 };
 
 use crate::{
-    errors::PipelineError,
     sm_registry::SMRegistry,
     sm_types::{SMEvent, SMId},
 };
@@ -16,14 +14,8 @@ use crate::{
 /// Routes a given signal to the appropriate state machine(s) based on the provided registry and
 /// returns a mapping of state machine IDs to the events that should be processed by those state
 /// machines as a result of the signal.
-pub fn route_signal(
-    registry: &SMRegistry,
-    signal: Signal,
-) -> Result<Vec<(SMId, SMEvent)>, PipelineError> {
-    Ok(match signal {
-        Signal::FromOperatorSet(OperatorSetSignal::InitializeStake { stake_key, .. }) => {
-            return Err(PipelineError::StakeInitializationRequired(stake_key));
-        }
+pub fn route_signal(registry: &SMRegistry, signal: Signal) -> Vec<(SMId, SMEvent)> {
+    match signal {
         Signal::FromDeposit(deposit_signal) => match deposit_signal {
             DepositSignal::ToGraph(deposit_to_graph) => match deposit_to_graph {
                 msg @ DepositToGraph::CooperativePayoutFailed { graph_idx, .. } => {
@@ -63,19 +55,16 @@ pub fn route_signal(
                 }
             },
         },
-    })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_primitives::{
-        covenant::{CovenantId, StakeKey},
-        types::GraphIdx,
-    };
+    use strata_bridge_primitives::types::GraphIdx;
     use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
-    use crate::testing::{test_operator_table, test_populated_registry};
+    use crate::testing::test_populated_registry;
 
     #[test]
     fn cooperative_payout_failed_routes_to_specific_graph() {
@@ -91,7 +80,7 @@ mod tests {
             },
         ));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
 
         assert_eq!(targets.len(), 1);
         match &targets[0].0 {
@@ -113,7 +102,7 @@ mod tests {
             },
         ));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
         assert!(targets.is_empty());
     }
 
@@ -131,7 +120,7 @@ mod tests {
             },
         ));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
 
         assert_eq!(targets.len(), 1);
         match &targets[0].0 {
@@ -153,7 +142,7 @@ mod tests {
             },
         ));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
 
         assert_eq!(targets.len(), 3);
         let mut graph_ids: Vec<_> = targets
@@ -193,7 +182,7 @@ mod tests {
             },
         ));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
         assert!(targets.is_empty());
     }
 
@@ -206,7 +195,7 @@ mod tests {
             operator_idx: 0,
         }));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
 
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].0, SMId::Deposit(1));
@@ -221,24 +210,7 @@ mod tests {
             operator_idx: 0,
         }));
 
-        let targets = route_signal(&registry, signal).unwrap();
+        let targets = route_signal(&registry, signal);
         assert!(targets.is_empty());
-    }
-    #[test]
-    fn initialization_requires_applicator_support_instead_of_dropping_the_signal() {
-        let registry = test_populated_registry(0);
-        let table = test_operator_table(3, 0).into_public();
-        let stake_key = StakeKey {
-            covenant: CovenantId::from_operator_table(&table, 10).unwrap(),
-            operator: 0,
-        };
-        let signal = OperatorSetSignal::InitializeStake {
-            stake_key,
-            operator_table: table,
-        }
-        .into();
-        assert!(
-            matches!(route_signal(&registry, signal), Err(PipelineError::StakeInitializationRequired(key)) if key == stake_key)
-        );
     }
 }

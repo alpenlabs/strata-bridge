@@ -53,9 +53,9 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
 
     let reserved_wallet = wallet_keys.reserved_p2tr_address(args.network).to_string();
 
-    // Derive the bridge covenant key using key-deriv crate
+    // Derive MuSig2 keys using key-deriv crate
     let musig2_keys = Musig2Keys::derive(base_xpriv)?;
-    let covenant_key = musig2_keys.pubkey().serialize().to_lower_hex_string();
+    let musig2_pubkey_hex = musig2_keys.pubkey().serialize().to_lower_hex_string();
 
     // P2P_KEY: ed25519 key from message signing key
     let msg_signing_key = keys.message_signing_key();
@@ -70,7 +70,7 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
         "general_wallet_address": general_wallet_addr.to_string(),
         "general_wallet_descriptor": general_wallet_descriptor.to_string(),
         "reserved_wallet_address": reserved_wallet,
-        "covenant_key": covenant_key,
+        "musig2_key": musig2_pubkey_hex,
         "p2p_key": p2p_pubkey
     });
     println!("{}", serde_json::to_string_pretty(&output)?);

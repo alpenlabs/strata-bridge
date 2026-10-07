@@ -22,7 +22,6 @@ use strata_bridge_db::{
 };
 use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
-    covenant::StakeKey,
     scripts::taproot::{TaprootTweak, create_key_spend_hash},
     types::OperatorIdx,
 };
@@ -37,12 +36,11 @@ use crate::{
 pub(crate) async fn publish_stake_data(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
-    stake_key: StakeKey,
+    operator_idx: OperatorIdx,
 ) -> Result<(), ExecutorError> {
-    let operator_idx = stake_key.operator;
-    info!(%stake_key, "executing duty to publish stake data");
+    info!(%operator_idx, "executing duty to publish stake data");
 
-    let reservation = read_or_create_stake_funding(cfg, output_handles, stake_key).await?;
+    let reservation = read_or_create_stake_funding(cfg, output_handles, operator_idx).await?;
 
     let stake_funding_txid = reservation.unsigned_tx.compute_txid();
     let stake_funds = OutPoint {
@@ -83,8 +81,6 @@ pub(crate) async fn publish_stake_data(
     };
 
     info!(%operator_idx, "broadcasting the unstaking input to the p2p network");
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4044>
-    // Carry the full stake key in stake wire messages.
     let mut msg_handler = output_handles.msg_handler.write().await;
     msg_handler
         .send_unstaking_input(operator_idx, unstaking_input, None)
@@ -96,11 +92,8 @@ pub(crate) async fn publish_stake_data(
 async fn read_or_create_stake_funding(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
-    stake_key: StakeKey,
+    operator_idx: OperatorIdx,
 ) -> Result<StakeFundingReservation, ExecutorError> {
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4043>
-    // Key funding reservations by the full stake key before preparing multiple covenants.
-    let operator_idx = stake_key.operator;
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
 
     let mut wallet = output_handles.wallet.write().await;

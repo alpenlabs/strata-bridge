@@ -228,7 +228,6 @@ pub(crate) const fn sm_kind(id: &SMId) -> &'static str {
         SMId::Deposit(_) => "deposit",
         SMId::Graph(_) => "graph",
         SMId::Stake(_) => "stake",
-        SMId::OperatorSet => "operator_set",
     }
 }
 
@@ -236,7 +235,7 @@ pub(crate) const fn duty_kind(duty: &UnifiedDuty) -> &'static str {
     match duty {
         UnifiedDuty::Deposit(duty) => deposit_duty_kind(duty),
         UnifiedDuty::Graph(duty) => graph_duty_kind(duty),
-        UnifiedDuty::Stake { duty, .. } => stake_duty_kind(duty),
+        UnifiedDuty::Stake(duty) => stake_duty_kind(duty),
     }
 }
 
@@ -363,7 +362,6 @@ pub(crate) const fn pipeline_error_class(error: &PipelineError) -> &'static str 
     match error {
         PipelineError::Process(error) => process_error_class(error),
         PipelineError::Persist(error) => persist_error_class(error),
-        PipelineError::StakeInitializationRequired(_) => "stake_initialization_required",
     }
 }
 
@@ -373,18 +371,13 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
         ProcessError::InvalidInvocation(_, _) => "invalid_invocation",
         ProcessError::InvariantViolation(_, _, _, _) => "invariant_violation",
         ProcessError::RegistryInsert(_) => "registry_insertion",
-        ProcessError::OperatorSet(_) => "operator_membership",
     }
 }
 
 pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
     match error {
         PersistError::DbErr(_) => "database",
-        PersistError::RegistryInvariant(_) | PersistError::StakeIdentityMismatch => {
-            "registry_invariant"
-        }
-        PersistError::CovenantStorageRequired => "unsupported_stake_storage",
-        PersistError::OperatorSetStorageRequired => "unsupported_membership_storage",
+        PersistError::RegistryInvariant(_) => "registry_invariant",
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
     }
 }
@@ -415,7 +408,6 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::test_stake_key;
 
     #[test]
     fn periodic_event_kinds_are_stable_and_distinct() {
@@ -426,6 +418,6 @@ mod tests {
     #[test]
     fn state_machine_kinds_do_not_include_identifiers() {
         assert_eq!(sm_kind(&SMId::Deposit(42)), "deposit");
-        assert_eq!(sm_kind(&SMId::Stake(test_stake_key(7))), "stake");
+        assert_eq!(sm_kind(&SMId::Stake(7)), "stake");
     }
 }

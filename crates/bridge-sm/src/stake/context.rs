@@ -3,60 +3,46 @@
 use bitcoin::{OutPoint, hashes::sha256};
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{
-    covenant::{CovenantId, StakeKey},
-    operator_table::OperatorTable,
-    types::OperatorIdx,
-};
+use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
 use strata_bridge_tx_graph::stake_graph::{SetupParams, StakeData};
 
 use crate::stake::config::StakeSMCfg;
 
-/// Immutable execution context for one operator's stake in one covenant.
+/// Execution context for a single instance of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StakeSMCtx {
-    /// The covenant and operator whose stake this state machine tracks.
-    stake_key: StakeKey,
-    /// The immutable covenant membership and this node's signing participant.
+    // Invariant: `operator_idx` is included in `operator_table`.
+    /// The index of the operator whose stake is tracked by this state machine.
+    operator_idx: OperatorIdx,
+
+    /// The operator table for this state machine instance.
     operator_table: OperatorTable,
 }
 
 impl StakeSMCtx {
-    /// Creates a participant context with an explicit admin activation boundary.
+    /// Creates a new Stake State Machine context.
     ///
     /// # Panics
-    /// Panics if the owner is absent or the keys cannot be aggregated.
-    pub fn new(
-        operator_idx: OperatorIdx,
-        operator_table: OperatorTable,
-        activation_height: u64,
-    ) -> Self {
+    ///
+    /// This method panics if the operator index is not included in the operator table.
+    pub fn new(operator_idx: OperatorIdx, operator_table: OperatorTable) -> Self {
         assert!(
             operator_table.contains_idx(&operator_idx),
             "The operator index must be included in the operator table"
         );
-        let covenant = CovenantId::from_operator_table(&operator_table, activation_height)
-            .expect("valid covenant signing keys");
+
         Self {
-            stake_key: StakeKey {
-                covenant,
-                operator: operator_idx,
-            },
+            operator_idx,
             operator_table,
         }
     }
 
-    /// Returns the exact covenant-qualified stake identity.
-    pub const fn stake_key(&self) -> StakeKey {
-        self.stake_key
-    }
-
-    /// Returns the stake owner.
+    /// Returns the index of the operator whose stake is tracked.
     pub const fn operator_idx(&self) -> OperatorIdx {
-        self.stake_key.operator
+        self.operator_idx
     }
 
-    /// Returns the covenant membership and local signing participant.
+    /// Returns the operator table.
     pub const fn operator_table(&self) -> &OperatorTable {
         &self.operator_table
     }

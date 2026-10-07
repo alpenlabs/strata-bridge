@@ -1,7 +1,6 @@
 //! Error types for the orchestrator crate.
 
-use strata_bridge_primitives::covenant::StakeKey;
-use strata_bridge_sm::{operator_set::OperatorSetError, signals::Signal, state_machine::SMOutput};
+use strata_bridge_sm::{signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
 use crate::{
@@ -26,15 +25,11 @@ pub enum ProcessError {
 
     /// The state machine violated an invariant during event processing.
     #[error("Failed to process event {1} for state machine with id {0} in state: {2}: {3}")]
-    InvariantViolation(Box<SMId>, SMEvent, String, String),
+    InvariantViolation(SMId, SMEvent, String, String),
 
     /// A duplicate or invalid registry insertion was attempted.
     #[error("Registry insertion error: {0}")]
     RegistryInsert(#[from] RegistryInsertError),
-
-    /// The membership transition failed and must not be skipped to finalize the block.
-    #[error("operator membership transition failed: {0}")]
-    OperatorSet(#[from] OperatorSetError),
 }
 
 /// Fatal error from the pipeline main loop.
@@ -47,12 +42,6 @@ pub enum PipelineError {
     /// A fatal error occurred while persisting state to disk.
     #[error("persist error: {0}")]
     Persist(#[from] PersistError),
-
-    /// Stake creation must be applied before a membership signal can be consumed.
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4040>
-    // Handle initialization synchronously in the applicator.
-    #[error("stake initialization is not integrated for {0}")]
-    StakeInitializationRequired(StakeKey),
 }
 
 /// Unified output from processing an event through any state machine.

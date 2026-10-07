@@ -11,10 +11,8 @@ use jsonrpsee::{
     core::RpcResult,
     types::{ErrorCode, ErrorObjectOwned},
 };
-use libp2p::{
-    PeerId,
-    identity::{PublicKey as LibP2pPublicKey, ed25519::PublicKey as LibP2pEdPublicKey},
-};
+use libp2p::{PeerId, identity::PublicKey as LibP2pPublicKey};
+use secp256k1::Parity;
 use serde::Serialize;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_common::params::Params;
@@ -290,9 +288,12 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         Ok(self
             .params
             .keys
-            .operators
+            .covenant
             .iter()
-            .map(|operator| PublicKey::from(operator.covenant_public_key()))
+            .map(|cov| {
+                let secp_pk = cov.musig2.public_key(Parity::Even);
+                PublicKey::from(secp_pk)
+            })
             .collect())
     }
 
@@ -492,9 +493,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let cached_registry = self.cached_registry.read().await;
         Ok(cached_registry
             .stakes()
-            .map(|(&stake_key, sm)| RpcOperatorStakeInfo {
-                operator_idx: stake_key.operator,
-                covenant: stake_key.covenant,
+            .map(|(&operator_idx, sm)| RpcOperatorStakeInfo {
+                operator_idx,
                 state: stake_state_to_rpc(sm.state()),
             })
             .collect())
@@ -537,8 +537,7 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let stake_cfg = cached_registry.cfg().stake.clone();
 
         Ok(cached_registry
-            .resolve_legacy_stake_key(operator_idx)
-            .and_then(|key| cached_registry.get_stake(&key))
+            .get_stake(&operator_idx)
             .and_then(|ssm| stake_data_response(ssm.context(), ssm.state(), &stake_cfg)))
     }
 
@@ -549,34 +548,30 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let cached_registry = self.cached_registry.read().await;
 
         Ok(cached_registry
-            .resolve_legacy_stake_key(operator_idx)
-            .and_then(|key| cached_registry.get_stake(&key))
+            .get_stake(&operator_idx)
             .and_then(|ssm| stake_aggregate_signatures_response(operator_idx, ssm.state())))
     }
 }
 
 /// Converts a *MuSig2* operator [`PublicKey`] to a *P2P* [`PeerId`].
 ///
-/// Internally checks if the operator MuSig2 [`PublicKey`] is present in the configured operator
-/// schedule, then fetches the corresponding P2P [`PublicKey`] from the same operator entry.
+/// Internally checks if the operator MuSig2 [`PublicKey`] is present in the vector of operator
+/// MuSig2 public keys in the [`Params`], then fetches the corresponding P2P [`PublicKey`] in the
+/// vector of the P2P public keys in the [`Params`] assuming that the index is the same in both
+/// vectors.
 pub(crate) fn convert_operator_pk_to_peer_id(
     params: &Params,
     operator_pk: &PublicKey,
 ) -> anyhow::Result<PeerId> {
     params
         .keys
-        .operators
+        .covenant
         .iter()
-        .find(|operator| operator.covenant_key() == operator_pk.inner.x_only_public_key().0)
-        .map(|operator| {
-            LibP2pEdPublicKey::try_from_bytes(operator.p2p_key().as_ref())
-                .map(|p2p_key| {
-                    let pk: LibP2pPublicKey = p2p_key.into();
-                    PeerId::from(pk)
-                })
-                .map_err(|err| anyhow::anyhow!("invalid p2p key in params: {err}"))
+        .find(|cov| cov.musig2 == operator_pk.inner.x_only_public_key().0)
+        .map(|cov| {
+            let pk: LibP2pPublicKey = cov.p2p.clone().into();
+            PeerId::from(pk)
         })
-        .transpose()?
         .ok_or_else(|| anyhow::anyhow!("operator public key not found in params"))
 }
 

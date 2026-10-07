@@ -2,14 +2,10 @@
 
 use std::fmt::Display;
 
-use strata_bridge_primitives::{
-    covenant::StakeKey,
-    types::{DepositIdx, GraphIdx, P2POperatorPubKey},
-};
+use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
 use strata_bridge_sm::{
     deposit::{duties::DepositDuty, events::DepositEvent},
     graph::{duties::GraphDuty, events::GraphEvent},
-    operator_set::OperatorSetEvent,
     stake::{duties::StakeDuty, events::StakeEvent},
 };
 
@@ -22,9 +18,7 @@ pub enum SMId {
     Graph(GraphIdx),
     /// IDs the state machine responsible for tracking the stake of the operator with the given
     /// index.
-    Stake(StakeKey),
-    /// The singleton public membership state machine.
-    OperatorSet,
+    Stake(OperatorIdx),
 }
 
 // Note: `DepositIdx` and `OperatorIdx` are both type aliases for `u32`, so a blanket
@@ -41,14 +35,13 @@ impl From<GraphIdx> for SMId {
 impl Display for SMId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SMId::OperatorSet => write!(f, "OperatorSet"),
             SMId::Deposit(deposit_idx) => write!(f, "Deposit({})", deposit_idx),
             SMId::Graph(graph_idx) => write!(
                 f,
                 "Graph(deposit: {}, operator: {})",
                 graph_idx.deposit, graph_idx.operator
             ),
-            SMId::Stake(operator_idx) => write!(f, "Stake({})", operator_idx),
+            SMId::Stake(operator_idx) => write!(f, "Stake(operator: {})", operator_idx),
         }
     }
 }
@@ -71,14 +64,11 @@ pub enum SMEvent {
     Graph(Box<GraphEvent>),
     /// An event related to the stake state machine.
     Stake(Box<StakeEvent>),
-    /// An event related to public membership.
-    OperatorSet(Box<OperatorSetEvent>),
 }
 
 impl Display for SMEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SMEvent::OperatorSet(event) => write!(f, "OperatorSetEvent({event})"),
             SMEvent::Deposit(event) => write!(f, "DepositEvent({event})"),
             SMEvent::Graph(event) => write!(f, "GraphEvent({event})"),
             SMEvent::Stake(event) => write!(f, "StakeEvent({event})"),
@@ -104,12 +94,6 @@ impl From<StakeEvent> for SMEvent {
     }
 }
 
-impl From<OperatorSetEvent> for SMEvent {
-    fn from(event: OperatorSetEvent) -> Self {
-        Self::OperatorSet(Box::new(event))
-    }
-}
-
 /// A wrapper for holding all the different types of duties that a state machine can emit after a
 /// successful STF.
 #[derive(Debug, Clone)]
@@ -120,12 +104,7 @@ pub enum UnifiedDuty {
     /// A duty related to the game graph.
     Graph(GraphDuty),
     /// A duty related to an operator's stake.
-    Stake {
-        /// The covenant and stake owner captured at emission.
-        stake_key: StakeKey,
-        /// The action emitted by the stake state machine.
-        duty: StakeDuty,
-    },
+    Stake(StakeDuty),
 }
 
 impl UnifiedDuty {
@@ -137,7 +116,7 @@ impl UnifiedDuty {
         match self {
             UnifiedDuty::Deposit(duty) => duty.should_suppress_under_safe_harbour(),
             UnifiedDuty::Graph(duty) => duty.should_suppress_under_safe_harbour(),
-            UnifiedDuty::Stake { .. } => false,
+            UnifiedDuty::Stake(_) => false,
         }
     }
 }
@@ -147,7 +126,7 @@ impl Display for UnifiedDuty {
         match self {
             Self::Deposit(duty) => Display::fmt(duty, f),
             Self::Graph(duty) => Display::fmt(duty, f),
-            Self::Stake { stake_key, duty } => write!(f, "{stake_key}: {duty}"),
+            Self::Stake(duty) => Display::fmt(duty, f),
         }
     }
 }
@@ -162,14 +141,17 @@ impl From<GraphDuty> for UnifiedDuty {
         UnifiedDuty::Graph(duty)
     }
 }
+impl From<StakeDuty> for UnifiedDuty {
+    fn from(duty: StakeDuty) -> Self {
+        UnifiedDuty::Stake(duty)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use bitcoin::{Amount, Transaction, absolute, transaction};
-    use strata_bridge_sm::stake::context::StakeSMCtx;
 
     use super::*;
-    use crate::testing::test_operator_table;
 
     fn dummy_tx() -> Transaction {
         Transaction {
@@ -210,10 +192,7 @@ mod tests {
             "defensive duties are never suppressed"
         );
 
-        let stake = UnifiedDuty::Stake {
-            stake_key: StakeSMCtx::new(0, test_operator_table(3, 0), 100).stake_key(),
-            duty: StakeDuty::PublishStakeData { operator_idx: 0 },
-        };
+        let stake: UnifiedDuty = StakeDuty::PublishStakeData { operator_idx: 0 }.into();
         assert!(!stake.should_suppress_under_safe_harbour());
     }
 }

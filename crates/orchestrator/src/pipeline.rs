@@ -7,9 +7,7 @@ use std::{
 };
 
 use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
-use strata_bridge_primitives::{
-    covenant::CovenantId, operator_table::OperatorTable, types::BitcoinBlockHeight,
-};
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
@@ -24,7 +22,7 @@ use crate::{
     observability,
     persister::{PersistenceTracker, Persister},
     safe_harbour_scan::safe_harbour_scan,
-    sm_registry::{RegistryInsertError, SMRegistry},
+    sm_registry::SMRegistry,
     sm_types::{SMId, UnifiedDuty},
 };
 
@@ -77,7 +75,6 @@ impl Pipeline {
     /// the `initial_operator_table`. Any stake SMs already recovered from the database are
     /// preserved; only missing ones are created. The `start_height` is used as the initial block
     /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
-    /// `activation_height` is the configured admin boundary, independent of that cursor.
     ///
     /// When a persisted safe-harbour latch is recovered, the sweep/abort scan is also seeded once
     /// before the loop.
@@ -85,15 +82,9 @@ impl Pipeline {
         self,
         initial_operator_table: OperatorTable,
         start_height: BitcoinBlockHeight,
-        activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        self.run_with_observer(
-            initial_operator_table,
-            start_height,
-            activation_height,
-            || {},
-        )
-        .await
+        self.run_with_observer(initial_operator_table, start_height, || {})
+            .await
     }
 
     /// Runs the main event loop and calls `on_event` after each non-shutdown event is received.
@@ -101,17 +92,11 @@ impl Pipeline {
         mut self,
         initial_operator_table: OperatorTable,
         start_height: BitcoinBlockHeight,
-        activation_height: BitcoinBlockHeight,
         mut on_event: impl FnMut(),
     ) -> Result<(), PipelineError> {
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-3622>
-        // Resolve the finalized covenant and operator table from the membership pre-pass for
-        // each block. This fixed identity supports only the initial covenant until integration.
-        let covenant = CovenantId::from_operator_table(&initial_operator_table, activation_height)
-            .expect("validated initial operator table");
         observability::describe_metrics();
         if let Err(error) = self
-            .bootstrap_stake_sms(&initial_operator_table, start_height, activation_height)
+            .bootstrap_stake_sms(&initial_operator_table, start_height)
             .instrument(info_span!("bridge_stake_bootstrap"))
             .await
         {
@@ -179,7 +164,6 @@ impl Pipeline {
                         onchain::process_block(
                             &mut applicator,
                             &initial_operator_table,
-                            covenant,
                             block_event,
                         )?;
 
@@ -376,37 +360,25 @@ impl Pipeline {
         &mut self,
         operator_table: &OperatorTable,
         start_height: BitcoinBlockHeight,
-        activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
         let mut touched: BTreeSet<SMId> = BTreeSet::new();
         let mut duties: Vec<UnifiedDuty> = Vec::new();
 
         for op_idx in operator_table.operator_idxs() {
-            let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
-            let stake_key = ctx.stake_key();
-            if let Some(existing) = self.registry.get_stake(&stake_key) {
-                if !existing
-                    .context()
-                    .operator_table()
-                    .has_same_membership(operator_table)
-                {
-                    return Err(ProcessError::from(
-                        RegistryInsertError::CovenantMembershipMismatch(stake_key),
-                    )
-                    .into());
-                }
+            if self.registry.contains_id(&SMId::Stake(op_idx)) {
                 continue;
             }
 
+            let ctx = StakeSMCtx::new(op_idx, operator_table.clone());
             let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
             self.registry
-                .insert_stake(ssm)
+                .insert_stake(op_idx, ssm)
                 .map_err(ProcessError::from)?;
-            touched.insert(SMId::Stake(stake_key));
+            touched.insert(SMId::Stake(op_idx));
             info!(%op_idx, %start_height, "bootstrapped stake state machine");
 
             if let Some(duty) = initial_duty {
-                duties.push(UnifiedDuty::Stake { stake_key, duty });
+                duties.push(duty.into());
             }
         }
 

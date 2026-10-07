@@ -9,8 +9,8 @@ from factory.bridge_operator.params_cfg import (
     Admin,
     BridgeOperatorParams,
     BridgeProtocolParams,
+    CovenantKeys,
     Keys,
-    ScheduledOperator,
 )
 from rpc.asm_types import CheckpointTip
 from utils.utils import OperatorKeyInfo
@@ -46,15 +46,13 @@ class DevCli:
     def _create_params_file(self) -> str:
         p = self.bridge_protocol_params or BridgeProtocolParams()
 
-        operators = [
-            ScheduledOperator(
-                index=index,
-                covenant_key=key.MUSIG2_KEY,
-                p2p_key=key.P2P_KEY,
+        covenant = [
+            CovenantKeys(
+                musig2=key.MUSIG2_KEY,
+                p2p=key.P2P_KEY,
                 payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
-                activation_height=DEFAULT_GENESIS_HEIGHT,
             )
-            for index, key in enumerate(self.operator_key_infos)
+            for key in self.operator_key_infos
         ]
         # use the operator keys as the admin keys for simplicity
         admin_pubkeys = [key.MUSIG2_KEY for key in self.operator_key_infos]
@@ -64,14 +62,14 @@ class DevCli:
             genesis_height=DEFAULT_GENESIS_HEIGHT,
             keys=Keys(
                 admin=Admin(pubkeys=admin_pubkeys, threshold=min(2, len(admin_pubkeys))),
-                operators=operators,
+                covenant=covenant,
             ),
             protocol=p,
         )
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:
-            toml.dump(_strip_nones(asdict(params)), f)
+            toml.dump(asdict(params), f)
 
         return params_path
 
@@ -422,11 +420,3 @@ class DevCli:
         )
         proc = subprocess.run([BINARY_PATH, *args], capture_output=True, text=True, check=False)
         return proc.returncode == 0
-
-
-def _strip_nones(value):
-    if isinstance(value, dict):
-        return {k: _strip_nones(v) for k, v in value.items() if v is not None}
-    if isinstance(value, list):
-        return [_strip_nones(x) for x in value]
-    return value

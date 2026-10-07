@@ -29,7 +29,7 @@ from .config_cfg import (
     RpcConfig,
     SecretServiceClientConfig,
 )
-from .params_cfg import Admin, BridgeOperatorParams, BridgeProtocolParams, Keys, ScheduledOperator
+from .params_cfg import Admin, BridgeOperatorParams, BridgeProtocolParams, CovenantKeys, Keys
 
 DEFAULT_INITIAL_HEARBEAT_DELAY_SECS = 10
 
@@ -234,15 +234,13 @@ def generate_params_toml(
         genesis_height: Bridge genesis height used for chain scanning start
         bridge_protocol_params: Bridge parameters for this test env
     """
-    operators = [
-        ScheduledOperator(
-            index=index,
-            covenant_key=key.MUSIG2_KEY,
-            p2p_key=key.P2P_KEY,
+    covenant = [
+        CovenantKeys(
+            musig2=key.MUSIG2_KEY,
+            p2p=key.P2P_KEY,
             payout_descriptor=key.GENERAL_WALLET_DESCRIPTOR,
-            activation_height=genesis_height,
         )
-        for index, key in enumerate(operator_key_infos)
+        for key in operator_key_infos
     ]
     admin_pubkeys = [key.MUSIG2_KEY for key in operator_key_infos]
 
@@ -258,13 +256,13 @@ def generate_params_toml(
         genesis_height=genesis_height,
         keys=Keys(
             admin=Admin(pubkeys=admin_pubkeys, threshold=min(2, len(admin_pubkeys))),
-            operators=operators,
+            covenant=covenant,
         ),
         protocol=protocol,
     )
 
     with open(output_path, "w") as f:
-        toml.dump(_strip_nones(asdict(params)), f)
+        toml.dump(asdict(params), f)
 
 
 def _strip_nones(value):

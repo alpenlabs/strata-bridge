@@ -148,14 +148,8 @@ fn verify_asm_params(params: &Params, config: &Config, asm: &AsmParams) -> Resul
 
     // The operator lists must match in content and order: assignments route by operator
     // index, so a reordering is as consensus-breaking as a different key set.
-    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3621>
-    // Check against membership at current covenant activation window.
-    let bridge_operators: Vec<XOnlyPublicKey> = params
-        .keys
-        .operators
-        .iter()
-        .map(|k| k.covenant_key())
-        .collect();
+    let bridge_operators: Vec<XOnlyPublicKey> =
+        params.keys.covenant.iter().map(|k| k.musig2).collect();
     let asm_operators: Vec<XOnlyPublicKey> =
         bridge.operators.iter().map(|op| (*op).into()).collect();
     ensure_eq("operators", bridge_operators, asm_operators)
@@ -246,19 +240,15 @@ mod tests {
             pubkeys = ["{XONLY_KEY_1}", "{XONLY_KEY_2}"]
             threshold = 2
 
-            [[keys.operators]]
-            index = 0
-            covenant_key = "{XONLY_KEY_1}"
-            p2p_key = "{P2P_KEY_1}"
+            [[keys.covenant]]
+            musig2 = "{XONLY_KEY_1}"
+            p2p = "{P2P_KEY_1}"
             payout_descriptor = "{desc_1}"
-            activation_height = 101
 
-            [[keys.operators]]
-            index = 1
-            covenant_key = "{XONLY_KEY_2}"
-            p2p_key = "{P2P_KEY_2}"
+            [[keys.covenant]]
+            musig2 = "{XONLY_KEY_2}"
+            p2p = "{P2P_KEY_2}"
             payout_descriptor = "{desc_2}"
-            activation_height = 101
 
             [protocol]
             bury_depth = 6
@@ -294,9 +284,9 @@ mod tests {
         bridge.assignment_duration = ASSIGNMENT_DURATION;
         bridge.operators = params
             .keys
-            .operators
+            .covenant
             .iter()
-            .map(|k| k.covenant_key().into())
+            .map(|k| k.musig2.into())
             .collect();
         asm
     }
