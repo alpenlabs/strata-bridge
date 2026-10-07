@@ -329,6 +329,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         deposit: Arc::new(deposit_config),
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
+        deposit_index_offset: config.deposit_index_offset,
     }
 }
 
@@ -348,5 +349,22 @@ fn build_exec_config(
         claim_funding_utxo_value,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         graph_sm_cfg: sm_config.graph.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{config::test_config, mode::services::test_fixtures::test_params};
+
+    #[test]
+    fn sm_config_carries_the_configured_deposit_index_offset() {
+        let mut config = test_config();
+        config.deposit_index_offset = 1200;
+        assert_eq!(
+            build_sm_config(&config, &test_params()).deposit_index_offset,
+            1200,
+            "The registry must allocate from the offset supplied in the bridge config"
+        );
     }
 }

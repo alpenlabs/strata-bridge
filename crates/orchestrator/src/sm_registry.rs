@@ -16,7 +16,7 @@ use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
-    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GameIndex, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     cross_sm_context::CrossSmContext,
@@ -47,6 +47,8 @@ pub struct SMConfig {
     pub graph: Arc<GraphSMCfg>,
     /// Static configuration for all stake state machines.
     pub stake: Arc<StakeSMCfg>,
+    /// The index allocated to the first deposit when no deposits are registered.
+    pub deposit_index_offset: DepositIdx,
 }
 
 /// The registry that holds all the active state machines in `strata-bridge`.
@@ -89,9 +91,12 @@ pub enum RegistryInsertError {
     /// Equal identities must have the same full indexed membership.
     #[error("conflicting membership for stake {0}")]
     CovenantMembershipMismatch(StakeKey),
-    /// The maximum deposit index has been reached.
+    /// No further deposit index can be allocated with a game index.
     #[error("deposit index exhausted at {0}; cannot allocate a new deposit index")]
     DepositIdxExhausted(DepositIdx),
+    /// The configured offset is reserved for a covenant that includes the local operator.
+    #[error("deposit index offset requires a covenant that includes local operator {0}")]
+    OffsetOutsideLocalCovenant(OperatorIdx),
     /// Public membership was already installed; existing history must not be overwritten.
     #[error("operator set state machine already exists")]
     OperatorSetAlreadyExists,
@@ -355,17 +360,46 @@ impl SMRegistry {
         }
     }
 
-    /// Returns the next available deposit index (`max(existing) + 1`).
-    pub fn next_deposit_idx(&self) -> Result<DepositIdx, RegistryInsertError> {
-        self.deposits
-            .keys()
-            .next_back() // works because this is a BTreeMap sorted by keys
-            .copied()
-            .map_or(Ok(0), |max_idx| {
-                max_idx
-                    .checked_add(1)
-                    .ok_or(RegistryInsertError::DepositIdxExhausted(max_idx))
-            })
+    /// Returns the highest registered deposit index, if any.
+    pub fn last_deposit_idx(&self) -> Option<DepositIdx> {
+        self.deposits.keys().next_back().copied()
+    }
+
+    /// Returns the index for a request addressed to `covenant`, following `previous`, the last
+    /// index allocated in the request's sequence.
+    ///
+    /// A sequence without a previous index starts at the configured offset.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RegistryInsertError::OffsetOutsideLocalCovenant`] if a sequence would be started
+    /// for a covenant that excludes `local_operator`, and
+    /// [`RegistryInsertError::DepositIdxExhausted`] if the next index has no [`GameIndex`].
+    pub fn next_deposit_idx<Pov>(
+        &self,
+        previous: Option<DepositIdx>,
+        covenant: &OperatorTable<Pov>,
+        local_operator: OperatorIdx,
+    ) -> Result<DepositIdx, RegistryInsertError> {
+        let next_idx = match previous {
+            Some(previous) => previous
+                .checked_add(1)
+                .ok_or(RegistryInsertError::DepositIdxExhausted(previous))?,
+            None if covenant.contains_idx(&local_operator) => self.first_deposit_idx(),
+            None => {
+                return Err(RegistryInsertError::OffsetOutsideLocalCovenant(
+                    local_operator,
+                ));
+            }
+        };
+        GameIndex::try_from(next_idx)
+            .map_err(|_| RegistryInsertError::DepositIdxExhausted(next_idx))?;
+        Ok(next_idx)
+    }
+
+    /// Returns the index of the first deposit in a sequence.
+    const fn first_deposit_idx(&self) -> DepositIdx {
+        self.cfg.deposit_index_offset
     }
 
     /// Inserts a new deposit state machine into the registry with the given deposit index.
@@ -811,7 +845,6 @@ mod tests {
         Amount, OutPoint, TxOut, Witness, consensus::encode::serialize_hex, hashes::Hash, key::rand,
     };
     use btc_tracker::event::{BlockEvent, BlockStatus};
-    use libp2p_identity::Keypair;
     use strata_asm_proto_bridge_txs::{
         BRIDGE_SUBPROTOCOL_ID,
         constants::BridgeTxType,
@@ -819,10 +852,7 @@ mod tests {
     };
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
     use strata_bridge_p2p_types::NagRequestPayload;
-    use strata_bridge_primitives::{
-        operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
-        types::{GraphIdx, P2POperatorPubKey},
-    };
+    use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
         graph::{
@@ -850,9 +880,9 @@ mod tests {
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
             insert_confirmed_stake, insert_created_stake, insert_deposit_with_graphs,
-            make_confirmed_stake_sm, mock_bitcoin_rpc, random_p2tr_desc, test_empty_registry,
-            test_fdb_config, test_operator_table, test_populated_registry,
-            unavailable_bitcoin_client,
+            insert_test_membership, make_confirmed_stake_sm, mock_bitcoin_rpc, test_empty_registry,
+            test_fdb_config, test_membership_table, test_operator_table, test_populated_registry,
+            test_sm_config, unavailable_bitcoin_client,
         },
     };
 
@@ -928,10 +958,77 @@ mod tests {
         );
     }
 
+    fn local_covenant() -> OperatorTable {
+        test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
+    }
+
     #[test]
-    fn next_deposit_idx_empty_is_zero() {
-        let registry = test_empty_registry();
-        assert_eq!(registry.next_deposit_idx(), Ok(0));
+    fn last_deposit_idx_is_the_highest_registered_index() {
+        let mut registry = test_empty_registry();
+        assert_eq!(
+            registry.last_deposit_idx(),
+            None,
+            "An empty registry has no previous deposit"
+        );
+        insert_deposit_with_graphs(&mut registry, 7);
+        insert_deposit_with_graphs(&mut registry, 3);
+        assert_eq!(
+            registry.last_deposit_idx(),
+            Some(7),
+            "The highest registered index must be reported regardless of insertion order"
+        );
+    }
+
+    #[test]
+    fn next_deposit_idx_seeds_an_empty_sequence_from_the_offset() {
+        for offset in [0, 1200] {
+            let registry = SMRegistry::new(SMConfig {
+                deposit_index_offset: offset,
+                ..test_sm_config()
+            });
+            assert_eq!(
+                registry.next_deposit_idx(None, &local_covenant(), TEST_POV_IDX),
+                Ok(offset),
+                "A sequence without a previous index must start at offset {offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn next_deposit_idx_continues_supplied_progress_regardless_of_the_offset() {
+        let offset = 1200;
+        let registry = SMRegistry::new(SMConfig {
+            deposit_index_offset: offset,
+            ..test_sm_config()
+        });
+        for previous in [7, offset, 5000] {
+            assert_eq!(
+                registry.next_deposit_idx(Some(previous), &local_covenant(), TEST_POV_IDX),
+                Ok(previous + 1),
+                "Progress {previous} must continue without reapplying offset {offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn next_deposit_idx_seeds_only_covenants_with_the_local_operator() {
+        let registry = SMRegistry::new(SMConfig {
+            deposit_index_offset: 1200,
+            ..test_sm_config()
+        });
+        let foreign_operator = N_TEST_OPERATORS as OperatorIdx;
+        assert_eq!(
+            registry.next_deposit_idx(None, &local_covenant(), foreign_operator),
+            Err(RegistryInsertError::OffsetOutsideLocalCovenant(
+                foreign_operator
+            )),
+            "The offset must not seed a sequence for a covenant without the local operator"
+        );
+        assert_eq!(
+            registry.next_deposit_idx(Some(4), &local_covenant(), foreign_operator),
+            Ok(5),
+            "Continuing an existing sequence must not depend on the offset check"
+        );
     }
 
     #[test]
@@ -985,7 +1082,10 @@ mod tests {
     #[test]
     fn next_deposit_idx_non_empty_is_max_plus_one() {
         let registry = test_populated_registry(3);
-        assert_eq!(registry.next_deposit_idx(), Ok(3));
+        assert_eq!(
+            registry.next_deposit_idx(registry.last_deposit_idx(), &local_covenant(), TEST_POV_IDX),
+            Ok(3)
+        );
     }
 
     #[test]
@@ -996,7 +1096,40 @@ mod tests {
         insert_deposit_with_graphs(&mut registry, min_idx);
         insert_deposit_with_graphs(&mut registry, MAX_IDX);
 
-        assert_eq!(registry.next_deposit_idx(), Ok(MAX_IDX + 1));
+        assert_eq!(
+            registry.next_deposit_idx(registry.last_deposit_idx(), &local_covenant(), TEST_POV_IDX),
+            Ok(MAX_IDX + 1)
+        );
+    }
+
+    #[test]
+    fn next_deposit_idx_rejects_indices_without_a_game_index() {
+        let last_game_idx = DepositIdx::MAX - 1;
+
+        let registry = test_empty_registry();
+        assert_eq!(
+            registry.next_deposit_idx(Some(last_game_idx), &local_covenant(), TEST_POV_IDX),
+            Err(RegistryInsertError::DepositIdxExhausted(DepositIdx::MAX)),
+            "An index after {last_game_idx} has no game index and must not be allocated"
+        );
+
+        for (offset, expected) in [
+            (last_game_idx, Ok(last_game_idx)),
+            (
+                DepositIdx::MAX,
+                Err(RegistryInsertError::DepositIdxExhausted(DepositIdx::MAX)),
+            ),
+        ] {
+            let registry = SMRegistry::new(SMConfig {
+                deposit_index_offset: offset,
+                ..test_sm_config()
+            });
+            assert_eq!(
+                registry.next_deposit_idx(None, &local_covenant(), TEST_POV_IDX),
+                expected,
+                "A sequence may start at offset {offset} only if it has a game index"
+            );
+        }
     }
 
     #[test]
@@ -1005,7 +1138,7 @@ mod tests {
         insert_deposit_with_graphs(&mut registry, DepositIdx::MAX);
 
         assert_eq!(
-            registry.next_deposit_idx(),
+            registry.next_deposit_idx(registry.last_deposit_idx(), &local_covenant(), TEST_POV_IDX),
             Err(RegistryInsertError::DepositIdxExhausted(DepositIdx::MAX))
         );
     }
@@ -1396,7 +1529,7 @@ mod tests {
 
     #[tokio::test]
     async fn durable_first_pass_preserves_historical_preimage_for_second_pass_burn() {
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let table = test_membership_table();
         let covenant = test_covenant(&table);
         let graph_idx = GraphIdx {
             deposit: 0,
@@ -1404,37 +1537,7 @@ mod tests {
         };
         let preimage = [0x42; 32];
         let mut registry = test_empty_registry();
-        let registrations = table
-            .operator_idxs()
-            .into_iter()
-            .map(|index| {
-                ScheduledOperator::new(
-                    index,
-                    table.idx_to_btc_key(&index).unwrap().x_only_public_key().0,
-                    Keypair::generate_ed25519()
-                        .public()
-                        .try_into_ed25519()
-                        .unwrap()
-                        .to_bytes()
-                        .to_vec()
-                        .into(),
-                    random_p2tr_desc(),
-                    INITIAL_BLOCK_HEIGHT,
-                    None,
-                )
-                .unwrap()
-            })
-            .collect();
-        registry
-            .insert_operator_set(
-                OperatorSetSM::new(
-                    INITIAL_BLOCK_HEIGHT,
-                    OperatorSetSchedule::new(registrations).unwrap(),
-                    vec![],
-                )
-                .unwrap(),
-            )
-            .unwrap();
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
         for operator in table.operator_idxs() {
             registry
                 .insert_stake(make_confirmed_stake_sm(

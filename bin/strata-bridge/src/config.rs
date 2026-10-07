@@ -1,7 +1,8 @@
 //! Configuration values for the bridge node.
 //!
-//! These do not affect consensus between bridge nodes and can be set to different values by
-//! different operators.
+//! Most of these do not affect consensus between bridge nodes and can be set to different values
+//! by different operators. [`Config::deposit_index_offset`] is the exception: covenant
+//! participants must configure the same value.
 use std::{
     fmt,
     net::SocketAddr,
@@ -12,19 +13,20 @@ use std::{
 
 use bitcoin::BlockHash;
 use libp2p::Multiaddr;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
+use strata_bridge_primitives::types::{DepositIdx, GameIndex};
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
 
 /// Configuration values that dictate the behavior of the bridge node.
 ///
-/// These values are not consensus-critical and can be changed by the operator i.e., differences in
-/// what values are set by individual bridge node operators will not necessarily cause the bridge to
-/// halt. It is still preferable to have some of these values be the same for optimum functioning of
-/// the bridge.
+/// Except for [`Self::deposit_index_offset`], these values are not consensus-critical and can be
+/// changed by the operator i.e., differences in what values are set by individual bridge node
+/// operators will not necessarily cause the bridge to halt. It is still preferable to have some of
+/// these values be the same for optimum functioning of the bridge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Config {
     /// Number of threads to use for the runtime.
@@ -66,6 +68,13 @@ pub(crate) struct Config {
     /// The maximum fee rate for any transaction (in sats/vb).
     pub max_fee_rate: u64,
 
+    /// The index of the first deposit registered in a deposit sequence.
+    ///
+    /// Covenant participants must configure the same value before a new covenant admits deposits.
+    /// A sequence that already has registered deposits continues from them. Defaults to zero.
+    #[serde(default, deserialize_with = "deserialize_deposit_index_offset")]
+    pub deposit_index_offset: DepositIdx,
+
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
@@ -106,6 +115,17 @@ pub(crate) struct Config {
     /// Configuration for process-level metrics exporters.
     #[serde(default)]
     pub metrics: MetricsConfig,
+}
+
+/// Rejects offsets without a [`GameIndex`], which can never be allocated.
+fn deserialize_deposit_index_offset<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<DepositIdx, D::Error> {
+    let offset = DepositIdx::deserialize(deserializer)?;
+    GameIndex::try_from(offset).map_err(|_| {
+        D::Error::custom(format!("deposit_index_offset {offset} has no game index"))
+    })?;
+    Ok(offset)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -391,8 +411,11 @@ pub(crate) struct MetricsConfig {
 /// rendered output for them without matching field names or other values.
 #[cfg(test)]
 pub(crate) fn test_config() -> Config {
-    toml::from_str(
-        r#"
+    toml::from_str(TEST_CONFIG_TOML).expect("valid test config")
+}
+
+#[cfg(test)]
+const TEST_CONFIG_TOML: &str = r#"
             num_threads = 4
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             is_faulty = false
@@ -480,10 +503,7 @@ pub(crate) fn test_config() -> Config {
 
             [metrics]
             prometheus_listener_addr = "127.0.0.1:9615"
-        "#,
-    )
-    .expect("valid test config")
-}
+        "#;
 
 #[cfg(test)]
 mod tests {
@@ -499,6 +519,38 @@ mod tests {
             reserialized, serialized,
             "serde round-trip must preserve every field"
         );
+    }
+
+    #[test]
+    fn deposit_index_offset_defaults_to_zero() {
+        assert_eq!(
+            test_config().deposit_index_offset,
+            0,
+            "An omitted deposit index offset must start allocation at zero"
+        );
+    }
+
+    #[test]
+    fn deposit_index_offset_accepts_an_absolute_index() {
+        let config: Config =
+            toml::from_str(&format!("deposit_index_offset = 1200\n{TEST_CONFIG_TOML}")).unwrap();
+        assert_eq!(
+            config.deposit_index_offset, 1200,
+            "The configured offset must be read as the absolute first deposit index"
+        );
+    }
+
+    #[test]
+    fn deposit_index_offset_rejects_indices_without_a_game_index() {
+        for offset in ["4294967295", "4294967296", "-1"] {
+            assert!(
+                toml::from_str::<Config>(&format!(
+                    "deposit_index_offset = {offset}\n{TEST_CONFIG_TOML}"
+                ))
+                .is_err(),
+                "Offset {offset} has no game index and must be rejected"
+            );
+        }
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin

@@ -17,7 +17,7 @@ use strata_asm_proto_bridge_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
-    types::{BitcoinBlockHeight, DepositIdx, GraphIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     deposit::{
@@ -31,7 +31,7 @@ use strata_bridge_sm::{
         events::{GraphEvent, NewBlockEvent as GraphNewBlockEvent},
         machine::GraphSM,
     },
-    operator_set::OperatorSetEvent,
+    operator_set::{BlockCovenant, OperatorSetEvent},
     stake::{
         config::StakeSMCfg,
         events::{NewBlockEvent as StakeNewBlockEvent, StakeEvent},
@@ -45,7 +45,7 @@ use super::{drt, exits::resolve_exit_observation};
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
-    sm_registry::{ActiveOperatorSnapshot, SMRegistry, SnapshotError},
+    sm_registry::{ActiveOperatorSnapshot, RegistryInsertError, SMRegistry, SnapshotError},
     sm_types::{SMEvent, SMId, UnifiedDuty},
 };
 
@@ -158,18 +158,18 @@ pub(crate) fn process_deposit_graph_pass(
         .expect("valid block height");
 
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
-    // Registration validates against the supplied covenant/table, which must match this
-    // block's final membership to prevent admission under a different covenant.
-    // Resolve this context by source block height through STR-3670's membership history API.
+    // Replace the restriction to the supplied covenant with block-final stake readiness.
     // Keep readiness and replay checks independent of covenant/address validation.
-    let admit_deposits = block_reaches_gate
-        && applicator
-            .registry()
-            .get_operator_set()
-            .is_none_or(|membership| {
-                membership.last_block_height() == height
-                    && membership.current_covenant() == covenant
-            });
+    let block_covenant = match applicator.registry().get_operator_set() {
+        Some(membership)
+            if block_reaches_gate
+                && membership.last_block_height() == height
+                && membership.current_covenant() == covenant =>
+        {
+            Some(membership.covenant_at(height).map_err(ProcessError::from)?)
+        }
+        _ => None,
+    };
 
     let completed: BTreeSet<_> = applicator
         .registry()
@@ -196,11 +196,11 @@ pub(crate) fn process_deposit_graph_pass(
     let deposit_cfg = applicator.registry().cfg().deposit.clone();
     let graph_cfg = applicator.registry().cfg().graph.clone();
     for tx in &block_event.block.txdata {
-        if admit_deposits {
+        if let Some(block_covenant) = &block_covenant {
             let duties = try_register_deposit(
                 &deposit_cfg,
-                operator_table,
-                covenant,
+                block_covenant,
+                operator_table.pov_idx(),
                 applicator,
                 tx,
                 height,
@@ -243,16 +243,18 @@ pub(crate) fn process_deposit_graph_pass(
     Ok(())
 }
 
-/// If `tx` is a valid deposit request transaction, registers a [`DepositSM`] and per-operator
-/// [`GraphSM`]s into the registry.
+/// If `tx` is a valid deposit request addressed to `block_covenant`, registers a [`DepositSM`]
+/// and per-operator [`GraphSM`]s into the registry.
+///
+/// `block_covenant` must be the covenant finalized for the block containing `tx`.
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
-/// Returns `Ok(Vec::new())` unless every requested covenant member has an available stake,
-/// or if the transaction is already registered or fails DRT validation.
+/// Returns `Ok(Vec::new())` unless `local_operator` belongs to the covenant and every member has
+/// an available stake, or if the transaction is already registered or fails DRT validation.
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
-    full_operator_table: &OperatorTable,
-    covenant: CovenantId,
+    block_covenant: &BlockCovenant,
+    local_operator: OperatorIdx,
     applicator: &mut Applicator<'_>,
     tx: &Transaction,
     height: BitcoinBlockHeight,
@@ -283,9 +285,18 @@ fn try_register_deposit(
         return Ok(Vec::new());
     }
 
+    let Some(local_table) = block_covenant
+        .operator_table
+        .clone()
+        .with_pov(local_operator)
+    else {
+        debug!(%drt_txid, covenant=%block_covenant.covenant, "skipping DRT for a covenant without the local operator");
+        return Ok(Vec::new());
+    };
+
     let snapshot = match applicator
         .registry()
-        .active_operator_snapshot(covenant, full_operator_table)
+        .active_operator_snapshot(block_covenant.covenant, &local_table)
     {
         Ok(snap) => snap,
         Err(err @ (SnapshotError::MissingStakeSM(_) | SnapshotError::StakeUnavailable(_))) => {
@@ -305,7 +316,7 @@ fn try_register_deposit(
         unstaking_images,
     } = snapshot;
 
-    let valid = match drt::validate_candidate(tx, deposit_cfg, &active_operator_table) {
+    let valid = match drt::validate_candidate(tx, deposit_cfg, &block_covenant.operator_table) {
         Ok(valid) => valid,
         Err(err) => {
             warn!(%err, txid=%tx.compute_txid(), "rejecting DRT candidate");
@@ -320,7 +331,23 @@ fn try_register_deposit(
         "passed validation; registering DSM / GSMs from active operator snapshot"
     );
 
-    let deposit_idx = applicator.registry().next_deposit_idx()?;
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
+    // Supply the progress of the request's covenant sequence once admission is no longer
+    // limited to the initial covenant. Until then, every registered deposit shares one sequence.
+    let previous = applicator.registry().last_deposit_idx();
+    let deposit_idx = match applicator.registry().next_deposit_idx(
+        previous,
+        &block_covenant.operator_table,
+        local_operator,
+    ) {
+        Ok(deposit_idx) => deposit_idx,
+        // An incorrect starting height can replay requests from before this node joined.
+        Err(err @ RegistryInsertError::OffsetOutsideLocalCovenant(_)) => {
+            warn!(%err, %drt_txid, "skipping DRT for a covenant without the local operator");
+            return Ok(Vec::new());
+        }
+        Err(err) => return Err(err.into()),
+    };
     let deposit_data = DepositData {
         deposit_idx,
         deposit_request_outpoint,
@@ -476,8 +503,12 @@ mod tests {
     use bitcoin::{absolute, transaction};
     use btc_tracker::event::BlockStatus;
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
+    use strata_bridge_primitives::operator_table::PublicOperatorTable;
     use strata_bridge_sm::{
-        deposit::state::DepositState, graph::duties::GraphDuty, stake::state::StakeState,
+        deposit::state::DepositState,
+        graph::duties::GraphDuty,
+        operator_set::{ConfirmedExit, ExitKind},
+        stake::state::StakeState,
     };
     use strata_bridge_test_utils::{
         bitcoin::{
@@ -492,12 +523,13 @@ mod tests {
         applicator::BatchOutput,
         persister::Persister,
         pipeline::process_block,
-        sm_registry::SMRegistry,
+        sm_registry::{SMConfig, SMRegistry},
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
-            insert_confirmed_stake, make_confirmed_stake_sm, test_deposit_sm_cfg, test_fdb_config,
-            test_operator_table, test_populated_registry, test_safe_harbour_address,
-            test_stake_key, unavailable_bitcoin_client,
+            insert_confirmed_stake, insert_deposit_with_graphs, insert_test_membership,
+            make_confirmed_stake_sm, test_deposit_sm_cfg, test_empty_registry, test_fdb_config,
+            test_membership, test_membership_table, test_operator_table, test_populated_registry,
+            test_safe_harbour_address, test_sm_config, test_stake_key, unavailable_bitcoin_client,
         },
     };
 
@@ -610,6 +642,14 @@ mod tests {
 
     // ===== try_register_deposit tests =====
 
+    /// Returns `table`'s covenant at [`INITIAL_BLOCK_HEIGHT`] as finalized for a block.
+    fn block_covenant_for(table: &OperatorTable) -> BlockCovenant {
+        BlockCovenant {
+            covenant: CovenantId::from_operator_table(table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            operator_table: table.clone().into_public(),
+        }
+    }
+
     /// Pre-populates `registry` with one Confirmed stake per operator so that the
     /// stake-readiness gate in [`try_register_deposit`] passes.
     fn confirm_all_stakes(registry: &mut SMRegistry, operator_table: &OperatorTable) {
@@ -629,8 +669,8 @@ mod tests {
         let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
-            &operator_table,
-            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &block_covenant_for(&operator_table),
+            TEST_POV_IDX,
             &mut applicator,
             &tx,
             TEST_HEIGHT,
@@ -690,7 +730,6 @@ mod tests {
                 preimage: None,
             },
         ];
-        let covenant = confirmed.context().stake_key().covenant;
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
         for state in unavailable_states {
             let mut registry = test_populated_registry(0);
@@ -705,8 +744,8 @@ mod tests {
             let mut applicator = Applicator::new(&mut registry, None);
             let duties = try_register_deposit(
                 &cfg,
-                &operator_table,
-                covenant,
+                &block_covenant_for(&operator_table),
+                TEST_POV_IDX,
                 &mut applicator,
                 &tx,
                 TEST_HEIGHT,
@@ -758,8 +797,8 @@ mod tests {
         let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
-            &operator_table,
-            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &block_covenant_for(&operator_table),
+            TEST_POV_IDX,
             &mut applicator,
             &random_tx,
             TEST_HEIGHT,
@@ -792,8 +831,8 @@ mod tests {
         let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
-            &operator_table,
-            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &block_covenant_for(&operator_table),
+            TEST_POV_IDX,
             &mut applicator,
             &tx,
             TEST_HEIGHT,
@@ -821,15 +860,21 @@ mod tests {
     fn replayed_drt_does_not_register_live_or_terminal_deposit_again() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let cfg = test_deposit_sm_cfg();
-        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let tx = DrtBuilder::aligned(&table, &cfg).build();
         let mut registry = test_populated_registry(0);
         confirm_all_stakes(&mut registry, &table);
         let mut applicator = Applicator::new(&mut registry, None);
         assert_eq!(
-            try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
-                .unwrap()
-                .len(),
+            try_register_deposit(
+                &cfg,
+                &block_covenant_for(&table),
+                TEST_POV_IDX,
+                &mut applicator,
+                &tx,
+                TEST_HEIGHT,
+            )
+            .unwrap()
+            .len(),
             1
         );
         applicator.finish();
@@ -845,9 +890,15 @@ mod tests {
             }
             let ids = restored.get_all_ids();
             let mut applicator = Applicator::new(&mut restored, None);
-            let duties =
-                try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
-                    .unwrap();
+            let duties = try_register_deposit(
+                &cfg,
+                &block_covenant_for(&table),
+                TEST_POV_IDX,
+                &mut applicator,
+                &tx,
+                TEST_HEIGHT,
+            )
+            .unwrap();
             let BatchOutput { tracker, .. } = applicator.finish();
             assert!(duties.is_empty(), "replay must not emit constructor duties");
             assert!(tracker.into_batches().is_empty());
@@ -859,9 +910,10 @@ mod tests {
     #[tokio::test]
     async fn deposit_registration_recovers_from_any_committed_batch_subset() {
         let bitcoin_client = unavailable_bitcoin_client();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let table = test_membership_table();
         let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT + 1);
         confirm_all_stakes(&mut registry, &table);
         let initial = registry.clone();
         let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
@@ -1015,9 +1067,10 @@ mod tests {
     #[tokio::test]
     async fn block_final_stake_confirmation_admits_both_drts_without_replay_duplicates() {
         let bitcoin_client = unavailable_bitcoin_client();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let table = test_membership_table();
         let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
         let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
         for operator in table.operator_idxs() {
             let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
@@ -1157,8 +1210,8 @@ mod tests {
         let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
-            &operator_table,
-            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
+            &block_covenant_for(&operator_table),
+            TEST_POV_IDX,
             &mut applicator,
             &tx,
             TEST_HEIGHT,
@@ -1196,6 +1249,320 @@ mod tests {
         assert_eq!(
             duty_operator_table, &operator_table,
             "initial graph duty must carry the active operator-table snapshot"
+        );
+    }
+
+    /// Returns the covenants finalized before and after `exited` leaves [`test_membership`].
+    fn covenants_around_exit(exited: OperatorIdx) -> (BlockCovenant, BlockCovenant) {
+        let mut membership = test_membership();
+        let exit_height = INITIAL_BLOCK_HEIGHT + 1;
+        membership
+            .apply_block(
+                exit_height,
+                &[ConfirmedExit {
+                    operator_idx: exited,
+                    txid: generate_txid(),
+                    tx_index: 1,
+                    kind: ExitKind::Slash,
+                }],
+            )
+            .unwrap();
+        (
+            membership.covenant_at(INITIAL_BLOCK_HEIGHT).unwrap(),
+            membership.covenant_at(exit_height).unwrap(),
+        )
+    }
+
+    fn register(
+        registry: &mut SMRegistry,
+        covenant: &BlockCovenant,
+        tx: &Transaction,
+    ) -> Vec<UnifiedDuty> {
+        let cfg = registry.cfg().deposit.clone();
+        let mut applicator = Applicator::new(registry, None);
+        let duties = try_register_deposit(
+            &cfg,
+            covenant,
+            TEST_POV_IDX,
+            &mut applicator,
+            tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
+        applicator.finish();
+        duties
+    }
+
+    #[test]
+    fn registration_validates_requests_against_the_block_final_covenant() {
+        let exited = N_TEST_OPERATORS as OperatorIdx - 1;
+        let (initial, successor) = covenants_around_exit(exited);
+        let successor_table = successor
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let mut registry = test_empty_registry();
+        confirm_all_stakes(&mut registry, &successor_table);
+        let cfg = registry.cfg().deposit.clone();
+        let stale = DrtBuilder::aligned(
+            &initial
+                .operator_table
+                .clone()
+                .with_pov(TEST_POV_IDX)
+                .unwrap(),
+            &cfg,
+        )
+        .build();
+        let current = DrtBuilder::aligned(&successor_table, &cfg).build();
+
+        register(&mut registry, &successor, &stale);
+        assert_eq!(
+            registry.num_deposits(),
+            0,
+            "A request for the pre-exit covenant must not be registered after the exit"
+        );
+
+        register(&mut registry, &successor, &current);
+        let deposit = registry
+            .get_deposit(&0)
+            .expect("a request for the block-final covenant must be registered");
+        assert_eq!(
+            deposit.context().deposit_request_outpoint(),
+            OutPoint::new(current.compute_txid(), DRT_OUTPUT_INDEX as u32),
+            "The block-final request must receive the first index"
+        );
+        assert!(
+            deposit
+                .context()
+                .operator_table()
+                .has_same_membership(&successor.operator_table),
+            "The deposit must retain the block-final covenant's membership"
+        );
+    }
+
+    #[test]
+    fn registration_skips_covenants_without_the_local_operator() {
+        let offset = 1200;
+        let (initial, foreign) = covenants_around_exit(TEST_POV_IDX);
+        let initial_table = initial
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let mut registry = SMRegistry::new(SMConfig {
+            deposit_index_offset: offset,
+            ..test_sm_config()
+        });
+        confirm_all_stakes(&mut registry, &initial_table);
+        let cfg = registry.cfg().deposit.clone();
+        let other_member = *foreign.operator_table.operator_idxs().first().unwrap();
+        let foreign_request = DrtBuilder::aligned(
+            &foreign
+                .operator_table
+                .clone()
+                .with_pov(other_member)
+                .unwrap(),
+            &cfg,
+        )
+        .build();
+
+        register(&mut registry, &foreign, &foreign_request);
+        assert_eq!(
+            registry.num_deposits(),
+            0,
+            "A request for a covenant without the local operator must not consume the offset"
+        );
+
+        let request = DrtBuilder::aligned(&initial_table, &cfg).build();
+        register(&mut registry, &initial, &request);
+        assert_eq!(
+            registry.get_deposit_ids(),
+            vec![offset],
+            "The first request the local operator can process must receive the offset"
+        );
+    }
+
+    #[test]
+    fn registration_requires_membership_to_resolve_the_block_covenant() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
+        let mut registry = test_empty_registry();
+        confirm_all_stakes(&mut registry, &table);
+        let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
+        block
+            .txdata
+            .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
+        let event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+
+        let mut applicator = Applicator::new(&mut registry, None);
+        process_deposit_graph_pass(&mut applicator, &table, covenant, true, &event).unwrap();
+        applicator.finish();
+        assert_eq!(
+            registry.num_deposits(),
+            0,
+            "Without membership the block's covenant is unknown, so no request may be registered"
+        );
+    }
+
+    /// Builds a covenant member that registers deposits from `offset` when it has none.
+    fn seeded_member(
+        local_operator: OperatorIdx,
+        offset: DepositIdx,
+    ) -> (SMRegistry, OperatorTable) {
+        let table = test_membership()
+            .current_operator_table()
+            .unwrap()
+            .with_pov(local_operator)
+            .unwrap();
+        let mut registry = SMRegistry::new(SMConfig {
+            deposit_index_offset: offset,
+            ..test_sm_config()
+        });
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
+        confirm_all_stakes(&mut registry, &table);
+        (registry, table)
+    }
+
+    /// Returns each registered request outpoint with its index and covenant membership.
+    fn registered_mapping(
+        registry: &SMRegistry,
+    ) -> Vec<(OutPoint, DepositIdx, PublicOperatorTable)> {
+        registry
+            .deposits()
+            .map(|(&idx, sm)| {
+                (
+                    sm.context().deposit_request_outpoint(),
+                    idx,
+                    sm.context().operator_table().clone().into_public(),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn seeded_joiner_and_participant_assign_identical_indices() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let history = 3;
+        let joiner_operator = N_TEST_OPERATORS as OperatorIdx - 1;
+        let (mut participant, participant_table) = seeded_member(TEST_POV_IDX, 0);
+        for idx in 0..history {
+            insert_deposit_with_graphs(&mut participant, idx);
+        }
+        let (mut joiner, joiner_table) = seeded_member(joiner_operator, history);
+        let covenant = test_membership().current_covenant();
+
+        let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
+        for _ in 0..2 {
+            block
+                .txdata
+                .push(DrtBuilder::aligned(&participant_table, &participant.cfg().deposit).build());
+        }
+        let event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+
+        process_block(
+            &bitcoin_client,
+            &mut participant,
+            &participant_table,
+            covenant,
+            &event,
+        )
+        .await
+        .unwrap();
+        process_block(
+            &bitcoin_client,
+            &mut joiner,
+            &joiner_table,
+            covenant,
+            &event,
+        )
+        .await
+        .unwrap();
+        let shared: Vec<_> = registered_mapping(&participant)
+            .into_iter()
+            .filter(|(_, idx, _)| *idx >= history)
+            .collect();
+        assert_eq!(
+            shared.iter().map(|(_, idx, _)| *idx).collect::<Vec<_>>(),
+            vec![history, history + 1],
+            "Both requests in the block must receive consecutive indices after the participant's history"
+        );
+        assert_eq!(
+            registered_mapping(&joiner),
+            shared,
+            "A correctly seeded joiner must assign the participant's outpoint, index, and covenant"
+        );
+
+        process_block(
+            &bitcoin_client,
+            &mut joiner,
+            &joiner_table,
+            covenant,
+            &event,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            registered_mapping(&joiner),
+            shared,
+            "Replaying the block must not register the requests again or renumber them"
+        );
+    }
+
+    #[tokio::test]
+    async fn wrong_offset_makes_a_joiner_disagree_with_peers() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let history = 3;
+        let joiner_operator = N_TEST_OPERATORS as OperatorIdx - 1;
+        let (mut participant, participant_table) = seeded_member(TEST_POV_IDX, 0);
+        for idx in 0..history {
+            insert_deposit_with_graphs(&mut participant, idx);
+        }
+        let (mut joiner, joiner_table) = seeded_member(joiner_operator, history + 1);
+        let covenant = test_membership().current_covenant();
+
+        let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
+        block
+            .txdata
+            .push(DrtBuilder::aligned(&participant_table, &participant.cfg().deposit).build());
+        let event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+
+        process_block(
+            &bitcoin_client,
+            &mut participant,
+            &participant_table,
+            covenant,
+            &event,
+        )
+        .await
+        .unwrap();
+        process_block(
+            &bitcoin_client,
+            &mut joiner,
+            &joiner_table,
+            covenant,
+            &event,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            participant.get_deposit_ids().last(),
+            Some(&history),
+            "The participant must index the request after its history"
+        );
+        assert_eq!(
+            joiner.get_deposit_ids(),
+            vec![history + 1],
+            "A joiner seeded with the wrong offset must keep that index rather than correct it"
         );
     }
 }

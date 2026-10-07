@@ -534,9 +534,9 @@ mod covenant_storage_tests {
     use crate::{
         sm_registry::{IgnoredEventReason, ProcessOutcome},
         testing::{
-            N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_fdb_config,
-            test_operator_set_sm, test_operator_table, test_populated_registry,
-            test_safe_harbour_address,
+            N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry,
+            test_fdb_config, test_operator_set_sm, test_operator_table, test_populated_registry,
+            test_safe_harbour_address, test_sm_config,
         },
     };
 
@@ -701,6 +701,71 @@ mod covenant_storage_tests {
             Err(PersistError::StakeIdentityMismatch)
         ));
         drop(restarted);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn recovery_continues_allocation_without_reapplying_a_changed_offset() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-persister-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+
+        let first_offset = 1200;
+        let mut registry = SMRegistry::new(SMConfig {
+            deposit_index_offset: first_offset,
+            ..test_sm_config()
+        });
+        let first = registry
+            .next_deposit_idx(
+                None,
+                &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+                TEST_POV_IDX,
+            )
+            .unwrap();
+        insert_deposit_with_graphs(&mut registry, first);
+        insert_deposit_with_graphs(&mut registry, first + 1);
+        for id in registry.get_all_ids() {
+            persister
+                .persist_batch(BTreeSet::from([id]), &registry)
+                .await
+                .unwrap();
+        }
+
+        for offset in [0, first_offset, 5000] {
+            let restored = persister
+                .recover_registry(SMConfig {
+                    deposit_index_offset: offset,
+                    ..test_sm_config()
+                })
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.get_deposit_ids(),
+                registry.get_deposit_ids(),
+                "Recovery with offset {offset} must restore the persisted indices unchanged"
+            );
+            assert_eq!(
+                restored.next_deposit_idx(
+                    restored.last_deposit_idx(),
+                    &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+                    TEST_POV_IDX
+                ),
+                Ok(first + 2),
+                "Recovery with offset {offset} must continue after the persisted maximum"
+            );
+        }
+
+        drop(persister);
         drop(db);
         drop(guard);
     }

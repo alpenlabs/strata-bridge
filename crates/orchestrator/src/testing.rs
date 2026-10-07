@@ -25,7 +25,7 @@ use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
     operator_table::OperatorTable,
-    types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_sm::{
     deposit::{config::DepositSMCfg, machine::DepositSM},
@@ -134,6 +134,7 @@ pub(crate) fn test_sm_config() -> SMConfig {
         deposit: test_deposit_sm_cfg(),
         graph: test_graph_sm_cfg(),
         stake: test_stake_sm_cfg(),
+        deposit_index_offset: 0,
     }
 }
 
@@ -398,6 +399,63 @@ pub(crate) fn test_operator_set_sm() -> OperatorSetSM {
         vec![],
     )
     .unwrap()
+}
+
+/// Creates membership of [`N_TEST_OPERATORS`] registrations active from [`INITIAL_BLOCK_HEIGHT`].
+///
+/// Signing keys match [`test_operator_table`]; P2P keys are deterministic Ed25519 keys.
+pub(crate) fn test_membership() -> OperatorSetSM {
+    let signing_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    let registrations = signing_table
+        .operator_idxs()
+        .into_iter()
+        .map(|index| {
+            let p2p = Keypair::ed25519_from_bytes([index as u8 + 1; 32])
+                .expect("valid Ed25519 seed")
+                .public()
+                .try_into_ed25519()
+                .expect("Ed25519 key");
+            ScheduledOperator::new(
+                index,
+                signing_table
+                    .idx_to_btc_x_only_key(&index)
+                    .expect("registered operator"),
+                P2POperatorPubKey::from(p2p.to_bytes().to_vec()),
+                random_p2tr_desc(),
+                INITIAL_BLOCK_HEIGHT,
+                None,
+            )
+            .expect("valid registration")
+        })
+        .collect();
+    OperatorSetSM::new(
+        INITIAL_BLOCK_HEIGHT,
+        OperatorSetSchedule::new(registrations).expect("valid schedule"),
+        vec![],
+    )
+    .expect("valid membership")
+}
+
+/// Returns the local participant's view of the [`test_membership`] covenant.
+pub(crate) fn test_membership_table() -> OperatorTable {
+    test_membership()
+        .current_operator_table()
+        .expect("valid membership")
+        .with_pov(TEST_POV_IDX)
+        .expect("local operator is a member")
+}
+
+/// Installs [`test_membership`] processed through `height` into `registry`.
+pub(crate) fn insert_test_membership(registry: &mut SMRegistry, height: BitcoinBlockHeight) {
+    let mut membership = test_membership();
+    for block_height in INITIAL_BLOCK_HEIGHT + 1..=height {
+        membership
+            .apply_block(block_height, &[])
+            .expect("consecutive empty blocks");
+    }
+    registry
+        .insert_operator_set(membership)
+        .expect("registry has no membership");
 }
 
 /// Returns test database configuration using `STRATA_TEST_FDB_CLUSTER_FILE`, when set.

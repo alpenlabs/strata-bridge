@@ -15,8 +15,8 @@ use strata_bridge_primitives::{
 };
 
 use super::{
-    ConfirmedExit, ExitKind, ExitObservation, MembershipUpdate, OperatorSetError, OperatorSetEvent,
-    OperatorSetSM, OperatorSetSignal, ParsedExit,
+    BlockCovenant, ConfirmedExit, ExitKind, ExitObservation, MembershipUpdate, OperatorSetError,
+    OperatorSetEvent, OperatorSetSM, OperatorSetSignal, ParsedExit,
 };
 use crate::state_machine::StateMachine;
 
@@ -895,5 +895,209 @@ fn exit_validation_does_not_use_history_from_later_blocks() {
     assert_eq!(
         recovered.validate_exits(21, &[observation.clone(), observation]),
         Err(OperatorSetError::UnorderedExits)
+    );
+}
+
+fn expected_covenant(sm: &OperatorSetSM, members: &[u32], activation_height: u64) -> BlockCovenant {
+    let operator_table =
+        OperatorSetSM::table_for(sm.registrations(), &members.iter().copied().collect()).unwrap();
+    BlockCovenant {
+        covenant: CovenantId::from_operator_table(&operator_table, activation_height).unwrap(),
+        operator_table,
+    }
+}
+
+fn advance_to(sm: &mut OperatorSetSM, height: u64) {
+    for block_height in sm.last_block_height() + 1..=height {
+        sm.apply_block(block_height, &[]).unwrap();
+    }
+}
+
+#[test]
+fn covenant_lookup_returns_block_final_covenants_across_admin_activations() {
+    let initialization_height = 100;
+    let first_activation = 101;
+    let second_activation = 201;
+    let frontier = 205;
+
+    let registrations = OperatorSetSchedule::new(vec![
+        operator(0, initialization_height, None),
+        operator(1, initialization_height, Some(second_activation)),
+        operator(2, first_activation, None),
+        operator(3, second_activation, None),
+    ])
+    .unwrap();
+    let mut sm = OperatorSetSM::new(
+        initialization_height,
+        registrations,
+        vec![
+            update(first_activation, &[2], &[]),
+            update(second_activation, &[3], &[1]),
+        ],
+    )
+    .unwrap();
+    advance_to(&mut sm, frontier);
+
+    let initial = expected_covenant(&sm, &[0, 1], initialization_height);
+    let first = expected_covenant(&sm, &[0, 1, 2], first_activation);
+    let second = expected_covenant(&sm, &[0, 2, 3], second_activation);
+    let cases = [
+        (initialization_height, &initial),
+        (first_activation, &first),
+        (150, &first),
+        (second_activation - 1, &first),
+        (second_activation, &second),
+        (frontier, &second),
+    ];
+
+    let restored: OperatorSetSM =
+        postcard::from_bytes(&postcard::to_allocvec(&sm).unwrap()).unwrap();
+    for state in [&sm, &restored] {
+        for (height, expected) in cases {
+            assert_eq!(
+                state.covenant_at(height).as_ref(),
+                Ok(expected),
+                "Height {height} must resolve to the covenant finalized for that block, \
+                 including after serialization and later blocks"
+            );
+        }
+    }
+    assert_eq!(
+        sm.covenant_at(frontier).unwrap().covenant,
+        sm.current_covenant(),
+        "The processed frontier must resolve to the current covenant"
+    );
+}
+
+#[test]
+fn covenant_lookup_rejects_heights_outside_retained_history() {
+    let initialization_height = 15;
+    let frontier = 17;
+
+    let mut sm = OperatorSetSM::new(initialization_height, three_members(), vec![]).unwrap();
+    advance_to(&mut sm, frontier);
+
+    assert_eq!(
+        sm.covenant_at(initialization_height - 1),
+        Err(OperatorSetError::HistoryUnavailable(
+            initialization_height - 1
+        )),
+        "Heights before initialization must not fall back to the initial covenant"
+    );
+    assert_eq!(
+        sm.covenant_at(frontier + 1),
+        Err(OperatorSetError::UnprocessedBlock {
+            processed: frontier,
+            requested: frontier + 1,
+        }),
+        "Heights beyond the processed frontier must not fall back to the current covenant"
+    );
+}
+
+#[test]
+fn covenant_lookup_retains_admin_boundary_across_automatic_exits() {
+    let registration_height = 10;
+    let initialization_height = 15;
+    let exit_height = 16;
+    let exited_operator = 1;
+
+    let mut sm = OperatorSetSM::new(initialization_height, three_members(), vec![]).unwrap();
+    sm.apply_block(exit_height, &[exit(exited_operator, 3)])
+        .unwrap();
+    advance_to(&mut sm, exit_height + 2);
+
+    assert_eq!(
+        sm.covenant_at(initialization_height),
+        Ok(expected_covenant(&sm, &[0, 1, 2], registration_height)),
+        "Initialization must use the registration boundary, not the initialization height"
+    );
+    let successor = expected_covenant(&sm, &[0, 2], registration_height);
+    for height in exit_height..=exit_height + 2 {
+        assert_eq!(
+            sm.covenant_at(height).as_ref(),
+            Ok(&successor),
+            "An automatic exit must retain the admin boundary {registration_height} at height {height}"
+        );
+    }
+}
+
+#[test]
+fn covenant_lookup_selects_membership_after_every_block_operation() {
+    let initialization_height = 19;
+    let change_height = 20;
+    let exited_operator = 1;
+
+    let registrations = OperatorSetSchedule::new(vec![
+        operator(0, 10, None),
+        operator(1, 10, None),
+        operator(2, 10, None),
+        operator(3, change_height, None),
+    ])
+    .unwrap();
+    let mut sm = OperatorSetSM::new(
+        initialization_height,
+        registrations,
+        vec![
+            update(change_height, &[3], &[]),
+            update(change_height, &[], &[2]),
+        ],
+    )
+    .unwrap();
+    sm.apply_block(change_height, &[exit(exited_operator, 2)])
+        .unwrap();
+
+    assert_eq!(
+        sm.membership_history().len(),
+        4,
+        "The block must retain its exit and both admin operations as intermediate history"
+    );
+    assert_eq!(
+        sm.covenant_at(change_height),
+        Ok(expected_covenant(&sm, &[0, 3], change_height)),
+        "Lookup must select membership after the exit and every ordered admin operation"
+    );
+}
+
+#[test]
+fn covenant_lookup_distinguishes_repeated_signing_sets_by_effective_admin_boundary() {
+    let initialization_height = 10;
+    let roundtrip_height = 11;
+    let noop_height = 12;
+    let transient_operator = 3;
+
+    let registrations = OperatorSetSchedule::new(
+        (0..3)
+            .map(|idx| operator(idx, initialization_height, None))
+            .chain([operator(transient_operator, roundtrip_height, None)])
+            .collect(),
+    )
+    .unwrap();
+    let mut sm = OperatorSetSM::new(
+        initialization_height,
+        registrations,
+        vec![
+            update(roundtrip_height, &[transient_operator], &[]),
+            update(roundtrip_height, &[], &[transient_operator]),
+            update(noop_height, &[], &[transient_operator]),
+        ],
+    )
+    .unwrap();
+    advance_to(&mut sm, noop_height);
+
+    let original = sm.covenant_at(initialization_height).unwrap();
+    let roundtrip = sm.covenant_at(roundtrip_height).unwrap();
+    assert_eq!(
+        roundtrip,
+        expected_covenant(&sm, &[0, 1, 2], roundtrip_height),
+        "An effective same-block round trip must establish its own admin boundary"
+    );
+    assert_ne!(
+        original.covenant, roundtrip.covenant,
+        "Identical signing sets at different admin boundaries must have distinct covenants"
+    );
+    assert_eq!(
+        sm.covenant_at(noop_height),
+        Ok(roundtrip),
+        "A no-op removal must not establish an admin boundary"
     );
 }
