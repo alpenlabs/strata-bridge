@@ -117,7 +117,7 @@ impl BridgeProofTx {
         )
     }
 
-    /// Like [`signing_info_partial`] but with a custom `sighash_type`, for testing purposes.
+    /// Like [`Self::signing_info_partial`] but with a custom `sighash_type`, for testing purposes.
     #[cfg(feature = "test_utils")]
     pub fn signing_info_partial_with_sighash_type(
         &self,
