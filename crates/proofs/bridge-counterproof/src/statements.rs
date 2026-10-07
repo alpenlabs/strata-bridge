@@ -590,6 +590,11 @@ mod tests {
 
         // The signature is verified, so all following unit tests must contain a valid signature.
         // Remember that unit tests are sorted in the order of code execution.
+        //
+        // Tests of the form "counterproof succeeds immediately if condition X holds"
+        // need to use `bridge_proof_vk: PredicateKey::always_accept()`.
+        // This ensures that the counterproof fails unless the counterproof statement
+        // succeeds early due to condition X.
 
         #[test]
         fn counterproof_valid_if_not_sighash_default() {
@@ -614,7 +619,7 @@ mod tests {
 
             run_counterproof(RuntimeArgs {
                 input,
-                bridge_proof_vk: PredicateKey::never_accept(),
+                bridge_proof_vk: PredicateKey::always_accept(),
                 moho_vk: PredicateKey::never_accept(),
             });
         }
@@ -630,7 +635,7 @@ mod tests {
 
             run_counterproof(RuntimeArgs {
                 input,
-                bridge_proof_vk: PredicateKey::never_accept(),
+                bridge_proof_vk: PredicateKey::always_accept(),
                 moho_vk: PredicateKey::never_accept(),
             });
         }
@@ -651,7 +656,7 @@ mod tests {
 
             run_counterproof(RuntimeArgs {
                 input,
-                bridge_proof_vk: PredicateKey::never_accept(),
+                bridge_proof_vk: PredicateKey::always_accept(),
                 moho_vk: PredicateKey::never_accept(),
             });
         }
@@ -672,7 +677,7 @@ mod tests {
 
             run_counterproof(RuntimeArgs {
                 input,
-                bridge_proof_vk: PredicateKey::never_accept(),
+                bridge_proof_vk: PredicateKey::always_accept(),
                 moho_vk: PredicateKey::never_accept(),
             });
         }
