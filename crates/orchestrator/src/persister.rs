@@ -1,5 +1,7 @@
 //! Contains functionality related to persisting data to disk for crash recovery.
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     collections::{BTreeSet, HashMap},
     sync::Arc,
@@ -104,7 +106,20 @@ impl PersistenceTracker {
 
     /// Consume the tracker and return independent persistence batches in unspecified order.
     pub fn into_batches(self) -> Vec<BTreeSet<SMId>> {
-        self.groups.into_values().collect()
+        let mut batches: Vec<_> = self.groups.into_values().collect();
+        // Persist membership and stakes before deposit/graph state. Keep registrations in
+        // index order so replay cannot allocate a missing request after a later persisted index.
+        batches.sort_unstable_by_key(|batch| {
+            let is_gate = batch
+                .iter()
+                .any(|id| matches!(id, SMId::OperatorSet | SMId::Stake(_)));
+            let deposit_index = batch.iter().find_map(|id| match id {
+                SMId::Deposit(index) => Some(*index),
+                _ => None,
+            });
+            (!is_gate, deposit_index)
+        });
+        batches
     }
 }
 
@@ -113,12 +128,24 @@ impl PersistenceTracker {
 #[derive(Debug, Clone)]
 pub struct Persister {
     db: Arc<FdbClient>,
+    #[cfg(test)]
+    remaining_batches: Option<Arc<AtomicUsize>>,
 }
 
 impl Persister {
     /// Creates a new persister with the given database instance.
     pub const fn new(db: Arc<FdbClient>) -> Self {
-        Self { db }
+        Self {
+            db,
+            #[cfg(test)]
+            remaining_batches: None,
+        }
+    }
+
+    /// Allows `count` batch-write attempts before injecting a persistence error.
+    #[cfg(test)]
+    pub(crate) fn fail_after_batches(&mut self, count: usize) {
+        self.remaining_batches = Some(Arc::new(AtomicUsize::new(count)));
     }
 
     /// Persists each tracked causal group, stopping if any group fails to commit.
@@ -141,6 +168,14 @@ impl Persister {
         batch: BTreeSet<SMId>,
         sm_registry: &SMRegistry,
     ) -> Result<(), PersistError> {
+        #[cfg(test)]
+        if let Some(remaining) = &self.remaining_batches
+            && remaining
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+                .is_err()
+        {
+            return Err(PersistError::InjectedFailure);
+        }
         let started = Instant::now();
         let batch_size = batch.len();
         let write_batch = match build_write_batch(batch, sm_registry) {
@@ -227,6 +262,11 @@ impl Persister {
 /// Error type for problems arising during persistence operations.
 #[derive(Debug, Error)]
 pub enum PersistError {
+    /// An injected persistence failure.
+    #[cfg(test)]
+    #[error("injected persistence failure")]
+    InjectedFailure,
+
     /// Error indicating a failure to persist a batch of state machines to disk.
     #[error("persistence error: {0:?}")]
     DbErr(<FdbClient as BridgeDb>::Error),
@@ -288,7 +328,7 @@ mod tests {
     use strata_bridge_primitives::types::GraphIdx;
 
     use super::*;
-    use crate::testing::test_empty_registry;
+    use crate::testing::{test_empty_registry, test_stake_key};
 
     fn deposit(idx: u32) -> SMId {
         SMId::Deposit(idx)
@@ -441,6 +481,29 @@ mod tests {
     }
 
     #[test]
+    fn membership_and_stakes_commit_before_deposits_and_graphs() {
+        let mut tracker = PersistenceTracker::new();
+        let initialized_stake = SMId::Stake(test_stake_key(0));
+        let historical_stake = SMId::Stake(test_stake_key(1));
+        tracker.link(deposit(2), graph(2, 0));
+        tracker.record(graph(0, 0));
+        tracker.record(historical_stake);
+        tracker.link(deposit(1), graph(1, 0));
+        tracker.link(SMId::OperatorSet, initialized_stake);
+
+        let batches = tracker.into_batches();
+        assert_eq!(batches.len(), 5);
+        assert_eq!(
+            all_ids(&batches[..2]),
+            BTreeSet::from([SMId::OperatorSet, initialized_stake, historical_stake])
+        );
+        assert!(batches[..2].contains(&BTreeSet::from([SMId::OperatorSet, initialized_stake])));
+        assert_eq!(batches[2], BTreeSet::from([graph(0, 0)]));
+        assert_eq!(batches[3], BTreeSet::from([deposit(1), graph(1, 0)]));
+        assert_eq!(batches[4], BTreeSet::from([deposit(2), graph(2, 0)]));
+    }
+
+    #[test]
     fn into_batches_preserves_all_sms() {
         let mut tracker = PersistenceTracker::new();
         let ids = vec![deposit(0), deposit(1), graph(0, 0), graph(1, 0)];
@@ -471,8 +534,9 @@ mod covenant_storage_tests {
     use crate::{
         sm_registry::{IgnoredEventReason, ProcessOutcome},
         testing::{
-            N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_set_sm,
-            test_operator_table, test_populated_registry, test_safe_harbour_address,
+            N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_fdb_config,
+            test_operator_set_sm, test_operator_table, test_populated_registry,
+            test_safe_harbour_address,
         },
     };
 
@@ -520,7 +584,7 @@ mod covenant_storage_tests {
             .as_nanos();
         let (client, guard) = FdbClient::setup(Config {
             root_directory: format!("test-persister-{suffix}"),
-            ..Default::default()
+            ..test_fdb_config()
         })
         .await
         .unwrap();
