@@ -188,7 +188,7 @@ pub trait Connector {
         SigningInfo { sighash, tweak }
     }
 
-    /// Like [`get_signing_info`] but with a custom `sighash_type`, for testing purposes.
+    /// Like [`Self::get_signing_info`] but with a custom `sighash_type`, for testing purposes.
     #[cfg(feature = "test_utils")]
     fn get_signing_info_with_sighash_type(
         &self,
