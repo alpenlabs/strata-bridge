@@ -264,13 +264,9 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     });
 }
 
-/// Extracts the pushed payload of an `OP_RETURN <PushBytes>` script.
-///
-/// # Counterproof success scenarios
-///
-/// This function returns `None` if the script has the wrong format.
-/// In this case, the counterproof is immediately valid.
-fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
+/// Returns the payload of an output of the exact form `OP_RETURN <data>`, or `None` for any
+/// other form.
+pub fn extract_op_return_payload(script_pubkey: &Script) -> Option<&[u8]> {
     let mut it = script_pubkey.instructions();
     let first = it.next()?.ok()?;
     let second = it.next()?.ok()?;
