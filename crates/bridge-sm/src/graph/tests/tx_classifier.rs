@@ -7,8 +7,10 @@
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        OutPoint,
+        Amount, OutPoint, ScriptBuf, TxOut,
         hashes::{Hash, sha256},
+        opcodes,
+        script::{Builder, PushBytesBuf},
     };
     use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
     use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_txid};
@@ -16,6 +18,7 @@ mod tests {
         game_graph::{CounterproofGraphSummary, GameGraphSummary},
         transactions::prelude::CounterproofTx,
     };
+    use zkaleido::{Proof, ProofReceipt, PublicValues};
 
     use crate::{
         graph::{
@@ -261,6 +264,68 @@ mod tests {
         assert!(
             matches!(result, Some(GraphEvent::BridgeProofConfirmed(_))),
             "expected Some(BridgeProofConfirmed) but got {result:?}"
+        );
+    }
+
+    fn test_proof_receipt() -> ProofReceipt {
+        ProofReceipt::new(Proof::new(vec![1, 2, 3]), PublicValues::new(vec![4, 5]))
+    }
+
+    fn op_return_script(data: Vec<u8>) -> ScriptBuf {
+        ScriptBuf::new_op_return(PushBytesBuf::try_from(data).unwrap())
+    }
+
+    fn classified_bridge_proof_receipt(tx: &Transaction) -> ProofReceipt {
+        let cfg = test_graph_sm_cfg();
+        let sm = create_sm(contested_state());
+        match sm.classify_tx(&cfg, tx, LATER_BLOCK_HEIGHT) {
+            Some(GraphEvent::BridgeProofConfirmed(event)) => event.proof,
+            other => panic!("expected Some(BridgeProofConfirmed) but got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_tx_reads_bridge_proof_receipt_from_first_output_only() {
+        let receipt = test_proof_receipt();
+        let mut tx = test_bridge_proof_tx();
+        tx.output[0].script_pubkey = op_return_script(borsh::to_vec(&receipt).unwrap());
+        tx.output.push(TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ScriptBuf::new_op_return([0x00]),
+        });
+
+        assert_eq!(classified_bridge_proof_receipt(&tx), receipt);
+    }
+
+    #[test]
+    fn classify_tx_defaults_bridge_proof_receipt_when_first_output_splits_the_payload() {
+        let receipt_bytes = borsh::to_vec(&test_proof_receipt()).unwrap();
+        let (head, tail) = receipt_bytes.split_at(receipt_bytes.len() / 2);
+        let mut tx = test_bridge_proof_tx();
+        tx.output[0].script_pubkey = Builder::new()
+            .push_opcode(opcodes::all::OP_RETURN)
+            .push_slice(PushBytesBuf::try_from(head.to_vec()).unwrap())
+            .push_slice(PushBytesBuf::try_from(tail.to_vec()).unwrap())
+            .into_script();
+
+        assert_eq!(
+            classified_bridge_proof_receipt(&tx),
+            ProofReceipt::default()
+        );
+    }
+
+    #[test]
+    fn classify_tx_defaults_bridge_proof_receipt_when_proof_is_not_in_first_output() {
+        let mut tx = test_bridge_proof_tx();
+        tx.output[0].script_pubkey = ScriptBuf::new();
+        tx.output.push(TxOut {
+            value: Amount::ZERO,
+            script_pubkey: op_return_script(borsh::to_vec(&test_proof_receipt()).unwrap()),
+        });
+
+        assert_eq!(
+            classified_bridge_proof_receipt(&tx),
+            ProofReceipt::default()
         );
     }
 

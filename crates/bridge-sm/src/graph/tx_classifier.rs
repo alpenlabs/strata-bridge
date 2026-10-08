@@ -1,6 +1,7 @@
 //! [`TxClassifier`] implementation for [`GraphSM`].
 
-use bitcoin::{Transaction, script::Instruction};
+use bitcoin::Transaction;
+use strata_bridge_counterproof::statements::extract_op_return_payload;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use zkaleido::ProofReceipt;
 
@@ -306,26 +307,19 @@ impl TxClassifier for GraphSM {
 }
 
 fn bridge_proof_event(tx: &Transaction, height: BitcoinBlockHeight) -> GraphEvent {
-    let mut proof_and_public_values = vec![];
-    tx.output.iter().for_each(|output| {
-        if output.script_pubkey.is_op_return() {
-            for instr in output.script_pubkey.instructions() {
-                if let Ok(Instruction::PushBytes(bytes)) = instr {
-                    proof_and_public_values.extend(bytes.as_bytes().to_vec());
-                }
-            }
-        }
-    });
-
     // The operator embeds a borsh-encoded `ProofReceipt` in the OP_RETURN payload (the same
     // encoding the counterproof guest parses). A payload that fails to decode still classifies
     // as a bridge proof event so it can be challenged as an invalid proof.
-    let proof_receipt =
-        borsh::from_slice::<ProofReceipt>(&proof_and_public_values).unwrap_or_default();
+    let proof = tx
+        .output
+        .first()
+        .and_then(|output| extract_op_return_payload(&output.script_pubkey))
+        .and_then(|payload| borsh::from_slice::<ProofReceipt>(payload).ok())
+        .unwrap_or_default();
 
     GraphEvent::BridgeProofConfirmed(BridgeProofConfirmedEvent {
         bridge_proof_block_height: height,
         tx: tx.clone(),
-        proof: proof_receipt,
+        proof,
     })
 }
