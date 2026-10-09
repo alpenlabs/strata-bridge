@@ -4,7 +4,7 @@
 //! [`strata_bridge_test_utils::bridge_fixtures`]. This module adds orchestrator-specific SM config
 //! construction and registry helpers on top.
 
-use std::{num::NonZero, sync::Arc};
+use std::{num::NonZero, sync::Arc, time::Duration};
 
 use bitcoin::{
     Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid, absolute,
@@ -13,12 +13,14 @@ use bitcoin::{
     secp256k1::XOnlyPublicKey,
     transaction,
 };
+use bitcoind_async_client::{Auth, Client as BitcoinClient};
 use libp2p_identity::Keypair;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID, constants::BridgeTxType,
     deposit_request::create_deposit_request_locking_script,
 };
+use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
@@ -53,6 +55,12 @@ use strata_bridge_tx_graph::{
 };
 use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 use strata_predicate::PredicateKey;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    task::JoinHandle,
+    time::timeout,
+};
 
 use crate::sm_registry::{SMConfig, SMRegistry};
 
@@ -390,4 +398,102 @@ pub(crate) fn test_operator_set_sm() -> OperatorSetSM {
         vec![],
     )
     .unwrap()
+}
+
+/// Returns test database configuration using `STRATA_TEST_FDB_CLUSTER_FILE`, when set.
+pub(crate) fn test_fdb_config() -> FdbConfig {
+    let mut config = FdbConfig::default();
+    if let Some(path) = std::env::var_os("STRATA_TEST_FDB_CLUSTER_FILE") {
+        config.cluster_file_path = path.into();
+    }
+    config
+}
+
+/// Constructs a slash transaction declaring the supplied operator index.
+pub(crate) fn test_slash(operator: OperatorIdx) -> Transaction {
+    let tag = TagData::new(
+        BRIDGE_SUBPROTOCOL_ID,
+        BridgeTxType::Slash as u8,
+        operator.to_be_bytes().to_vec(),
+    )
+    .unwrap();
+    Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: (0..2)
+            .map(|_| TxIn {
+                previous_output: OutPoint::new(generate_txid(), 0),
+                ..TxIn::default()
+            })
+            .collect(),
+        output: vec![TxOut {
+            value: Amount::ZERO,
+            script_pubkey: ParseConfig::new(TEST_MAGIC_BYTES.into())
+                .encode_script_buf(&tag.as_ref())
+                .unwrap(),
+        }],
+    }
+}
+
+pub(crate) fn unavailable_bitcoin_client() -> BitcoinClient {
+    BitcoinClient::new(
+        "http://127.0.0.1:1".into(),
+        Auth::UserPass("test".into(), "test".into()),
+        Some(0),
+        Some(1),
+        Some(1),
+    )
+    .unwrap()
+}
+
+pub(crate) async fn mock_bitcoin_rpc(
+    replies: Vec<String>,
+) -> (BitcoinClient, JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client = BitcoinClient::new(
+        format!("http://{}", listener.local_addr().unwrap()),
+        Auth::UserPass("test".into(), "test".into()),
+        Some(0),
+        Some(1),
+        Some(5),
+    )
+    .unwrap();
+    let server = tokio::spawn(async move {
+        let mut requests = Vec::new();
+        for body in replies {
+            let (mut stream, _) = timeout(Duration::from_secs(5), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut data = Vec::new();
+            loop {
+                let mut buffer = [0; 1024];
+                let read = stream.read(&mut buffer).await.unwrap();
+                assert_ne!(read, 0);
+                data.extend_from_slice(&buffer[..read]);
+                if let Some(header_end) = data.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&data[..header_end]).to_ascii_lowercase();
+                    let length: usize = headers
+                        .lines()
+                        .find_map(|line| line.strip_prefix("content-length:"))
+                        .unwrap()
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    if data.len() >= header_end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+            requests.push(String::from_utf8(data).unwrap());
+        }
+        requests
+    });
+    (client, server)
 }
