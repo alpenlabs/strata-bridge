@@ -17,6 +17,13 @@ impl StakeSM {
     /// Emits retriable duties for the current state.
     pub(crate) fn process_retry_tick(&self, cfg: &StakeSMCfg) -> SSMResult<SSMOutput> {
         let duties = match self.state() {
+            StakeState::Created { .. }
+                if self.context().operator_table().pov_idx() == self.context().operator_idx() =>
+            {
+                vec![StakeDuty::PublishStakeData {
+                    operator_idx: self.context().operator_idx(),
+                }]
+            }
             StakeState::UnstakingSigned { stake_data, .. }
                 if self.context().operator_table().pov_idx() == self.context().operator_idx() =>
             {

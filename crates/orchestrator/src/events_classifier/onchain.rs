@@ -70,10 +70,20 @@ pub(crate) fn process_block(
         .expect("must have a valid block height");
 
     // Snapshot pre-existing SM IDs: newly created SMs already know the current block height,
-    // so only pre-existing ones need a NewBlock cursor event.
+    // so only pre-existing ones need a NewBlock cursor event. Stakes initialized by membership
+    // at this height, or restored ahead of replay, have already advanced their cursor.
     let existing_deposits = applicator.registry().get_deposit_ids();
     let existing_graphs = applicator.registry().get_graph_ids();
-    let existing_stakes = applicator.registry().get_stake_ids();
+    let existing_stakes: Vec<_> = applicator
+        .registry()
+        .stakes()
+        .filter(|(_, sm)| {
+            sm.state()
+                .last_processed_block_height()
+                .is_some_and(|processed| processed < height)
+        })
+        .map(|(&key, _)| key)
+        .collect();
 
     for tx in &block_event.block.txdata {
         // Readiness is checked after earlier transactions have settled. An unavailable
@@ -362,6 +372,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        applicator::BatchOutput,
         persister::Persister,
         sm_registry::SMRegistry,
         testing::{
@@ -459,6 +470,9 @@ mod tests {
 
         for (_id, event) in events {
             match event {
+                SMEvent::InitializeStake { .. } => {
+                    panic!("block advancement must not initialize stakes")
+                }
                 SMEvent::OperatorSet(_) => panic!("membership must be finalized by the pre-pass"),
                 SMEvent::Deposit(boxed) => match *boxed {
                     DepositEvent::NewBlock(ref nb) => assert_eq!(nb.block_height, TEST_HEIGHT),
@@ -494,7 +508,7 @@ mod tests {
 
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -504,7 +518,7 @@ mod tests {
             TEST_HEIGHT,
         )
         .unwrap();
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
 
         assert!(
             duties.is_empty(),
@@ -570,7 +584,7 @@ mod tests {
                 }
                 registry.insert_stake(stake).unwrap();
             }
-            let mut applicator = Applicator::new(&mut registry);
+            let mut applicator = Applicator::new(&mut registry, None);
             let duties = try_register_deposit(
                 &cfg,
                 &operator_table,
@@ -580,7 +594,10 @@ mod tests {
                 TEST_HEIGHT,
             )
             .unwrap();
-            let (applied_duties, tracker) = applicator.finish();
+            let BatchOutput {
+                duties: applied_duties,
+                tracker,
+            } = applicator.finish();
             assert!(
                 duties.is_empty(),
                 "A member in {state} must prevent initial duties"
@@ -620,7 +637,7 @@ mod tests {
             output: vec![],
         };
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -654,7 +671,7 @@ mod tests {
         // An otherwise-admissible DRT: without the latch it would register a DSM.
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,
@@ -664,7 +681,7 @@ mod tests {
             TEST_HEIGHT,
         )
         .unwrap();
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
 
         assert!(duties.is_empty(), "halt gate must not emit duties");
         assert_eq!(
@@ -690,7 +707,7 @@ mod tests {
         let tx = DrtBuilder::aligned(&table, &cfg).build();
         let mut registry = test_populated_registry(0);
         confirm_all_stakes(&mut registry, &table);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         assert_eq!(
             try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
                 .unwrap()
@@ -709,11 +726,11 @@ mod tests {
                 restored.insert_graph(*id, graph.clone()).unwrap();
             }
             let ids = restored.get_all_ids();
-            let mut applicator = Applicator::new(&mut restored);
+            let mut applicator = Applicator::new(&mut restored, None);
             let duties =
                 try_register_deposit(&cfg, &table, covenant, &mut applicator, &tx, TEST_HEIGHT)
                     .unwrap();
-            let (_, tracker) = applicator.finish();
+            let BatchOutput { tracker, .. } = applicator.finish();
             assert!(duties.is_empty(), "replay must not emit constructor duties");
             assert!(tracker.into_batches().is_empty());
             assert_eq!(restored.get_all_ids(), ids);
@@ -738,9 +755,9 @@ mod tests {
             block,
             status: BlockStatus::Buried,
         };
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         for deposit in 0..2 {
             let group = batches
@@ -816,9 +833,9 @@ mod tests {
                         status: BlockStatus::Buried,
                     }
                 };
-                let mut applicator = Applicator::new(&mut restored);
+                let mut applicator = Applicator::new(&mut restored, None);
                 process_block(&mut applicator, &table, covenant, &replay).unwrap();
-                let (duties, tracker) = applicator.finish();
+                let BatchOutput { duties, tracker } = applicator.finish();
                 emitted_duties.extend(duties);
                 for batch in tracker.into_batches() {
                     persister.persist_batch(batch, &restored).await.unwrap();
@@ -921,9 +938,9 @@ mod tests {
             block,
             status: BlockStatus::Buried,
         };
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert_eq!(duties.len(), 1);
         assert_eq!(registry.num_deposits(), 1);
         assert_eq!(
@@ -962,9 +979,9 @@ mod tests {
         assert_eq!(restored.get_deposit(&0), registry.get_deposit(&0));
         assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
         let original = restored.get_deposit(&0).unwrap().clone();
-        let mut applicator = Applicator::new(&mut restored);
+        let mut applicator = Applicator::new(&mut restored, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert_eq!(
             duties.len(),
             1,
@@ -988,9 +1005,9 @@ mod tests {
             .await
             .unwrap();
         let ids = recovered.get_all_ids();
-        let mut applicator = Applicator::new(&mut recovered);
+        let mut applicator = Applicator::new(&mut recovered, None);
         process_block(&mut applicator, &table, covenant, &event).unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
         assert_eq!(recovered.get_all_ids(), ids);
@@ -1008,7 +1025,7 @@ mod tests {
 
         let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
 
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         let duties = try_register_deposit(
             &cfg,
             &operator_table,

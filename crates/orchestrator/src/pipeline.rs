@@ -1,31 +1,29 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
-use std::{
-    collections::BTreeSet,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
 use strata_bridge_primitives::{
-    covenant::CovenantId, operator_table::OperatorTable, types::BitcoinBlockHeight,
+    covenant::{CovenantId, StakeKey},
+    operator_table::OperatorTable,
+    types::BitcoinBlockHeight,
 };
-use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
 use crate::{
-    applicator::Applicator,
+    applicator::{Applicator, BatchOutput},
     duty_dispatcher::DutyDispatcher,
-    errors::{PipelineError, ProcessError},
+    errors::PipelineError,
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
     events_router,
     nag_dedup::NagDedup,
     observability,
-    persister::{PersistenceTracker, Persister},
+    persister::Persister,
     safe_harbour_scan::safe_harbour_scan,
-    sm_registry::{RegistryInsertError, SMRegistry},
-    sm_types::{SMId, UnifiedDuty},
+    sm_registry::SMRegistry,
+    sm_types::UnifiedDuty,
 };
 
 /// The main pipeline that drives the orchestrator.
@@ -73,7 +71,8 @@ impl Pipeline {
     /// truth for now. Eventually, this will be queried from the Operator State Machine in the
     /// registry.
     ///
-    /// Before entering the main event loop, this method bootstraps one [`StakeSM`] per operator in
+    /// Before entering the main event loop, this method bootstraps one
+    /// [`StakeSM`](strata_bridge_sm::stake::machine::StakeSM) per operator in
     /// the `initial_operator_table`. Any stake SMs already recovered from the database are
     /// preserved; only missing ones are created. The `start_height` is used as the initial block
     /// height for newly created stake SMs (typically the chain tip or the persisted cursor).
@@ -123,11 +122,11 @@ impl Pipeline {
         // guaranteed to arrive to retry: seed sweeps and aborts once before the loop.
         if self.registry.safe_harbour_active() {
             info!("recovered an active safe-harbour latch; seeding the sweep/abort scan");
-            let mut applicator = Applicator::new(&mut self.registry);
+            let mut applicator =
+                Applicator::new(&mut self.registry, Some(initial_operator_table.pov_idx()));
             apply_safe_harbour_scan(&mut applicator)?;
-            let (duties, tracker) = applicator.finish();
-            self.persist_batches(tracker).await?;
-            self.dispatch_duties(duties, None);
+            let batch = applicator.finish();
+            self.commit_batch(batch, None).await?;
         }
 
         loop {
@@ -167,7 +166,8 @@ impl Pipeline {
                 }
 
                 // Stage 2+3: Classify and process through Applicator.
-                let mut applicator = Applicator::new(&mut self.registry);
+                let mut applicator =
+                    Applicator::new(&mut self.registry, Some(initial_operator_table.pov_idx()));
                 let mut nag_reply = None;
 
                 match &event {
@@ -253,14 +253,8 @@ impl Pipeline {
                     }
                 }
 
-                let (all_duties, tracker) = applicator.finish();
-
-                // Stage 4: Batch persistence.
-                self.persist_batches(tracker).await?;
-
-                // Stage 5: Dispatch duties after persistence, suppressing withdrawal-path duties
-                // while safe harbour is active.
-                self.dispatch_duties(all_duties, nag_reply.as_ref());
+                let batch = applicator.finish();
+                self.commit_batch(batch, nag_reply.as_ref()).await?;
 
                 Ok::<(), PipelineError>(())
             }
@@ -328,13 +322,17 @@ impl Pipeline {
         Ok(true)
     }
 
-    /// Persists the batches of state machines touched during event processing.
-    async fn persist_batches(&self, tracker: PersistenceTracker) -> Result<(), PipelineError> {
-        let batches = tracker.into_batches();
-        info!(count=%batches.len(), "persisting updated state machines batches");
-        for batch in batches {
-            self.persister.persist_batch(batch, &self.registry).await?;
-        }
+    /// Persists all causal groups before dispatching any duties.
+    /// If persistence fails, no duties are dispatched.
+    async fn commit_batch(
+        &self,
+        batch: BatchOutput,
+        nag_reply: Option<&NagRequestPayload>,
+    ) -> Result<(), PipelineError> {
+        self.persister
+            .persist_batches(batch.tracker, &self.registry)
+            .await?;
+        self.dispatch_duties(batch.duties, nag_reply);
         Ok(())
     }
 
@@ -378,46 +376,18 @@ impl Pipeline {
         start_height: BitcoinBlockHeight,
         activation_height: BitcoinBlockHeight,
     ) -> Result<(), PipelineError> {
-        let mut touched: BTreeSet<SMId> = BTreeSet::new();
-        let mut duties: Vec<UnifiedDuty> = Vec::new();
-
-        for op_idx in operator_table.operator_idxs() {
-            let ctx = StakeSMCtx::new(op_idx, operator_table.clone(), activation_height);
-            let stake_key = ctx.stake_key();
-            if let Some(existing) = self.registry.get_stake(&stake_key) {
-                if !existing
-                    .context()
-                    .operator_table()
-                    .has_same_membership(operator_table)
-                {
-                    return Err(ProcessError::from(
-                        RegistryInsertError::CovenantMembershipMismatch(stake_key),
-                    )
-                    .into());
-                }
-                continue;
-            }
-
-            let (ssm, initial_duty) = StakeSM::new(ctx, start_height);
-            self.registry
-                .insert_stake(ssm)
-                .map_err(ProcessError::from)?;
-            touched.insert(SMId::Stake(stake_key));
-            info!(%op_idx, %start_height, "bootstrapped stake state machine");
-
-            if let Some(duty) = initial_duty {
-                duties.push(UnifiedDuty::Stake { stake_key, duty });
-            }
+        let covenant = CovenantId::from_operator_table(operator_table, activation_height)
+            .expect("validated initial operator table");
+        let mut applicator = Applicator::new(&mut self.registry, Some(operator_table.pov_idx()));
+        for operator in operator_table.operator_idxs() {
+            applicator.initialize_stake(
+                StakeKey { covenant, operator },
+                operator_table.clone().into_public(),
+                start_height,
+            )?;
         }
-
-        if !touched.is_empty() {
-            self.persister
-                .persist_batch(touched, &self.registry)
-                .await?;
-        }
-        for duty in duties {
-            self.dispatcher.dispatch(duty);
-        }
+        let batch = applicator.finish();
+        self.commit_batch(batch, None).await?;
 
         Ok(())
     }
@@ -511,11 +481,11 @@ mod tests {
     #[test]
     fn scan_helper_is_a_noop_while_not_latched() {
         let mut registry = test_populated_registry(1);
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         apply_safe_harbour_scan(&mut applicator).unwrap();
 
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert!(tracker.into_batches().is_empty());
     }
@@ -524,7 +494,7 @@ mod tests {
     fn scan_helper_applies_transitions_on_a_latched_registry() {
         let mut registry = test_populated_registry(1);
         registry.activate_safe_harbour(test_safe_harbour_address());
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
 
         apply_safe_harbour_scan(&mut applicator).unwrap();
 
@@ -539,7 +509,7 @@ mod tests {
             &DepositState::Aborted,
         );
 
-        let (_, tracker) = applicator.finish();
+        let BatchOutput { tracker, .. } = applicator.finish();
         assert!(
             !tracker.into_batches().is_empty(),
             "scan-seeded transitions must be tracked for persistence"
@@ -612,5 +582,473 @@ mod tests {
         assert_eq!(routing_result(1, 0, 1), "expected_drop");
         assert_eq!(routing_result(1, 0, 0), "no_classification");
         assert_eq!(routing_result(2, 0, 1), "no_classification");
+    }
+}
+
+#[cfg(test)]
+mod stake_initialization_tests {
+    //! Initialization through membership signals, persistence, and routed retry events.
+
+    use std::{
+        collections::BTreeSet,
+        sync::Arc,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bitcoin::{
+        Amount, OutPoint, TxOut,
+        hashes::{Hash, sha256},
+    };
+    use btc_tracker::event::{BlockEvent, BlockStatus};
+    use libp2p_identity::Keypair;
+    use strata_bridge_db::{
+        fdb::{cfg::Config, client::FdbClient},
+        traits::BridgeDb,
+        types::{FundingAssignment, StakeFundingReservation},
+    };
+    use strata_bridge_primitives::{
+        covenant::StakeKey,
+        operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
+        operator_table::PublicOperatorTable,
+    };
+    use strata_bridge_sm::{
+        operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal},
+        stake::{
+            duties::StakeDuty,
+            events::{StakeDataReceivedEvent, StakeEvent},
+            state::StakeState,
+        },
+    };
+    use strata_bridge_test_utils::bitcoin::{generate_block_with_height, generate_spending_tx};
+
+    use crate::{
+        applicator::{Applicator, BatchOutput},
+        errors::{PipelineError, ProcessError},
+        events_classifier::{offchain, onchain},
+        events_mux::UnifiedEvent,
+        events_router,
+        persister::{PersistError, Persister},
+        signals_router,
+        sm_registry::{RegistryInsertError, SMRegistry},
+        sm_types::{SMId, UnifiedDuty},
+        testing::{random_p2tr_desc, test_empty_registry, test_operator_table},
+    };
+
+    fn registry() -> SMRegistry {
+        let table = test_operator_table(3, 0);
+        let registrations = table
+            .operator_idxs()
+            .into_iter()
+            .map(|index| {
+                ScheduledOperator::new(
+                    index,
+                    table.idx_to_btc_key(&index).unwrap().x_only_public_key().0,
+                    Keypair::generate_ed25519()
+                        .public()
+                        .try_into_ed25519()
+                        .unwrap()
+                        .to_bytes()
+                        .to_vec()
+                        .into(),
+                    random_p2tr_desc(),
+                    100,
+                    None,
+                )
+                .unwrap()
+            })
+            .collect();
+        let membership = OperatorSetSM::new(
+            100,
+            OperatorSetSchedule::new(registrations).unwrap(),
+            vec![MembershipUpdate {
+                activation_height: 102,
+                additions: BTreeSet::new(),
+                removals: BTreeSet::from([1]),
+            }],
+        )
+        .unwrap();
+        let mut registry = test_empty_registry();
+        registry.insert_operator_set(membership).unwrap();
+        registry
+    }
+
+    fn apply_signals(
+        applicator: &mut Applicator<'_>,
+        signals: Vec<OperatorSetSignal>,
+    ) -> Result<(), PipelineError> {
+        for signal in signals {
+            let events = signals_router::route_signal(applicator.registry(), signal.into())?;
+            applicator.apply_batch(events)?;
+        }
+        Ok(())
+    }
+
+    fn advance_membership(applicator: &mut Applicator<'_>, height: u64) {
+        applicator
+            .apply_batch([(
+                SMId::OperatorSet,
+                OperatorSetEvent::NewBlock {
+                    block_height: height,
+                    exits: vec![],
+                }
+                .into(),
+            )])
+            .unwrap();
+    }
+
+    fn prepare(registry: &mut SMRegistry) -> BatchOutput {
+        let signals = registry
+            .get_operator_set()
+            .unwrap()
+            .prepare_covenant(102)
+            .unwrap()
+            .signals;
+        let mut applicator = Applicator::new(registry, Some(0));
+        apply_signals(&mut applicator, signals).unwrap();
+        applicator.finish()
+    }
+
+    fn publication_key(duties: &[UnifiedDuty]) -> StakeKey {
+        assert_eq!(duties.len(), 1, "only the local owner publishes stake data");
+        match &duties[0] {
+            UnifiedDuty::Stake {
+                stake_key,
+                duty: StakeDuty::PublishStakeData { operator_idx },
+            } => {
+                assert_eq!(*operator_idx, 0);
+                assert_eq!(stake_key.operator, *operator_idx);
+                *stake_key
+            }
+            other => panic!("expected constructor duty, got {other:?}"),
+        }
+    }
+
+    fn retry(registry: &mut SMRegistry) -> BatchOutput {
+        let event = UnifiedEvent::RetryTick;
+        let events = events_router::route(&event, registry)
+            .into_iter()
+            .map(
+                |id| match offchain::classify_routed(&id, &event, registry) {
+                    offchain::ClassificationOutcome::Classified(event) => (id, event),
+                    other => panic!("retry must classify: {other:?}"),
+                },
+            )
+            .collect::<Vec<_>>();
+        let mut applicator = Applicator::new(registry, Some(0));
+        applicator.apply_batch(events).unwrap();
+        applicator.finish()
+    }
+
+    #[test]
+    fn membership_transition_initializes_exact_members_at_processing_height() {
+        let mut registry = registry();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        let BatchOutput { duties, tracker } = applicator.finish();
+        let key = publication_key(&duties);
+        assert_eq!(
+            registry.get_stake_ids(),
+            vec![key, StakeKey { operator: 2, ..key }]
+        );
+        assert_eq!(
+            tracker.into_batches(),
+            vec![BTreeSet::from([
+                SMId::OperatorSet,
+                SMId::Stake(key),
+                SMId::Stake(StakeKey { operator: 2, ..key }),
+            ])]
+        );
+        for (_, sm) in registry.stakes() {
+            assert_eq!(
+                sm.state(),
+                &StakeState::Created {
+                    last_block_height: 102
+                }
+            );
+        }
+
+        // Constructor advancement already accounts for 102; the ordinary block path must not
+        // deliver another current-height event or persist it again. The next block advances once.
+        let table = registry
+            .get_operator_set()
+            .unwrap()
+            .current_operator_table()
+            .unwrap()
+            .with_pov(0)
+            .unwrap();
+        for (height, advances) in [(102, false), (103, true), (103, false)] {
+            let mut applicator = Applicator::new(&mut registry, Some(0));
+            onchain::process_block(
+                &mut applicator,
+                &table,
+                key.covenant,
+                &BlockEvent {
+                    block: generate_block_with_height(height),
+                    status: BlockStatus::Buried,
+                },
+            )
+            .unwrap();
+            let BatchOutput { duties, tracker } = applicator.finish();
+            assert!(duties.is_empty());
+            let batches = tracker.into_batches();
+            assert_eq!(
+                batches.is_empty(),
+                !advances,
+                "advance each stake only once at {height}"
+            );
+            for (_, sm) in registry.stakes() {
+                assert_eq!(sm.state().last_processed_block_height(), Some(height));
+            }
+        }
+    }
+
+    #[test]
+    fn preparation_and_duplicate_signals_preserve_staking_progress() {
+        let mut registry = registry();
+        let membership = registry.get_operator_set().unwrap().clone();
+        let signals = membership.prepare_covenant(102).unwrap().signals;
+        let BatchOutput { duties, tracker } = prepare(&mut registry);
+        let key = publication_key(&duties);
+        assert_eq!(key.covenant.activation_height, 102);
+        assert_eq!(
+            registry
+                .get_stake(&key)
+                .unwrap()
+                .state()
+                .last_processed_block_height(),
+            Some(100)
+        );
+        assert_eq!(registry.get_operator_set(), Some(&membership));
+        assert!(tracker.into_batches()[0].contains(&SMId::OperatorSet));
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .apply_batch([(
+                SMId::Stake(key),
+                StakeEvent::StakeDataReceived(StakeDataReceivedEvent {
+                    stake_funds: OutPoint::null(),
+                    unstaking_image: sha256::Hash::hash(&[7; 32]),
+                    unstaking_output_desc: random_p2tr_desc(),
+                })
+                .into(),
+            )])
+            .unwrap();
+        applicator.finish();
+        let before = registry.get_stake(&key).unwrap().clone();
+        assert!(matches!(
+            before.state(),
+            StakeState::StakeGraphGenerated { .. }
+        ));
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        apply_signals(&mut applicator, signals.clone()).unwrap();
+        apply_signals(&mut applicator, signals).unwrap();
+        let BatchOutput { duties, tracker } = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+        assert_eq!(registry.get_stake(&key), Some(&before));
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        advance_membership(&mut applicator, 102);
+        let BatchOutput { duties, .. } = applicator.finish();
+        assert!(
+            duties.is_empty(),
+            "activation must reuse the prepared instances"
+        );
+        assert_eq!(registry.num_stakes(), 2);
+        assert_eq!(registry.get_stake(&key), Some(&before));
+        let BatchOutput { duties, .. } = retry(&mut registry);
+        assert!(
+            duties.is_empty(),
+            "publication recovery stops after stake data arrives"
+        );
+    }
+
+    #[test]
+    fn conflicting_recreation_identifies_exact_stake_and_preserves_progress() {
+        let mut registry = registry();
+        let BatchOutput { duties, .. } = prepare(&mut registry);
+        let key = publication_key(&duties);
+        let before = registry.get_stake(&key).unwrap().clone();
+        let table = before.context().operator_table();
+        // Same aggregate and activation height, but conflicting immutable P2P membership.
+        let conflicting = PublicOperatorTable::from_entries(
+            table
+                .operator_idxs()
+                .into_iter()
+                .map(|idx| {
+                    (
+                        idx,
+                        vec![idx as u8 + 10; 32].into(),
+                        table.idx_to_btc_key(&idx).unwrap(),
+                    )
+                })
+                .collect(),
+        )
+        .unwrap();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        let error = apply_signals(
+            &mut applicator,
+            vec![OperatorSetSignal::InitializeStake {
+                stake_key: key,
+                operator_table: conflicting,
+            }],
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, PipelineError::Process(ProcessError::RegistryInsert(RegistryInsertError::CovenantMembershipMismatch(actual))) if actual == key)
+        );
+        assert!(error.to_string().contains(&key.to_string()));
+        let BatchOutput { duties, tracker } = applicator.finish();
+        assert!(duties.is_empty());
+        assert!(tracker.into_batches().is_empty());
+        assert_eq!(registry.get_stake(&key), Some(&before));
+    }
+
+    #[test]
+    fn observers_and_removed_or_unrelated_operators_emit_no_constructor_duties() {
+        for local_operator in [None, Some(1), Some(99)] {
+            let mut registry = registry();
+            let mut applicator = Applicator::new(&mut registry, local_operator);
+            advance_membership(&mut applicator, 101);
+            advance_membership(&mut applicator, 102);
+            let BatchOutput { duties, tracker } = applicator.finish();
+            assert!(duties.is_empty());
+            assert_eq!(registry.num_stakes(), 0);
+            assert_eq!(
+                tracker.into_batches(),
+                vec![BTreeSet::from([SMId::OperatorSet])]
+            );
+            assert_eq!(
+                registry
+                    .get_operator_set()
+                    .unwrap()
+                    .current_operator_table()
+                    .unwrap()
+                    .operator_idxs(),
+                BTreeSet::from([0, 2])
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn initialization_failure_and_post_commit_recovery_preserve_funding_identity() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-stake-initialization-{suffix}"),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        let mut registry = registry();
+        let cfg = registry.cfg().clone();
+        persister
+            .persist_batch(BTreeSet::from([SMId::OperatorSet]), &registry)
+            .await
+            .unwrap();
+        let original_membership = registry.get_operator_set().unwrap().clone();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        let mut batch = applicator.finish();
+        let key = publication_key(&batch.duties);
+        // A missing causal dependency fails real batch construction before committing any stake.
+        batch.tracker.link(SMId::OperatorSet, SMId::Deposit(999));
+        let result = persister.persist_batches(batch.tracker, &registry).await;
+        assert!(matches!(
+            result,
+            Err(PersistError::MissingStateMachine(SMId::Deposit(999)))
+        ));
+        assert!(db.get_persisted_state().await.unwrap().stakes.is_empty());
+        assert_eq!(
+            db.get_persisted_state().await.unwrap().operator_set,
+            Some(original_membership)
+        );
+
+        // Recover from the last durable state, as the pipeline does after its fatal error.
+        registry = persister.recover_registry(cfg.clone()).await.unwrap();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        advance_membership(&mut applicator, 101);
+        advance_membership(&mut applicator, 102);
+        let batch = applicator.finish();
+        assert_eq!(publication_key(&batch.duties), key);
+        // Simulate losing the process after commit but before constructor dispatch.
+        persister
+            .persist_batches(batch.tracker, &registry)
+            .await
+            .unwrap();
+        drop(batch.duties);
+        let mut recovered = persister.recover_registry(cfg.clone()).await.unwrap();
+        assert_eq!(recovered.get_operator_set(), registry.get_operator_set());
+        assert_eq!(recovered.get_stake_ids(), registry.get_stake_ids());
+        let mut applicator = Applicator::new(&mut recovered, Some(0));
+        advance_membership(&mut applicator, 102);
+        let signals = applicator
+            .registry()
+            .get_operator_set()
+            .unwrap()
+            .initialization_signals()
+            .unwrap();
+        apply_signals(&mut applicator, signals).unwrap();
+        let BatchOutput { duties, tracker } = applicator.finish();
+        assert!(
+            duties.is_empty(),
+            "duplicate initialization does not fund again"
+        );
+        assert!(tracker.into_batches().is_empty());
+        let BatchOutput { duties, tracker } = retry(&mut recovered);
+        assert_eq!(publication_key(&duties), key);
+        assert!(
+            tracker.into_batches().is_empty(),
+            "recover the duty without resetting progress"
+        );
+
+        // The executor's covenant-qualified reservation path keeps the original funding on retry,
+        // including a crash after reservation but before stake data is delivered back to the SM.
+        let mut tx = generate_spending_tx(OutPoint::null(), &[]);
+        tx.output.push(TxOut::NULL);
+        let reservation = StakeFundingReservation {
+            unsigned_tx: tx,
+            prevouts: vec![TxOut::NULL],
+            stake_output_vout: 0,
+        };
+        assert_eq!(
+            db.get_or_set_stake_funding_reservation(key, reservation.clone())
+                .await
+                .unwrap(),
+            FundingAssignment::Created(reservation.clone())
+        );
+        let mut recovered = persister.recover_registry(cfg).await.unwrap();
+        let batch = retry(&mut recovered);
+        persister
+            .persist_batches(batch.tracker, &recovered)
+            .await
+            .unwrap();
+        let resumed_key = publication_key(&batch.duties);
+        assert_eq!(resumed_key, key);
+        let mut replacement = reservation.clone();
+        replacement.unsigned_tx.output[0].value = Amount::from_sat(42);
+        assert_eq!(
+            db.get_or_set_stake_funding_reservation(resumed_key, replacement)
+                .await
+                .unwrap(),
+            FundingAssignment::Existing(reservation.clone())
+        );
+        assert_eq!(
+            db.get_stake_funding_reservation(key).await.unwrap(),
+            Some(reservation)
+        );
+        assert_eq!(recovered.num_stakes(), 2);
+        drop(persister);
+        drop(db);
+        drop(guard);
     }
 }
