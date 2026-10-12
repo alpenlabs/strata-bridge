@@ -45,8 +45,9 @@ use super::{drt, exits::resolve_exit_observation};
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
-    sm_registry::{ActiveOperatorSnapshot, RegistryInsertError, SMRegistry, SnapshotError},
+    sm_registry::{RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
+    stake_readiness::{CovenantStakes, ReadinessError},
 };
 
 /// Applies stake transitions and finalizes the block's operator membership.
@@ -284,7 +285,7 @@ fn try_register_deposit(
     // Safe harbour halts new deposits. Best-effort: a DRT admitted before the latch is caught
     // by the sweep once it reaches `Deposited`.
     if applicator.registry().safe_harbour_active() {
-        debug!(txid=%tx.compute_txid(), "safe harbour active; refusing to admit new deposit");
+        warn!(txid=%tx.compute_txid(), "safe harbour active; refusing to admit new deposit");
         return Ok(Vec::new());
     }
 
@@ -297,27 +298,18 @@ fn try_register_deposit(
         return Ok(Vec::new());
     };
 
-    let snapshot = match applicator
-        .registry()
-        .active_operator_snapshot(block_covenant.covenant, &local_table)
-    {
-        Ok(snap) => snap,
-        Err(err @ (SnapshotError::MissingStakeSM(_) | SnapshotError::StakeUnavailable(_))) => {
-            debug!(%err, "covenant stakes are not ready; refusing to admit new deposit");
-            return Ok(Vec::new());
-        }
-        Err(err) => {
-            warn!(%err, "skipping DRT check: could not derive active operator snapshot");
-            return Ok(Vec::new());
-        }
-    };
-
-    let ActiveOperatorSnapshot {
-        covenant,
-        operator_table: active_operator_table,
-        stake_inputs,
-        unstaking_images,
-    } = snapshot;
+    let CovenantStakes { covenant, stakes } =
+        match applicator.registry().covenant_readiness(block_covenant) {
+            Ok(ready) => ready,
+            Err(err @ ReadinessError::Unready { .. }) => {
+                warn!(%err, "refusing to admit new deposit");
+                return Ok(Vec::new());
+            }
+            Err(err @ ReadinessError::CovenantMismatch(_)) => {
+                warn!(%err, "skipping DRT check: could not assess covenant readiness");
+                return Ok(Vec::new());
+            }
+        };
 
     let valid = match drt::validate_candidate(tx, deposit_cfg, &block_covenant.operator_table) {
         Ok(valid) => valid,
@@ -352,7 +344,7 @@ fn try_register_deposit(
 
     let dsm = DepositSM::new(
         deposit_cfg.clone(),
-        active_operator_table.clone(),
+        local_table.clone(),
         deposit_data,
         valid.depositor_pubkey,
         valid.drt_output_amount,
@@ -374,36 +366,29 @@ fn try_register_deposit(
     let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
     let _entered = span.entered();
     info!(
-        active_operator_count = active_operator_table.operator_idxs().len(),
-        "passed validation; registering DSM / GSMs from active operator snapshot"
+        operator_count = stakes.len(),
+        "passed validation; registering DSM / GSMs for the ready covenant"
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
     info!(%deposit_outpoint, %deposit_idx, "registering new DepositSM for detected DRT");
     applicator.insert_deposit(deposit_idx, dsm)?;
 
-    // Register one GraphSM per active operator, collecting initial duties.
+    // Register one GraphSM per covenant member, collecting initial duties.
     let mut duties = Vec::new();
-    for &op_idx in active_operator_table.operator_idxs().iter() {
+    for (&op_idx, binding) in &stakes {
         let graph_idx = GraphIdx {
             deposit: deposit_idx,
             operator: op_idx,
         };
 
-        let stake_outpoint = *stake_inputs
-            .get(&op_idx)
-            .expect("snapshot must contain stake input for active operator");
-        let unstaking_image = *unstaking_images
-            .get(&op_idx)
-            .expect("snapshot must contain unstaking image for active operator");
-
         let gsm_ctx = GraphSMCtx {
             covenant,
             graph_idx,
             deposit_outpoint,
-            stake_outpoint,
-            unstaking_image,
-            operator_table: active_operator_table.clone(),
+            stake_outpoint: binding.outpoint,
+            unstaking_image: binding.unstaking_image,
+            operator_table: local_table.clone(),
         };
 
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
@@ -1508,7 +1493,14 @@ mod tests {
         );
         assert_eq!(restored.num_deposits(), 2);
         assert_eq!(restored.get_deposit(&0), registry.get_deposit(&0));
-        assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
+        let membership = restored.get_operator_set().unwrap();
+        let block_covenant = membership
+            .covenant_at(membership.last_block_height())
+            .unwrap();
+        assert!(
+            restored.covenant_readiness(&block_covenant).is_ok(),
+            "restored stakes must keep the covenant ready"
+        );
         let original = restored.get_deposit(&0).unwrap().clone();
         let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &event)
             .await

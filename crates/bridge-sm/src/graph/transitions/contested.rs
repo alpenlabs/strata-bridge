@@ -548,8 +548,7 @@ impl GraphSM {
         // consensus to make sure the transaction graph is being followed.
         //
         // No cross-SM signal is emitted on this transition. Operator-set
-        // membership is tracked by the `StakeSM` via its
-        // `active_operator_snapshot`, which is driven directly by on-chain
+        // membership and stake readiness are driven directly by on-chain
         // slash and unstake observations.
         if self.state.expected_slash_txid() == Some(spend_txid) {
             self.state = GraphState::Slashed {
