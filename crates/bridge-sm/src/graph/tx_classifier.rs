@@ -151,9 +151,12 @@ impl TxClassifier for GraphSM {
                 // connector, then it has to be a Bridge Proof tx.
                 } else if spends_contest_proof_connector(graph_summary.contest, tx) {
                     Some(bridge_proof_event(tx, height))
-                } else if let Some(counterprover_idx) =
-                    counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
-                {
+                } else if let Some(counterprover_idx) = counterproof_operator_idx(
+                    graph_summary,
+                    &txid,
+                    self.context().operator_table(),
+                    self.context().operator_idx(),
+                ) {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
                             counterproof_block_height: height,
@@ -178,9 +181,12 @@ impl TxClassifier for GraphSM {
 
             // expects a counterproof or a contested payout or a payout burn or a stake spend
             GraphState::BridgeProofPosted { graph_summary, .. } => {
-                if let Some(counterprover_idx) =
-                    counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
-                {
+                if let Some(counterprover_idx) = counterproof_operator_idx(
+                    graph_summary,
+                    &txid,
+                    self.context().operator_table(),
+                    self.context().operator_idx(),
+                ) {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
                             counterproof_block_height: height,
@@ -224,9 +230,12 @@ impl TxClassifier for GraphSM {
                     ))
                 } else if spends_contest_proof_connector(graph_summary.contest, tx) {
                     Some(bridge_proof_event(tx, height))
-                } else if let Some(counterprover_idx) =
-                    counterproof_operator_idx(graph_summary, &txid, self.context().operator_idx())
-                {
+                } else if let Some(counterprover_idx) = counterproof_operator_idx(
+                    graph_summary,
+                    &txid,
+                    self.context().operator_table(),
+                    self.context().operator_idx(),
+                ) {
                     Some(GraphEvent::CounterProofConfirmed(
                         CounterProofConfirmedEvent {
                             counterproof_block_height: height,
@@ -237,6 +246,7 @@ impl TxClassifier for GraphSM {
                 } else if let Some(counterprover_idx) = counterproof_ack_operator_idx(
                     graph_summary,
                     &txid,
+                    self.context().operator_table(),
                     self.context().operator_idx(),
                 ) {
                     Some(GraphEvent::CounterProofAckConfirmed(
@@ -257,14 +267,18 @@ impl TxClassifier for GraphSM {
                 } else if spends_stake_outpoint(&self.context.stake_outpoint(), tx) {
                     Some(GraphEvent::StakeSpent(StakeSpentEvent { tx: tx.clone() }))
                 } else {
-                    nack_counterprover_idx(graph_summary, self.context().operator_idx(), tx).map(
-                        |counterprover_idx| {
-                            GraphEvent::CounterProofNackConfirmed(CounterProofNackConfirmedEvent {
-                                tx: tx.clone(),
-                                counterprover_idx,
-                            })
-                        },
+                    nack_counterprover_idx(
+                        graph_summary,
+                        self.context().operator_table(),
+                        self.context().operator_idx(),
+                        tx,
                     )
+                    .map(|counterprover_idx| {
+                        GraphEvent::CounterProofNackConfirmed(CounterProofNackConfirmedEvent {
+                            tx: tx.clone(),
+                            counterprover_idx,
+                        })
+                    })
                 }
             }
 

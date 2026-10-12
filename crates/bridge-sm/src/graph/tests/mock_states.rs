@@ -23,7 +23,7 @@ use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
     N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm,
     dummy_proof_receipt, test_completed_signatures, test_deposit_params, test_graph_data,
-    test_graph_sm_cfg, test_graph_summary, test_recipient_desc,
+    test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_recipient_desc,
     utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{
@@ -314,8 +314,12 @@ pub(super) fn counter_proof_posted_state_with(
     let counterproofs_and_confs = counterprover_idxs
         .iter()
         .map(|counterprover_idx| {
-            let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, *counterprover_idx)
-                .expect("counterprover should have a watchtower slot");
+            let watchtower_slot = watchtower_slot_for_operator(
+                test_graph_sm_ctx().operator_table(),
+                TEST_POV_IDX,
+                *counterprover_idx,
+            )
+            .expect("counterprover should have a watchtower slot");
             (
                 *counterprover_idx,
                 CounterproofData {

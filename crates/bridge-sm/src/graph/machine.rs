@@ -185,6 +185,7 @@ impl GraphSM {
     ) -> GraphDuty {
         let (game_graph, sigs) = unpack_game(cfg, self.context(), graph_data, signatures);
         let watchtower_index = watchtower_slot_for_operator(
+            self.context().operator_table(),
             self.context().operator_idx(),
             self.context().operator_table().pov_idx(),
         )
@@ -216,6 +217,7 @@ impl GraphSM {
     ) -> GSMResult<GraphDuty> {
         let (game_graph, sigs) = unpack_game(cfg, self.context(), graph_data, signatures);
         let watchtower_idx = watchtower_slot_for_operator(
+            self.context().operator_table(),
             self.context().operator_idx(),
             self.context().operator_table().pov_idx(),
         )
