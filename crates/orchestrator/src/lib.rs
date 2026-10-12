@@ -23,6 +23,7 @@ pub mod safe_harbour_scan;
 pub mod signals_router;
 pub mod sm_registry;
 pub mod sm_types;
+pub mod stake_readiness;
 
 #[cfg(test)]
 mod testing;
