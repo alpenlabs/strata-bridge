@@ -2276,7 +2276,12 @@ mod block_persistence_tests {
             restored.latest_gate_height(),
             Some(INITIAL_BLOCK_HEIGHT + 1)
         );
-        assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
+        let block_covenant = restored
+            .get_operator_set()
+            .unwrap()
+            .covenant_at(INITIAL_BLOCK_HEIGHT)
+            .unwrap();
+        assert!(restored.covenant_readiness(&block_covenant).is_ok());
 
         // Membership matches this block and all stakes are ready: only the gate blocks admission.
         let mut old = BlockEvent {
