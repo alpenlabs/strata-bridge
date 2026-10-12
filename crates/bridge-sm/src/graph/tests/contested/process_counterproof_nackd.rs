@@ -28,7 +28,7 @@ use crate::{
                 counter_proof_posted_state,
             },
             test_completed_signatures, test_deposit_params, test_graph_invalid_transition,
-            test_graph_sm_cfg, test_graph_transition,
+            test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -58,8 +58,12 @@ fn nack_tx_for_slot(slot: usize) -> bitcoin::Transaction {
 
 /// Creates a nack event for the given counterprover.
 fn nack_event(counterprover_idx: u32) -> CounterProofNackConfirmedEvent {
-    let slot = watchtower_slot_for_operator(TEST_POV_IDX, counterprover_idx)
-        .expect("nack_event called with graph owner index");
+    let slot = watchtower_slot_for_operator(
+        test_graph_sm_ctx().operator_table(),
+        TEST_POV_IDX,
+        counterprover_idx,
+    )
+    .expect("nack_event called with graph owner index");
     let tx = nack_tx_for_slot(slot);
     CounterProofNackConfirmedEvent {
         tx,
@@ -315,8 +319,12 @@ fn event_rejected_wrong_outpoint() {
 #[test]
 fn event_rejected_when_tx_is_counterproof_ack() {
     let mut summary = test_graph_summary();
-    let slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
-        .expect("non-pov idx must have a watchtower slot");
+    let slot = watchtower_slot_for_operator(
+        test_graph_sm_ctx().operator_table(),
+        TEST_POV_IDX,
+        TEST_NONPOV_IDX,
+    )
+    .expect("non-pov idx must have a watchtower slot");
     let ack_looking_as_nack = nack_tx_for_slot(slot);
     summary.counterproofs[slot].counterproof_ack = ack_looking_as_nack.compute_txid();
 

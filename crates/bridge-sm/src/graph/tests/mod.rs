@@ -477,6 +477,7 @@ pub(super) fn expected_potential_counterproof_duty(
     let graph_data = test_deposit_params();
     let game_graph = machine::generate_game_graph(cfg, sm.context(), &graph_data);
     let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_table(),
         sm.context().operator_idx(),
         sm.context().operator_table().pov_idx(),
     )
