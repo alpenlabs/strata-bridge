@@ -332,6 +332,7 @@ mod tests {
         let game_graph = generate_game_graph(cfg, context, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
         let watchtower_index = watchtower_slot_for_operator(
+            context.operator_table(),
             context.operator_idx(),
             context.operator_table().pov_idx(),
         )
@@ -643,6 +644,7 @@ mod tests {
             GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
 
         let watchtower_slot = watchtower_slot_for_operator(
+            sm.context().operator_table(),
             sm.context().operator_table().pov_idx(),
             counterprover_idx,
         )
