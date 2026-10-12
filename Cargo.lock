@@ -3729,7 +3729,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -5263,7 +5263,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tokio",
  "tower-service",
  "tracing",
@@ -8543,7 +8543,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -12416,8 +12416,8 @@ dependencies = [
 
 [[package]]
 name = "strata-p2p"
-version = "0.4.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.4.0#6648847aa780658ca982c18e9e2e5f5d244af5b3"
+version = "0.3.7"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.3.7#6182180f7f5cc74134af0caab090854033e144cf"
 dependencies = [
  "cynosure 0.2.3",
  "flexbuffers",
