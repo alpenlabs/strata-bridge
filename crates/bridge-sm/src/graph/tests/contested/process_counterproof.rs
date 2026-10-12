@@ -37,8 +37,12 @@ const COUNTERPROOF_BLOCK_HEIGHT: u64 = LATER_BLOCK_HEIGHT + 50;
 
 /// Creates a counterproof event for the given operator index using the test graph summary.
 fn counterproof_event(counterprover_idx: u32) -> CounterProofConfirmedEvent {
-    watchtower_slot_for_operator(TEST_POV_IDX, counterprover_idx)
-        .expect("counterprover should have a watchtower slot");
+    watchtower_slot_for_operator(
+        test_graph_sm_ctx().operator_table(),
+        TEST_POV_IDX,
+        counterprover_idx,
+    )
+    .expect("counterprover should have a watchtower slot");
 
     CounterProofConfirmedEvent {
         counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
@@ -59,8 +63,12 @@ fn expected_nack_duty(counterprover_idx: u32) -> GraphDuty {
         &setup_params,
     );
 
-    let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, counterprover_idx)
-        .expect("counterprover should have a watchtower slot");
+    let watchtower_slot = watchtower_slot_for_operator(
+        test_graph_sm_ctx().operator_table(),
+        TEST_POV_IDX,
+        counterprover_idx,
+    )
+    .expect("counterprover should have a watchtower slot");
 
     let counterproof_connector = connectors.counterproof[watchtower_slot];
 
