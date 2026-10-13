@@ -18,7 +18,7 @@ from rpc import inject_service_create_rpc
 from utils.service_names import get_mtls_cred_path, get_operator_service_name
 from utils.utils import OperatorKeyInfo
 
-from .config_cfg import BridgeConfigParams
+from .config_cfg import BridgeConfigParams, P2pPeerConfig
 from .params_cfg import BridgeProtocolParams
 from .utils import generate_config_toml, generate_params_toml
 
@@ -97,7 +97,11 @@ class BridgeOperatorFactory(PortProbingFactory):
         # Use provided P2P port for this operator
         my_p2p_addr = p2p_ports[operator_idx]
         # Connect to all other operators
-        other_p2p_addrs = [addr for i, addr in enumerate(p2p_ports) if i != operator_idx]
+        p2p_peers = [
+            P2pPeerConfig(operator_idx=i, addrs=[addr])
+            for i, addr in enumerate(p2p_ports)
+            if i != operator_idx
+        ]
         dd = ectx.make_service_dir(bridge_operator_name)
 
         envdd_path = Path(ectx.envdd_path)
@@ -120,7 +124,7 @@ class BridgeOperatorFactory(PortProbingFactory):
             asm_props,
             rpc_port,
             my_p2p_addr,
-            other_p2p_addrs,
+            p2p_peers,
             config_toml_path,
             mtls_cred_path,
             bridge_config_params,
