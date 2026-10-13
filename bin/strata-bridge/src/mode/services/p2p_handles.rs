@@ -1,8 +1,10 @@
 //! Provides p2p handles initialization.
 
+use std::collections::BTreeMap;
+
 use anyhow::anyhow;
 use ed25519_dalek::SigningKey;
-use libp2p::PeerId;
+use libp2p::{Multiaddr, PeerId};
 use libp2p_identity::{
     DecodingError, PublicKey as LibP2pPublicKey,
     ed25519::{Keypair, PublicKey as LibP2pEdPublicKey},
@@ -98,12 +100,22 @@ pub(in crate::mode) async fn init_p2p_handles(
         gossip_command_buffer_size,
     } = config.p2p.clone();
 
+    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3442>
+    // `allowlist` and `connect_to` are parallel lists (in operator-index order, excluding self),
+    // so zipping them yields each peer's address. This is brittle as it relies on the config to
+    // maintain this invariant.
+    let peer_addresses: BTreeMap<PeerId, Vec<Multiaddr>> = allowlist
+        .iter()
+        .copied()
+        .zip(connect_to.into_iter().map(|addr| vec![addr]))
+        .collect();
+
     let config = P2PConfiguration::new_with_secret_key(
         p2p_sk,
         idle_connection_timeout,
         listening_addr,
         allowlist,
-        connect_to,
+        peer_addresses,
         signers_allowlist,
         num_threads,
         dial_timeout,
