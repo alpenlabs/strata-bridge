@@ -86,11 +86,12 @@ impl GraphSM {
                 }]
             }
             GraphState::Claimed {
-                fulfillment_txid, ..
-            } if fulfillment_txid.is_none() => {
-                // TODO: <https://alpenlabs.atlassian.net/browse/STR-2192>
-                // Implement the faulty cases in `process_claim`; this emits `PublishContest`.
-                Vec::new()
+                graph_data,
+                signatures,
+                fulfillment_txid: None,
+                ..
+            } if self.context().operator_idx() != self.context().operator_table().pov_idx() => {
+                vec![self.publish_contest_duty(&cfg, graph_data, signatures)]
             }
             GraphState::Contested {
                 last_block_height,
