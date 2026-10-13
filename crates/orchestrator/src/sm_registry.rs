@@ -846,6 +846,7 @@ mod tests {
             machine::generate_game_graph,
             state::GraphState,
         },
+        operator_set::{ConfirmedExit, ExitKind},
         stake::{context::StakeSMCtx, state::StakeState},
     };
     use strata_bridge_test_utils::{
@@ -1780,6 +1781,311 @@ mod tests {
         assert_eq!(
             registry.resolve_cross_sm_context(&id).unstaking_preimage(),
             None
+        );
+    }
+
+    // ===== Covenant-scoped preimage delivery tests =====
+
+    /// Inserts a confirmed stake for `operator` in the covenant of `table` activated at
+    /// `activation_height`, locked to the image of `preimage`.
+    fn insert_stake_with_image(
+        registry: &mut SMRegistry,
+        operator: OperatorIdx,
+        table: &OperatorTable,
+        activation_height: BitcoinBlockHeight,
+        preimage: [u8; 32],
+    ) -> StakeKey {
+        let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
+        if let StakeState::Confirmed { stake_data, .. } = &mut sm.state {
+            stake_data.unstaking_image = sha256::Hash::hash(&preimage);
+        }
+        let key = sm.context().stake_key();
+        registry.insert_stake(sm).unwrap();
+        key
+    }
+
+    /// Moves a confirmed stake to [`StakeState::PreimageRevealed`] with `preimage`.
+    fn reveal(registry: &mut SMRegistry, key: &StakeKey, preimage: [u8; 32]) {
+        let sm = registry.stakes.get_mut(key).unwrap();
+        let StakeState::Confirmed {
+            stake_data,
+            summary,
+            signatures,
+            ..
+        } = sm.state.clone()
+        else {
+            panic!("only a confirmed stake can reveal its preimage");
+        };
+        sm.state = StakeState::PreimageRevealed {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            stake_data,
+            summary,
+            preimage,
+            unstaking_intent_block_height: INITIAL_BLOCK_HEIGHT,
+            signatures,
+        };
+    }
+
+    /// Binds `graph_idx` to the stake identified by `key`, as admission would.
+    fn bind_to(registry: &mut SMRegistry, graph_idx: GraphIdx, key: &StakeKey) {
+        let (stake_data, summary) = match registry.stakes[key].state() {
+            StakeState::Confirmed {
+                stake_data,
+                summary,
+                ..
+            }
+            | StakeState::PreimageRevealed {
+                stake_data,
+                summary,
+                ..
+            } => (stake_data.clone(), *summary),
+            state => panic!("graphs are bound to staked stakes, not {state}"),
+        };
+        let ctx = &mut registry.graphs.get_mut(&graph_idx).unwrap().context;
+        ctx.covenant = key.covenant;
+        ctx.stake_outpoint = OutPoint::new(summary.stake, StakeTx::STAKE_VOUT);
+        ctx.unstaking_image = stake_data.unstaking_image;
+    }
+
+    fn resolved_preimage(registry: &SMRegistry, graph_idx: GraphIdx) -> Option<[u8; 32]> {
+        registry
+            .resolve_cross_sm_context(&SMId::Graph(graph_idx))
+            .unstaking_preimage()
+    }
+
+    fn burn_preimage(
+        registry: &mut SMRegistry,
+        graph_idx: GraphIdx,
+        block_height: BitcoinBlockHeight,
+    ) -> Option<[u8; 32]> {
+        let outcome = registry
+            .process_event(
+                &SMId::Graph(graph_idx),
+                GraphEvent::NewBlock(GraphNewBlock { block_height }).into(),
+            )
+            .unwrap();
+        let ProcessOutcome::Applied(output) = outcome else {
+            panic!("expected applied outcome, got {outcome:?}");
+        };
+        output.duties.iter().find_map(|duty| match duty {
+            UnifiedDuty::Graph(GraphDuty::PublishUnstakingBurn {
+                graph_idx: duty_graph_idx,
+                unstaking_preimage,
+                ..
+            }) if *duty_graph_idx == graph_idx => Some(*unstaking_preimage),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn each_covenant_graph_resolves_only_its_own_stakes_preimage() {
+        let mut registry = test_populated_registry(2);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let operator = 1;
+        let (p0, p1) = ([0x10; 32], [0x11; 32]);
+        let c0 = insert_stake_with_image(&mut registry, operator, &table, INITIAL_BLOCK_HEIGHT, p0);
+        let c1 = insert_stake_with_image(
+            &mut registry,
+            operator,
+            &table,
+            INITIAL_BLOCK_HEIGHT + 100,
+            p1,
+        );
+        let g0 = GraphIdx {
+            deposit: 0,
+            operator,
+        };
+        let g1 = GraphIdx {
+            deposit: 1,
+            operator,
+        };
+        bind_to(&mut registry, g0, &c0);
+        bind_to(&mut registry, g1, &c1);
+
+        reveal(&mut registry, &c0, p0);
+        assert_eq!(
+            resolved_preimage(&registry, g0),
+            Some(p0),
+            "the C0 graph must learn the C0 disclosure"
+        );
+        assert_eq!(
+            resolved_preimage(&registry, g1),
+            None,
+            "the C1 graph must not learn another covenant's disclosure"
+        );
+
+        reveal(&mut registry, &c1, p1);
+        assert_eq!(
+            resolved_preimage(&registry, g0),
+            Some(p0),
+            "learning the C1 preimage must not overwrite the C0 graph's preimage"
+        );
+        assert_eq!(
+            resolved_preimage(&registry, g1),
+            Some(p1),
+            "the C1 graph must learn its own disclosure"
+        );
+    }
+
+    #[test]
+    fn swapped_or_foreign_bindings_receive_no_preimage() {
+        let mut registry = test_populated_registry(1);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+        let own =
+            insert_stake_with_image(&mut registry, 1, &table, INITIAL_BLOCK_HEIGHT, [0x21; 32]);
+        let other =
+            insert_stake_with_image(&mut registry, 2, &table, INITIAL_BLOCK_HEIGHT, [0x22; 32]);
+        reveal(&mut registry, &own, [0x21; 32]);
+        reveal(&mut registry, &other, [0x22; 32]);
+        bind_to(&mut registry, graph_idx, &own);
+        let bound = registry.graphs[&graph_idx].context.clone();
+        assert_eq!(
+            resolved_preimage(&registry, graph_idx),
+            Some([0x21; 32]),
+            "a correctly bound graph receives its owner's preimage"
+        );
+
+        let other_image = sha256::Hash::hash(&[0x22; 32]);
+        registry
+            .graphs
+            .get_mut(&graph_idx)
+            .unwrap()
+            .context
+            .unstaking_image = other_image;
+        assert_eq!(
+            resolved_preimage(&registry, graph_idx),
+            None,
+            "a graph carrying another stake's image must not receive a preimage"
+        );
+
+        let mut foreign_covenant = bound.clone();
+        foreign_covenant.covenant = CovenantId {
+            activation_height: INITIAL_BLOCK_HEIGHT + 100,
+            ..bound.covenant
+        };
+        registry.graphs.get_mut(&graph_idx).unwrap().context = foreign_covenant;
+        assert_eq!(
+            resolved_preimage(&registry, graph_idx),
+            None,
+            "a graph of a covenant without its owner's stake must not borrow another covenant's"
+        );
+    }
+
+    #[test]
+    fn slashing_after_an_intent_keeps_the_preimage_for_the_burn() {
+        let mut registry = test_populated_registry(1);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+        let preimage = [0x42; 32];
+        let revealed = preimage_revealed_stake_sm(graph_idx.operator, table, preimage);
+        let key = revealed.context().stake_key();
+        registry.insert_stake(revealed).unwrap();
+        set_graph_claimed_with_unstaking_image(&mut registry, graph_idx, preimage);
+
+        let stake = registry.stakes.get_mut(&key).unwrap();
+        let StakeState::PreimageRevealed { summary, .. } = stake.state().clone() else {
+            panic!("fixture stake has revealed its preimage");
+        };
+        stake.state = StakeState::Slashed {
+            summary,
+            slash_txid: generate_txid(),
+            preimage: Some(preimage),
+        };
+
+        assert_eq!(
+            burn_preimage(&mut registry, graph_idx, INITIAL_BLOCK_HEIGHT + 1),
+            Some(preimage),
+            "a preimage revealed before the slash must still burn the owner's live claims"
+        );
+    }
+
+    #[test]
+    fn eviction_from_membership_does_not_withhold_the_preimage() {
+        let mut registry = test_populated_registry(1);
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+        let preimage = [0x42; 32];
+        registry
+            .insert_stake(preimage_revealed_stake_sm(
+                graph_idx.operator,
+                table,
+                preimage,
+            ))
+            .unwrap();
+        set_graph_claimed_with_unstaking_image(&mut registry, graph_idx, preimage);
+
+        registry
+            .operator_set
+            .as_mut()
+            .unwrap()
+            .apply_block(
+                INITIAL_BLOCK_HEIGHT + 1,
+                &[ConfirmedExit {
+                    operator_idx: graph_idx.operator,
+                    txid: generate_txid(),
+                    tx_index: 1,
+                    kind: ExitKind::UnstakingIntent,
+                }],
+            )
+            .unwrap();
+        assert!(
+            !registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap()
+                .contains_idx(&graph_idx.operator),
+            "fixture must evict the graph owner"
+        );
+
+        assert_eq!(
+            burn_preimage(&mut registry, graph_idx, INITIAL_BLOCK_HEIGHT + 1),
+            Some(preimage),
+            "leaving the operator set must not discard a preimage historical graphs need"
+        );
+    }
+
+    #[test]
+    fn a_graph_that_becomes_burnable_later_still_receives_the_preimage() {
+        let mut registry = test_populated_registry(1);
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: 1,
+        };
+        let preimage = [0x42; 32];
+        registry
+            .insert_stake(preimage_revealed_stake_sm(
+                graph_idx.operator,
+                table,
+                preimage,
+            ))
+            .unwrap();
+        bind_graph_stake(&mut registry, graph_idx, preimage);
+
+        assert_eq!(
+            burn_preimage(&mut registry, graph_idx, INITIAL_BLOCK_HEIGHT + 1),
+            None,
+            "a graph without a claim has nothing to burn"
+        );
+
+        set_graph_claimed_with_unstaking_image(&mut registry, graph_idx, preimage);
+        assert_eq!(
+            burn_preimage(&mut registry, graph_idx, INITIAL_BLOCK_HEIGHT + 2),
+            Some(preimage),
+            "a claim posted after the disclosure must still be burned"
         );
     }
 
