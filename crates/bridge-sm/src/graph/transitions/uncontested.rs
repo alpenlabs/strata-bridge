@@ -770,8 +770,6 @@ impl GraphSM {
         cfg: Arc<GraphSMCfg>,
         claim: ClaimConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
-        let graph_ctx = self.context().clone();
-
         match self.state() {
             // Claim after fulfillment
             GraphState::Fulfilled {
@@ -834,29 +832,7 @@ impl GraphSM {
                 // Only watchtowers (non-PoV operators) emit the contest duty
                 let duties =
                     if self.context().operator_idx() != self.context().operator_table().pov_idx() {
-                        // Generate the game graph to access the infos for duty emission
-                        let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
-
-                        let contest_tx = game_graph.contest;
-                        let watchtower_index = watchtower_slot_for_operator(
-                            self.context().operator_idx(),
-                            self.context().operator_table().pov_idx(),
-                        )
-                        .expect("non-owner POV must map to a watchtower slot")
-                            as u32;
-                        let n_of_n_signature = GameFunctor::unpack(
-                            signatures.clone(),
-                            graph_ctx.watchtower_pubkeys().len(),
-                        )
-                        .expect("Failed to retrieve contest transaction N/N signatures")
-                        .watchtowers[watchtower_index as usize]
-                            .contest[0];
-
-                        vec![GraphDuty::PublishContest {
-                            contest_tx,
-                            n_of_n_signature,
-                            watchtower_index,
-                        }]
+                        vec![self.publish_contest_duty(&cfg, graph_data, signatures)]
                     } else {
                         Default::default()
                     };
