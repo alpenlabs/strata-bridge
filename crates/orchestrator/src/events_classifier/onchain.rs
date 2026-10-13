@@ -501,7 +501,11 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use bitcoin::{absolute, transaction};
+    use bitcoin::{
+        absolute,
+        hashes::{Hash, sha256},
+        transaction,
+    };
     use btc_tracker::event::BlockStatus;
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
     use strata_bridge_primitives::operator_table::PublicOperatorTable;
@@ -509,7 +513,7 @@ mod tests {
         deposit::{events::UserTakeBackEvent, state::DepositState},
         graph::duties::GraphDuty,
         operator_set::{ConfirmedExit, ExitKind},
-        stake::state::StakeState,
+        stake::{context::StakeSMCtx, state::StakeState},
     };
     use strata_bridge_test_utils::{
         bitcoin::{
@@ -1687,6 +1691,193 @@ mod tests {
             successor.covenant,
             "The deposit must record the block-final covenant"
         );
+    }
+
+    /// Inserts a confirmed stake for `operator` in the covenant of `table` activated at
+    /// `activation_height`, with an unstaking image unique to that stake.
+    fn insert_bound_stake(
+        registry: &mut SMRegistry,
+        operator: OperatorIdx,
+        table: &OperatorTable,
+        activation_height: BitcoinBlockHeight,
+    ) {
+        let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
+        if let StakeState::Confirmed { stake_data, .. } = &mut sm.state {
+            stake_data.unstaking_image = sha256::Hash::hash(generate_txid().as_byte_array());
+        }
+        registry.insert_stake(sm).unwrap();
+    }
+
+    /// Asserts that each graph of `deposit_idx` belongs to a member of `covenant` and is bound
+    /// to that member's own stake in `covenant`.
+    fn assert_graphs_bound_to(
+        registry: &SMRegistry,
+        deposit_idx: DepositIdx,
+        covenant: CovenantId,
+        members: &BTreeSet<OperatorIdx>,
+    ) {
+        let graphs: Vec<_> = registry
+            .graphs()
+            .filter(|(idx, _)| idx.deposit == deposit_idx)
+            .collect();
+        assert_eq!(
+            graphs
+                .iter()
+                .map(|(idx, _)| idx.operator)
+                .collect::<BTreeSet<_>>(),
+            *members,
+            "deposit {deposit_idx} must have one graph per member of its covenant"
+        );
+        for (idx, graph) in graphs {
+            let ctx = graph.context();
+            let StakeState::Confirmed {
+                stake_data,
+                summary,
+                ..
+            } = registry
+                .get_stake(&StakeKey {
+                    covenant,
+                    operator: idx.operator,
+                })
+                .expect("every member has a stake in the covenant")
+                .state()
+            else {
+                panic!("fixture stakes are confirmed");
+            };
+            assert_eq!(
+                ctx.covenant, covenant,
+                "graph {idx} must belong to its deposit's covenant"
+            );
+            assert_eq!(
+                ctx.stake_outpoint,
+                OutPoint::new(summary.stake, StakeTx::STAKE_VOUT),
+                "graph {idx} must be bound to its owner's stake in the same covenant"
+            );
+            assert_eq!(
+                ctx.unstaking_image, stake_data.unstaking_image,
+                "graph {idx} must carry the image of the same stake as its outpoint"
+            );
+        }
+    }
+
+    #[test]
+    fn graphs_keep_their_own_covenants_stakes_across_an_exit() {
+        let exited = N_TEST_OPERATORS as OperatorIdx - 1;
+        let (initial, successor) = covenants_around_exit(exited);
+        let initial_table = initial
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let successor_table = successor
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let mut registry = test_empty_registry();
+        for (table, block_covenant) in [(&initial_table, &initial), (&successor_table, &successor)]
+        {
+            for operator in table.operator_idxs() {
+                insert_bound_stake(
+                    &mut registry,
+                    operator,
+                    table,
+                    block_covenant.covenant.activation_height,
+                );
+            }
+        }
+        let cfg = registry.cfg().deposit.clone();
+
+        register(
+            &mut registry,
+            &initial,
+            &DrtBuilder::aligned(&initial_table, &cfg).build(),
+        );
+        let historical: Vec<_> = registry
+            .graphs()
+            .map(|(_, graph)| graph.context().clone())
+            .collect();
+        register(
+            &mut registry,
+            &successor,
+            &DrtBuilder::aligned(&successor_table, &cfg).build(),
+        );
+
+        assert_graphs_bound_to(
+            &registry,
+            0,
+            initial.covenant,
+            &initial_table.operator_idxs(),
+        );
+        assert_graphs_bound_to(
+            &registry,
+            1,
+            successor.covenant,
+            &successor_table.operator_idxs(),
+        );
+        assert_eq!(
+            registry
+                .graphs()
+                .filter(|(idx, _)| idx.deposit == 0)
+                .map(|(_, graph)| graph.context().clone())
+                .collect::<Vec<_>>(),
+            historical,
+            "admitting a successor deposit must leave earlier graphs untouched"
+        );
+    }
+
+    #[test]
+    fn a_later_activation_of_the_same_signing_set_uses_fresh_stakes() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let earlier = block_covenant_for(&table);
+        let later = BlockCovenant {
+            covenant: CovenantId {
+                activation_height: INITIAL_BLOCK_HEIGHT + 100,
+                ..earlier.covenant
+            },
+            operator_table: earlier.operator_table.clone(),
+        };
+        let mut registry = test_empty_registry();
+        for block_covenant in [&earlier, &later] {
+            for operator in table.operator_idxs() {
+                insert_bound_stake(
+                    &mut registry,
+                    operator,
+                    &table,
+                    block_covenant.covenant.activation_height,
+                );
+            }
+        }
+        let cfg = registry.cfg().deposit.clone();
+
+        register(
+            &mut registry,
+            &earlier,
+            &DrtBuilder::aligned(&table, &cfg).build(),
+        );
+        register(
+            &mut registry,
+            &later,
+            &DrtBuilder::aligned(&table, &cfg).build(),
+        );
+
+        assert_graphs_bound_to(&registry, 0, earlier.covenant, &table.operator_idxs());
+        assert_graphs_bound_to(&registry, 1, later.covenant, &table.operator_idxs());
+        for operator in table.operator_idxs() {
+            let stake_outpoint = |deposit| {
+                registry
+                    .get_graph(&GraphIdx { deposit, operator })
+                    .expect("graph registered")
+                    .context()
+                    .stake_outpoint
+            };
+            assert_ne!(
+                stake_outpoint(0),
+                stake_outpoint(1),
+                "operator {operator}'s graphs at different activations must use different stakes"
+            );
+        }
     }
 
     #[test]
