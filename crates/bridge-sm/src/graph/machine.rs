@@ -173,6 +173,30 @@ impl GraphSM {
         }
     }
 
+    /// Builds the [`GraphDuty::PublishContest`] a watchtower emits against a faulty claim, i.e.
+    /// a claim confirmed without a preceding fulfillment.
+    ///
+    /// Must only be called when the PoV operator is not the graph owner.
+    pub(super) fn publish_contest_duty(
+        &self,
+        cfg: &GraphSMCfg,
+        graph_data: &DepositParams,
+        signatures: &[Signature],
+    ) -> GraphDuty {
+        let (game_graph, sigs) = unpack_game(cfg, self.context(), graph_data, signatures);
+        let watchtower_index = watchtower_slot_for_operator(
+            self.context().operator_idx(),
+            self.context().operator_table().pov_idx(),
+        )
+        .expect("non-owner POV must map to a watchtower slot");
+
+        GraphDuty::PublishContest {
+            contest_tx: game_graph.contest,
+            n_of_n_signature: sigs.watchtowers[watchtower_index].contest[0],
+            watchtower_index: watchtower_index as u32,
+        }
+    }
+
     /// Builds the [`GraphDuty::PotentialCounterProof`] a watchtower emits for an observed
     /// bridge proof.
     ///
