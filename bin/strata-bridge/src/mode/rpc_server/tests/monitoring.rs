@@ -107,7 +107,7 @@ fn test_graph_cfg() -> GraphSMCfg {
             pubkeys: vec![generate_xonly_pubkey()],
             threshold: 1,
         },
-        payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
+        payout_descs: (0..3).map(|idx| (idx, random_p2tr_desc())).collect(),
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),
     }
