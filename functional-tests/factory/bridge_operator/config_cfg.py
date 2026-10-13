@@ -37,10 +37,16 @@ class DbConfig:
 
 
 @dataclass
+class P2pPeerConfig:
+    operator_idx: int
+    addrs: list[str]
+
+
+@dataclass
 class P2pConfig:
     idle_connection_timeout: Duration | None
     listening_addr: str
-    connect_to: list[str]
+    peers: list[P2pPeerConfig]
     num_threads: int | None
     dial_timeout: Duration | None
     general_timeout: Duration | None
