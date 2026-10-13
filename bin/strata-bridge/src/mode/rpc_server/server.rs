@@ -11,10 +11,7 @@ use jsonrpsee::{
     core::RpcResult,
     types::{ErrorCode, ErrorObjectOwned},
 };
-use libp2p::{
-    PeerId,
-    identity::{PublicKey as LibP2pPublicKey, ed25519::PublicKey as LibP2pEdPublicKey},
-};
+use libp2p::PeerId;
 use serde::Serialize;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_common::params::Params;
@@ -55,7 +52,7 @@ use crate::{
     health::{COMPONENT_RPC_CACHE, HealthHttpLayer, HealthRegistry},
     mode::{
         rpc_server::da::{stake_aggregate_signatures_response, stake_data_response},
-        services::orchestrator::build_sm_config,
+        services::{orchestrator::build_sm_config, p2p_handles::peer_id_from_p2p_key},
     },
 };
 
@@ -572,11 +569,7 @@ pub(crate) fn convert_operator_pk_to_peer_id(
         .iter()
         .find(|operator| operator.covenant_key() == operator_pk.inner.x_only_public_key().0)
         .map(|operator| {
-            LibP2pEdPublicKey::try_from_bytes(operator.p2p_key().as_ref())
-                .map(|p2p_key| {
-                    let pk: LibP2pPublicKey = p2p_key.into();
-                    PeerId::from(pk)
-                })
+            peer_id_from_p2p_key(operator.p2p_key())
                 .map_err(|err| anyhow::anyhow!("invalid p2p key in params: {err}"))
         })
         .transpose()?
