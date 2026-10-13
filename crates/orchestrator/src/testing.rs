@@ -188,6 +188,7 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
     let deposit_request_amount = cfg.deposit_amount() + Amount::from_sat(10_000); // ensure drt output amount is greater than deposit amount
     let dsm = DepositSM::new(
         cfg,
+        CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
         operator_table.clone(),
         data,
         depositor_pubkey,
