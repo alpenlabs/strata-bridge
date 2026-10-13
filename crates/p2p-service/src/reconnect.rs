@@ -8,7 +8,7 @@
 //! task in this module turns that into a bounded retry loop driven by
 //! [`Configuration::peer_reconnect_interval`](crate::Configuration::peer_reconnect_interval).
 
-use std::time::Duration;
+use std::{collections::BTreeMap, time::Duration};
 
 use libp2p::{Multiaddr, PeerId};
 use strata_p2p::{commands::Command, swarm::handle::CommandHandle};
@@ -18,11 +18,11 @@ use tracing::{debug, info, warn};
 
 /// Periodically checks each entry in `peers` and re-dials any peer that is no longer connected.
 ///
-/// `peers` is a list of `(transport_id, address)` pairs identifying the peers and the addresses
-/// at which they are expected to listen. The loop runs until `cancel` is triggered.
+/// `peers` maps each peer's transport ID to the addresses at which it is expected to listen; a
+/// redial offers all of them. The loop runs until `cancel` is triggered.
 pub async fn maintain_connections(
     command_handle: CommandHandle,
-    peers: Vec<(PeerId, Multiaddr)>,
+    peers: BTreeMap<PeerId, Vec<Multiaddr>>,
     interval: Duration,
     cancel: CancellationToken,
 ) {
@@ -48,13 +48,13 @@ pub async fn maintain_connections(
                 return;
             }
             _ = ticker.tick() => {
-                for (peer_id, addr) in &peers {
+                for (peer_id, addrs) in &peers {
                     if command_handle.is_connected(peer_id, None).await {
                         continue;
                     }
-                    debug!(%peer_id, %addr, "peer not connected, redialing");
-                    if let Err(err) = redial(&command_handle, *peer_id, addr.clone()).await {
-                        warn!(%peer_id, %addr, %err, "redial command rejected");
+                    debug!(%peer_id, ?addrs, "peer not connected, redialing");
+                    if let Err(err) = redial(&command_handle, *peer_id, addrs.clone()).await {
+                        warn!(%peer_id, ?addrs, %err, "redial command rejected");
                     }
                 }
             }
@@ -65,14 +65,14 @@ pub async fn maintain_connections(
 async fn redial(
     command_handle: &CommandHandle,
     transport_id: PeerId,
-    addr: Multiaddr,
+    addresses: Vec<Multiaddr>,
 ) -> Result<(), &'static str> {
     // `send_command` is fire-and-forget — it pushes onto an mpsc and returns. Any failure to
     // enqueue means the swarm task is gone, which we treat as a logical error.
     command_handle
         .send_command(Command::ConnectToPeer {
             transport_id,
-            addresses: vec![addr],
+            addresses,
         })
         .await;
     Ok(())
