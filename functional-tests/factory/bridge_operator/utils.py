@@ -25,6 +25,7 @@ from .config_cfg import (
     MosaicConfig,
     OperatorWalletConfig,
     P2pConfig,
+    P2pPeerConfig,
     ProofBackendConfig,
     RpcConfig,
     SecretServiceClientConfig,
@@ -45,7 +46,7 @@ def generate_config_toml(
     asm_props: dict,
     rpc_port: int,
     my_p2p_addr: str,
-    other_p2p_addrs: list[str],
+    p2p_peers: list[P2pPeerConfig],
     output_path: str,
     tls_dir: str,
     bridge_config_params: BridgeConfigParams,
@@ -60,7 +61,7 @@ def generate_config_toml(
     # test resumes from where it stopped exactly as a deployed node would.
     if wallet_data_dir is None:
         wallet_data_dir = str((Path(output_path).parent / "wallet").resolve())
-    total_peers = len(other_p2p_addrs) + 1  # +1 for self
+    total_peers = len(p2p_peers) + 1  # +1 for self
 
     # Read connection details from props; defaults preserve the spawn-path behavior.
     rpc_host = bitcoind_props.get("rpc_host", "127.0.0.1")
@@ -108,7 +109,7 @@ def generate_config_toml(
         p2p=P2pConfig(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
             listening_addr=my_p2p_addr,
-            connect_to=other_p2p_addrs,
+            peers=p2p_peers,
             num_threads=4,
             dial_timeout=Duration(secs=1, nanos=0),
             general_timeout=Duration(secs=0, nanos=250_000_000),
