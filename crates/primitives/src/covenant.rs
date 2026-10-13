@@ -4,6 +4,13 @@ use std::fmt;
 
 use bitcoin::XOnlyPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
+#[cfg(feature = "proptest")]
+use proptest_derive::Arbitrary;
+use rkyv::{
+    rancor::{Fallible, Source},
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+    Archive, Deserialize as RkyvDeserialize, Place, Serialize as RkyvSerialize,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,9 +27,24 @@ use crate::{
 /// Equality does not establish equal operator-index mappings, P2P keys, payout descriptors, or
 /// protocol settings. Validate those against the exact target context before reusing prepared
 /// stakes; [`OperatorTable::has_same_membership`] compares the indexed signing and P2P keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
 pub struct CovenantId {
     /// The untweaked aggregate of signing keys in canonical operator-index order.
+    #[rkyv(with = XOnlyPublicKeyBytes)]
     pub aggregate_pubkey: XOnlyPublicKey,
     /// The effective height of the most recent admin membership change, or initial activation.
     pub activation_height: BitcoinBlockHeight,
@@ -73,6 +95,63 @@ impl CovenantId {
     }
 }
 
+#[cfg(feature = "proptest")]
+impl proptest::arbitrary::Arbitrary for CovenantId {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+
+        (
+            any::<[u8; 32]>().prop_filter_map("valid secret key", |bytes| {
+                secp256k1::SecretKey::from_slice(&bytes).ok()
+            }),
+            any::<BitcoinBlockHeight>(),
+        )
+            .prop_map(|(secret_key, activation_height)| Self {
+                aggregate_pubkey: secret_key.x_only_public_key(secp256k1::SECP256K1).0,
+                activation_height,
+            })
+            .boxed()
+    }
+}
+
+/// rkyv wrapper that archives an [`XOnlyPublicKey`] as its 32 serialized bytes.
+///
+/// Deserialization fails for bytes that are not a valid x-only public key.
+#[derive(Debug)]
+#[doc(hidden)]
+pub struct XOnlyPublicKeyBytes;
+
+impl ArchiveWith<XOnlyPublicKey> for XOnlyPublicKeyBytes {
+    type Archived = <[u8; 32] as Archive>::Archived;
+    type Resolver = <[u8; 32] as Archive>::Resolver;
+
+    fn resolve_with(field: &XOnlyPublicKey, resolver: Self::Resolver, out: Place<Self::Archived>) {
+        field.serialize().resolve(resolver, out);
+    }
+}
+
+impl<S: Fallible + ?Sized> SerializeWith<XOnlyPublicKey, S> for XOnlyPublicKeyBytes {
+    fn serialize_with(
+        field: &XOnlyPublicKey,
+        serializer: &mut S,
+    ) -> Result<Self::Resolver, S::Error> {
+        RkyvSerialize::serialize(&field.serialize(), serializer)
+    }
+}
+
+impl<D> DeserializeWith<<[u8; 32] as Archive>::Archived, XOnlyPublicKey, D> for XOnlyPublicKeyBytes
+where
+    D: Fallible + ?Sized,
+    D::Error: Source,
+{
+    fn deserialize_with(field: &[u8; 32], _: &mut D) -> Result<XOnlyPublicKey, D::Error> {
+        XOnlyPublicKey::from_slice(field).map_err(D::Error::new)
+    }
+}
+
 impl fmt::Display for CovenantId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}@{}", self.aggregate_pubkey, self.activation_height)
@@ -85,7 +164,22 @@ impl fmt::Display for CovenantId {
 /// retain both fields when looking up a stake; equal signing aggregates at different admin
 /// activation heights still identify different stakes. The owning context must separately
 /// validate that the operator belongs to the covenant's full indexed membership.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    Archive,
+    RkyvSerialize,
+    RkyvDeserialize,
+)]
+#[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct StakeKey {
     /// The covenant to which this stake is bound.
     pub covenant: CovenantId,
@@ -405,5 +499,50 @@ mod tests {
             CovenantId::from_operator_table(&same_keys, 200).unwrap(),
             id
         );
+    }
+
+    #[test]
+    fn archived_stake_keys_reject_invalid_covenant_keys() {
+        let key = StakeKey {
+            covenant: CovenantId {
+                aggregate_pubkey: SIGNING_KEYS[0].parse().unwrap(),
+                activation_height: 101,
+            },
+            operator: 2,
+        };
+        let mut bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&key)
+            .expect("serialize")
+            .to_vec();
+        let key_bytes = key.covenant.aggregate_pubkey.serialize();
+        let offset = bytes
+            .windows(key_bytes.len())
+            .position(|window| window == key_bytes)
+            .expect("the archive holds the raw aggregate key");
+        bytes[offset..offset + key_bytes.len()].fill(0xff);
+
+        assert!(
+            rkyv::from_bytes::<StakeKey, rkyv::rancor::Error>(&bytes).is_err(),
+            "bytes that are not an x-only public key must not decode into a covenant"
+        );
+    }
+
+    #[cfg(feature = "proptest")]
+    mod proptests {
+        use proptest::prelude::*;
+        use rkyv::{from_bytes, rancor::Error, to_bytes};
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(1_000))]
+
+            // Verifies rkyv serialization roundtrip for random StakeKey values.
+            #[test]
+            fn stake_key_rkyv_roundtrip(key: StakeKey) {
+                let bytes = to_bytes::<Error>(&key).expect("serialize");
+                let recovered = from_bytes::<StakeKey, Error>(&bytes).expect("deserialize");
+                prop_assert_eq!(key, recovered);
+            }
+        }
     }
 }
