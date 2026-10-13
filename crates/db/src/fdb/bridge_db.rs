@@ -556,6 +556,7 @@ mod tests {
     ) -> DepositSM {
         DepositSM {
             context: DepositSMCtx {
+                covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
                 deposit_idx,
                 deposit_request_outpoint: outpoint,
                 deposit_outpoint: outpoint,
