@@ -150,6 +150,24 @@ pub(super) fn claimed_state(
     }
 }
 
+/// Creates a [`GraphState::Claimed`] for a faulty claim, i.e. one with no observed fulfillment.
+pub(super) fn faulty_claimed_state(
+    last_block_height: u64,
+    signatures: Vec<Signature>,
+) -> GraphState {
+    GraphState::Claimed {
+        last_block_height,
+        graph_data: test_deposit_params(),
+        graph_summary: TEST_GRAPH_SUMMARY.clone(),
+        signatures,
+        fulfillment_txid: None,
+        fulfillment_block_height: None,
+        claim_block_height: CLAIM_BLOCK_HEIGHT,
+        stake_spent: None,
+        payout_connector_spent: None,
+    }
+}
+
 /// Builds a mock `Contested` state with default test values.
 pub(super) fn contested_state() -> GraphState {
     contested_state_with(LATER_BLOCK_HEIGHT, vec![])
