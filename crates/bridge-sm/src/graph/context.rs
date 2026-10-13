@@ -118,18 +118,24 @@ impl GraphSMCtx {
             .x_only_public_key()
             .0;
 
-        let owner_idx = self.operator_idx() as usize;
+        let owner_idx = self.operator_idx();
         let watchtower_pubkeys = self.watchtower_pubkeys();
 
         let admin = cfg.admin.clone();
         let unstaking_image = self.unstaking_image();
 
-        let owner_desc = cfg.payout_descs[owner_idx].clone();
-        let slash_watchtower_descriptors = cfg
-            .payout_descs
+        let payout_desc = |idx: &OperatorIdx| {
+            cfg.payout_descs.get(idx).cloned().unwrap_or_else(|| {
+                panic!("startup reconciliation registers a payout descriptor for operator {idx}")
+            })
+        };
+        let owner_desc = payout_desc(&owner_idx);
+        let slash_watchtower_descriptors = self
+            .operator_table()
+            .operator_idxs()
             .iter()
-            .filter(|desc| *desc != &owner_desc)
-            .cloned()
+            .filter(|idx| **idx != owner_idx)
+            .map(payout_desc)
             .collect();
 
         let operator_pubkey = self
@@ -171,5 +177,154 @@ impl GraphSMCtx {
             .filter(|key| key.x_only_public_key().0 != owner_pubkey)
             .map(|key| key.x_only_public_key().0)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use bitcoin_bosd::Descriptor;
+    use strata_bridge_primitives::operator_table::PublicOperatorTable;
+    use strata_bridge_test_utils::bridge_fixtures::{random_p2tr_desc, test_operator_table};
+
+    use super::*;
+    use crate::graph::{
+        machine::generate_game_graph,
+        tests::{test_deposit_params, test_graph_sm_cfg, test_graph_sm_ctx},
+    };
+
+    const REGISTERED: u32 = 4;
+
+    /// A graph owned by `owner` whose covenant contains only `members` out of [`REGISTERED`]
+    /// registrations.
+    fn graph_ctx(members: &[OperatorIdx], owner: OperatorIdx) -> GraphSMCtx {
+        let registered = test_operator_table(REGISTERED as usize, 0);
+        let entries = members
+            .iter()
+            .map(|idx| {
+                (
+                    *idx,
+                    registered.idx_to_p2p_key(idx).expect("registered").clone(),
+                    registered.idx_to_btc_key(idx).expect("registered"),
+                )
+            })
+            .collect();
+        let mut ctx = test_graph_sm_ctx();
+        ctx.operator_table = PublicOperatorTable::from_entries(entries)
+            .expect("valid membership")
+            .with_pov(owner)
+            .expect("owner is a member");
+        ctx.graph_idx.operator = owner;
+        ctx
+    }
+
+    fn cfg_with(payout_descs: BTreeMap<OperatorIdx, Descriptor>) -> GraphSMCfg {
+        GraphSMCfg {
+            payout_descs,
+            ..(*test_graph_sm_cfg()).clone()
+        }
+    }
+
+    fn registered_descs() -> BTreeMap<OperatorIdx, Descriptor> {
+        (0..REGISTERED)
+            .map(|idx| (idx, random_p2tr_desc()))
+            .collect()
+    }
+
+    #[test]
+    fn slash_descriptors_cover_only_the_graph_watchtowers() {
+        let descs = registered_descs();
+        let cfg = cfg_with(descs.clone());
+        let ctx = graph_ctx(&[0, 2, 3], 0);
+
+        let keys = ctx.generate_key_data(&cfg, &test_deposit_params());
+
+        assert_eq!(
+            keys.operator_descriptor, descs[&0],
+            "the owner is paid at its own descriptor"
+        );
+        assert_eq!(
+            keys.slash_watchtower_descriptors,
+            vec![descs[&2].clone(), descs[&3].clone()],
+            "only the graph's watchtowers, in slot order, receive slash outputs"
+        );
+    }
+
+    #[test]
+    fn owner_descriptor_is_selected_by_operator_index() {
+        let descs = registered_descs();
+        let cfg = cfg_with(descs.clone());
+        let ctx = graph_ctx(&[0, 2, 3], 3);
+
+        let keys = ctx.generate_key_data(&cfg, &test_deposit_params());
+
+        assert_eq!(
+            keys.operator_descriptor, descs[&3],
+            "operator 3 is the third member, but its descriptor is found by index"
+        );
+        assert_eq!(
+            keys.slash_watchtower_descriptors,
+            vec![descs[&0].clone(), descs[&2].clone()],
+            "watchtowers exclude the owner and the non-member"
+        );
+    }
+
+    #[test]
+    fn shared_descriptors_keep_one_slash_output_per_watchtower() {
+        let shared = random_p2tr_desc();
+        let descs = BTreeMap::from([(0, shared.clone()), (1, shared), (2, random_p2tr_desc())]);
+        let cfg = cfg_with(descs);
+        let ctx = graph_ctx(&[0, 1, 2], 0);
+
+        let keys = ctx.generate_key_data(&cfg, &test_deposit_params());
+
+        assert_eq!(
+            keys.slash_watchtower_descriptors.len(),
+            ctx.watchtower_pubkeys().len(),
+            "a watchtower sharing the owner's descriptor still gets a slash output"
+        );
+    }
+
+    #[test]
+    fn new_registrations_leave_existing_graphs_unchanged() {
+        let ctx = test_graph_sm_ctx();
+        let cfg = (*test_graph_sm_cfg()).clone();
+        let deposit_params = test_deposit_params();
+        let before = generate_game_graph(&cfg, &ctx, &deposit_params).summarize();
+
+        let mut descs = cfg.payout_descs.clone();
+        let next_idx = descs.keys().max().expect("registered operators") + 1;
+        descs.insert(next_idx, random_p2tr_desc());
+        let extended = GraphSMCfg {
+            payout_descs: descs,
+            ..cfg
+        };
+        let after = generate_game_graph(&extended, &ctx, &deposit_params).summarize();
+
+        assert_eq!(
+            before, after,
+            "registering another operator must not change an existing graph's transactions"
+        );
+    }
+
+    #[test]
+    fn slash_descriptors_follow_watchtower_order() {
+        let descs = registered_descs();
+        let cfg = cfg_with(descs.clone());
+        let ctx = graph_ctx(&[0, 1, 3], 1);
+        let members = ctx.operator_table().operator_idxs();
+
+        let keys = ctx.generate_key_data(&cfg, &test_deposit_params());
+
+        let watchtowers: BTreeSet<_> = members.into_iter().filter(|idx| *idx != 1).collect();
+        assert_eq!(
+            keys.slash_watchtower_descriptors,
+            watchtowers
+                .iter()
+                .map(|idx| descs[idx].clone())
+                .collect::<Vec<_>>(),
+            "slash output i must pay the watchtower in slot i"
+        );
     }
 }

@@ -595,6 +595,46 @@ fn registration_updates_preserve_membership_and_reject_historical_rewrites() {
 }
 
 #[test]
+fn rewriting_a_stored_payout_descriptor_is_rejected() {
+    let mut sm = OperatorSetSM::new(10, three_members(), vec![]).unwrap();
+    let saved = sm.clone();
+    let unrelated_key =
+        PublicKey::from_secret_key(SECP256K1, &SecretKey::from_slice(&[9; 32]).unwrap())
+            .x_only_public_key()
+            .0;
+    let rewritten = OperatorSetSchedule::new(
+        (0..3)
+            .map(|idx| {
+                let original = operator(idx, 10, None);
+                if idx != 1 {
+                    return original;
+                }
+                ScheduledOperator::new(
+                    idx,
+                    original.covenant_key(),
+                    original.p2p_key().clone(),
+                    Descriptor::new_p2tr(&unrelated_key.serialize()).unwrap(),
+                    original.activation_height(),
+                    original.deactivation_height(),
+                )
+                .unwrap()
+            })
+            .collect(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        sm.update_operator_table(rewritten, vec![]),
+        Err(OperatorSetError::RegistrationMismatch(1)),
+        "Historical graphs rely on each registration's payout descriptor never changing"
+    );
+    assert_eq!(
+        sm, saved,
+        "Rejecting a rewritten payout descriptor must preserve the entire state"
+    );
+}
+
+#[test]
 fn block_stf_emits_only_final_covenant_members_and_no_external_duties() {
     let mut sm = OperatorSetSM::new(10, three_members(), vec![]).unwrap();
     assert_eq!(
