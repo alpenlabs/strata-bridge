@@ -23,6 +23,7 @@ use proptest::prelude::*;
 use secp256k1::{Message, SecretKey};
 use strata_bridge_connectors::n_of_n::NOfNConnector;
 use strata_bridge_primitives::{
+    covenant::CovenantId,
     key_agg::create_agg_ctx,
     scripts::{prelude::get_aggregated_pubkey, taproot::TaprootTweak},
     secp::EvenSecretKey,
@@ -129,11 +130,13 @@ pub(super) fn test_deposit_sm_cfg_with_timeout(timeout: u64) -> Arc<DepositSMCfg
 
 /// Creates a test per-instance context for DepositSM.
 pub(super) fn test_sm_ctx() -> DepositSMCtx {
+    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
     DepositSMCtx {
+        covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
         deposit_idx: TEST_DEPOSIT_IDX,
         deposit_request_outpoint: OutPoint::default(),
         deposit_outpoint: test_deposit_outpoint(),
-        operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+        operator_table,
     }
 }
 

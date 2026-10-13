@@ -344,6 +344,7 @@ fn try_register_deposit(
 
     let dsm = DepositSM::new(
         deposit_cfg.clone(),
+        covenant,
         local_table.clone(),
         deposit_data,
         valid.depositor_pubkey,
@@ -1680,6 +1681,11 @@ mod tests {
                 .operator_table()
                 .has_same_membership(&successor.operator_table),
             "The deposit must retain the block-final covenant's membership"
+        );
+        assert_eq!(
+            deposit.context().covenant(),
+            successor.covenant,
+            "The deposit must record the block-final covenant"
         );
     }
 

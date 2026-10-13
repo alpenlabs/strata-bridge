@@ -496,6 +496,7 @@ mod tests {
         let drt_amount = cfg.deposit_amount() + Amount::from_sat(10_000);
         DepositSM::new(
             cfg,
+            CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
             operator_table,
             data,
             depositor_pubkey,

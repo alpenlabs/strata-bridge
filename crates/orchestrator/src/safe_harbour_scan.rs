@@ -70,7 +70,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bitcoin::OutPoint;
-    use strata_bridge_primitives::types::DepositIdx;
+    use strata_bridge_primitives::{covenant::CovenantId, types::DepositIdx};
     use strata_bridge_sm::deposit::{context::DepositSMCtx, machine::DepositSM};
     use strata_bridge_test_utils::{
         bridge_fixtures::random_p2tr_desc, musig2::generate_agg_nonce, prelude::generate_txid,
@@ -92,11 +92,14 @@ mod tests {
         deposit_idx: DepositIdx,
         state: DepositState,
     ) {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let context = DepositSMCtx {
+            covenant: CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT)
+                .unwrap(),
             deposit_idx,
             deposit_request_outpoint: OutPoint::default(),
             deposit_outpoint: OutPoint::default(),
-            operator_table: test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            operator_table,
         };
         registry
             .insert_deposit(deposit_idx, DepositSM { context, state })

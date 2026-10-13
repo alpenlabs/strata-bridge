@@ -2,11 +2,15 @@
 
 use bitcoin::OutPoint;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
+use strata_bridge_primitives::{
+    covenant::CovenantId, operator_table::OperatorTable, types::DepositIdx,
+};
 
 /// Execution context for a single instance of the Deposit State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DepositSMCtx {
+    /// The covenant whose membership signs this deposit.
+    pub covenant: CovenantId,
     /// The index of the deposit being tracked in a Deposit State Machine.
     pub deposit_idx: DepositIdx,
     /// The output UTXO of the deposit request transaction for this deposit.
@@ -19,6 +23,11 @@ pub struct DepositSMCtx {
 }
 
 impl DepositSMCtx {
+    /// Returns the covenant whose membership signs this deposit.
+    pub const fn covenant(&self) -> CovenantId {
+        self.covenant
+    }
+
     /// Returns the deposit index.
     pub const fn deposit_idx(&self) -> DepositIdx {
         self.deposit_idx
