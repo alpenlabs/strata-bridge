@@ -96,10 +96,11 @@ class BridgeOperatorFactory(PortProbingFactory):
         rpc_port = self.next_port()
         # Use provided P2P port for this operator
         my_p2p_addr = p2p_ports[operator_idx]
-        # Connect to all other operators
+        # Connect to all other operators. Entries are listed in descending index order so that
+        # every run exercises peer resolution that does not depend on entry order.
         p2p_peers = [
             P2pPeerConfig(operator_idx=i, addrs=[addr])
-            for i, addr in enumerate(p2p_ports)
+            for i, addr in reversed(list(enumerate(p2p_ports)))
             if i != operator_idx
         ]
         dd = ectx.make_service_dir(bridge_operator_name)
