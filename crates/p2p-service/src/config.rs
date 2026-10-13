@@ -1,6 +1,6 @@
 //! Configuration for the P2P.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{collections::BTreeMap, num::NonZeroUsize, time::Duration};
 
 use libp2p::{
     identity::ed25519::{Keypair as Libp2pEdKeypair, SecretKey as Libp2pEdSecretKey},
@@ -51,8 +51,11 @@ pub struct Configuration {
     /// List of [`PeerId`]s that the node is allowed to connect to.
     pub allowlist: Vec<PeerId>,
 
-    /// Initial list of nodes to connect to at startup.
-    pub connect_to: Vec<Multiaddr>,
+    /// Addresses at which each peer is reachable.
+    ///
+    /// Every peer must be on the [`allowlist`](Self::allowlist). Allowlisted peers without an
+    /// entry are never dialed but may still connect to this node.
+    pub peer_addresses: BTreeMap<PeerId, Vec<Multiaddr>>,
 
     /// List of signers' public keys, whose messages the node is allowed to accept.
     pub signers_allowlist: Vec<P2POperatorPubKey>,
@@ -115,7 +118,7 @@ pub struct Configuration {
     /// Interval between re-dial attempts for peers that have become disconnected.
     ///
     /// A background task wakes up every `peer_reconnect_interval`, queries the swarm for each
-    /// peer in `allowlist`, and issues a `ConnectToPeer` command for any peer that is no
+    /// peer in `peer_addresses`, and issues a `ConnectToPeer` command for any peer that is no
     /// longer connected. Defaults to
     /// [`DEFAULT_PEER_RECONNECT_INTERVAL`](crate::constants::DEFAULT_PEER_RECONNECT_INTERVAL).
     pub peer_reconnect_interval: Option<Duration>,
@@ -171,7 +174,7 @@ impl Configuration {
         idle_connection_timeout: Option<Duration>,
         listening_addr: Multiaddr,
         allowlist: Vec<PeerId>,
-        connect_to: Vec<Multiaddr>,
+        peer_addresses: BTreeMap<PeerId, Vec<Multiaddr>>,
         signers_allowlist: Vec<P2POperatorPubKey>,
         num_threads: Option<usize>,
         dial_timeout: Option<Duration>,
@@ -198,7 +201,7 @@ impl Configuration {
             idle_connection_timeout,
             listening_addr,
             allowlist,
-            connect_to,
+            peer_addresses,
             signers_allowlist,
             num_threads,
             dial_timeout,
@@ -235,7 +238,7 @@ mod tests {
             None,
             "/ip4/127.0.0.1/tcp/1234".parse().unwrap(),
             vec![],
-            vec![],
+            BTreeMap::new(),
             vec![],
             None,
             None,
