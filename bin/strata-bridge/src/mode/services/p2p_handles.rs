@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use ed25519_dalek::SigningKey;
 use libp2p::PeerId;
 use libp2p_identity::{
-    PublicKey as LibP2pPublicKey,
+    DecodingError, PublicKey as LibP2pPublicKey,
     ed25519::{Keypair, PublicKey as LibP2pEdPublicKey},
 };
 use secret_service_client::SecretServiceClient;
@@ -49,29 +49,25 @@ pub(in crate::mode) async fn init_p2p_handles(
             .verifying_key()
             .to_bytes();
     let my_key = LibP2pEdPublicKey::try_from_bytes(&pubkey).expect("infallible");
-    let other_operators: Vec<(P2POperatorPubKey, LibP2pEdPublicKey)> = params
+    let other_operators: Vec<(P2POperatorPubKey, PeerId)> = params
         .keys
         .operators
         .iter()
         .filter(|operator| operator.p2p_key().as_ref() != my_key.to_bytes().as_slice())
         .map(|operator| {
-            let p2p_key =
-                LibP2pEdPublicKey::try_from_bytes(operator.p2p_key().as_ref()).map_err(|_| {
-                    anyhow!(
-                        "invalid p2p key for scheduled operator {}",
-                        operator.index()
-                    )
-                })?;
-            Ok((operator.p2p_key().clone(), p2p_key))
+            let peer_id = peer_id_from_p2p_key(operator.p2p_key()).map_err(|_| {
+                anyhow!(
+                    "invalid p2p key for scheduled operator {}",
+                    operator.index()
+                )
+            })?;
+            Ok((operator.p2p_key().clone(), peer_id))
         })
         .collect::<anyhow::Result<_>>()?;
 
     let allowlist: Vec<PeerId> = other_operators
         .iter()
-        .map(|(_, pk)| {
-            let pk: LibP2pPublicKey = pk.clone().into();
-            PeerId::from(pk)
-        })
+        .map(|(_, peer_id)| *peer_id)
         .collect();
     let signers_allowlist: Vec<P2POperatorPubKey> = other_operators
         .into_iter()
@@ -144,4 +140,47 @@ pub(in crate::mode) async fn init_p2p_handles(
         req_resp_handle: handles.req_resp_handle,
         keypair: config.keypair,
     })
+}
+
+/// Derives the [`PeerId`] that libp2p authenticates an operator's P2P key as.
+///
+/// Fails if the key is not a valid ed25519 public key.
+pub(in crate::mode) fn peer_id_from_p2p_key(
+    p2p_key: &P2POperatorPubKey,
+) -> Result<PeerId, DecodingError> {
+    let ed_key = LibP2pEdPublicKey::try_from_bytes(p2p_key.as_ref())?;
+    Ok(PeerId::from(LibP2pPublicKey::from(ed_key)))
+}
+
+#[cfg(test)]
+mod tests {
+    use libp2p_identity::Keypair as LibP2pKeypair;
+
+    use super::*;
+
+    #[test]
+    fn peer_id_matches_the_libp2p_identity_of_the_p2p_key() {
+        let keypair = LibP2pKeypair::generate_ed25519();
+        let ed_public = keypair
+            .public()
+            .try_into_ed25519()
+            .expect("generated keypair is ed25519");
+        let p2p_key = P2POperatorPubKey::from(ed_public.to_bytes().to_vec());
+
+        assert_eq!(
+            peer_id_from_p2p_key(&p2p_key).expect("valid ed25519 key"),
+            keypair.public().to_peer_id(),
+            "the derived peer ID must be the one libp2p authenticates the key as"
+        );
+    }
+
+    #[test]
+    fn peer_id_rejects_keys_that_are_not_ed25519() {
+        let p2p_key = P2POperatorPubKey::from(vec![0xAB; 31]);
+
+        assert!(
+            peer_id_from_p2p_key(&p2p_key).is_err(),
+            "a 31-byte key cannot be an ed25519 public key"
+        );
+    }
 }
