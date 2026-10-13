@@ -3,34 +3,49 @@
 mod tests {
     use std::sync::Arc;
 
-    use strata_bridge_primitives::types::OperatorIdx;
+    use bitcoin::{
+        OutPoint,
+        hashes::{Hash, sha256},
+    };
+    use musig2::secp256k1::schnorr::Signature;
+    use strata_bridge_primitives::types::{GraphIdx, OperatorIdx};
     use strata_bridge_test_utils::bitcoin::generate_txid;
     use strata_bridge_tx_graph::{
         game_graph::GameConnectors,
+        musig_functor::GameFunctor,
         transactions::prelude::{CounterproofNackData, CounterproofNackTx},
     };
     use strata_predicate::PredicateKey;
 
-    use crate::graph::{
-        duties::GraphDuty,
-        events::{GraphEvent, RetryTickEvent},
-        machine::{GraphSM, generate_game_graph},
-        state::GraphState,
-        tests::{
-            FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-            TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm,
-            dummy_proof_receipt, expected_potential_counterproof_duty, mock_game_signatures,
-            mock_states::{
-                assigned_state, bridge_proof_posted_state, bridge_proof_posted_state_with,
-                claimed_state, contested_state, counter_proof_posted_state,
-                counter_proof_posted_state_with, counter_proof_posted_state_with_signatures,
-                counter_proof_posted_without_refuted_proof_state, graph_signed_state,
-                terminal_states, test_graph_generated_state, test_nonce_context,
+    use crate::{
+        graph::{
+            config::GraphSMCfg,
+            context::GraphSMCtx,
+            duties::GraphDuty,
+            events::{ClaimConfirmedEvent, GraphEvent, RetryTickEvent},
+            machine::{GraphSM, generate_game_graph},
+            state::GraphState,
+            tests::{
+                ASSIGNMENT_DEADLINE, CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS,
+                FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT,
+                LATER_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_DEPOSIT_IDX,
+                TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm, dummy_proof_receipt,
+                expected_potential_counterproof_duty, mock_game_signatures,
+                mock_states::{
+                    assigned_state, bridge_proof_posted_state, bridge_proof_posted_state_with,
+                    claimed_state, contested_state, counter_proof_posted_state,
+                    counter_proof_posted_state_with, counter_proof_posted_state_with_signatures,
+                    counter_proof_posted_without_refuted_proof_state, faulty_claimed_state,
+                    graph_signed_state, terminal_states, test_graph_generated_state,
+                    test_nonce_context,
+                },
+                test_deposit_params, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary,
+                test_nonpov_owned_handler_output, test_operator_table,
+                test_pov_owned_handler_output, test_recipient_desc,
             },
-            test_deposit_params, test_graph_sm_cfg, test_graph_summary,
-            test_nonpov_owned_handler_output, test_pov_owned_handler_output, test_recipient_desc,
+            watchtower::watchtower_slot_for_operator,
         },
-        watchtower::watchtower_slot_for_operator,
+        state_machine::StateMachine,
     };
 
     fn expected_pov_counterproof_idx(sm: &GraphSM) -> usize {
@@ -303,6 +318,147 @@ mod tests {
                 expected_duties: vec![],
             },
         );
+    }
+
+    // ===== Faulty Claimed retry tick tests =====
+    //
+    // graph owner
+    //   PoV     -> []
+    //   non-PoV -> [contest], regardless of height: the contest leaf has no timelock
+
+    /// Builds mock signatures and the [`GraphDuty::PublishContest`] the non-PoV watchtower is
+    /// expected to emit for the given context.
+    fn expected_contest(cfg: &GraphSMCfg, context: &GraphSMCtx) -> (Vec<Signature>, GraphDuty) {
+        let game_graph = generate_game_graph(cfg, context, &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+        let watchtower_index = watchtower_slot_for_operator(
+            context.operator_idx(),
+            context.operator_table().pov_idx(),
+        )
+        .expect("non-owner PoV must map to a watchtower slot");
+        let n_of_n_signature =
+            GameFunctor::unpack(signatures.clone(), context.watchtower_pubkeys().len())
+                .expect("failed to unpack mock signatures")
+                .watchtowers[watchtower_index]
+                .contest[0];
+
+        (
+            signatures,
+            GraphDuty::PublishContest {
+                contest_tx: game_graph.contest,
+                n_of_n_signature,
+                watchtower_index: watchtower_index as u32,
+            },
+        )
+    }
+
+    // (graph owner: non-PoV) -> [contest], including past the contest timelock: the contest
+    // stays valid until the claim output is actually spent.
+    #[test]
+    fn test_retry_tick_emits_contest_in_faulty_claimed_for_nonpov_graph() {
+        let cfg = test_graph_sm_cfg();
+        let context = create_nonpov_sm(faulty_claimed_state(CLAIM_BLOCK_HEIGHT, vec![])).context;
+        let (signatures, expected_duty) = expected_contest(&cfg, &context);
+
+        for last_block_height in [
+            CLAIM_BLOCK_HEIGHT,
+            CLAIM_BLOCK_HEIGHT + CONTEST_TIMELOCK_BLOCKS,
+            CLAIM_BLOCK_HEIGHT + CONTEST_TIMELOCK_BLOCKS + 1,
+        ] {
+            test_nonpov_owned_handler_output(
+                cfg.clone(),
+                GraphHandlerOutput {
+                    state: faulty_claimed_state(last_block_height, signatures.clone()),
+                    event: GraphEvent::RetryTick(RetryTickEvent),
+                    expected_duties: vec![expected_duty.clone()],
+                },
+            );
+        }
+    }
+
+    // (graph owner: PoV) -> []
+    #[test]
+    fn test_retry_tick_noop_in_faulty_claimed_for_pov_graph() {
+        test_pov_owned_handler_output(
+            test_graph_sm_cfg(),
+            GraphHandlerOutput {
+                state: faulty_claimed_state(CLAIM_BLOCK_HEIGHT, Default::default()),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    /// The contest emitted on a faulty `ClaimConfirmed` is one-shot; if its broadcast fails, the
+    /// next retry tick must re-emit the identical duty, for every (owner, PoV) pairing.
+    #[test]
+    fn test_retry_tick_reemits_contest_after_faulty_claim_transition() {
+        let cfg = test_graph_sm_cfg();
+
+        for graph_owner_idx in 0..N_TEST_OPERATORS as OperatorIdx {
+            for pov_idx in (0..N_TEST_OPERATORS as OperatorIdx).filter(|i| *i != graph_owner_idx) {
+                let context = GraphSMCtx {
+                    covenant: test_graph_sm_ctx().covenant,
+                    graph_idx: GraphIdx {
+                        deposit: TEST_DEPOSIT_IDX,
+                        operator: graph_owner_idx,
+                    },
+                    deposit_outpoint: OutPoint::default(),
+                    stake_outpoint: OutPoint::default(),
+                    unstaking_image: sha256::Hash::all_zeros(),
+                    operator_table: test_operator_table(N_TEST_OPERATORS, pov_idx),
+                };
+                let (signatures, expected_duty) = expected_contest(&cfg, &context);
+                // Both pre-claim states that admit a faulty claim.
+                let from_states = [
+                    GraphState::GraphSigned {
+                        last_block_height: INITIAL_BLOCK_HEIGHT,
+                        graph_data: test_deposit_params(),
+                        graph_summary: test_graph_summary(),
+                        agg_nonces: None,
+                        signatures: signatures.clone(),
+                        stake_spent: None,
+                    },
+                    GraphState::Assigned {
+                        last_block_height: INITIAL_BLOCK_HEIGHT,
+                        graph_data: test_deposit_params(),
+                        graph_summary: test_graph_summary(),
+                        signatures,
+                        assignee: graph_owner_idx,
+                        deadline: ASSIGNMENT_DEADLINE,
+                        recipient_desc: test_recipient_desc(1),
+                        stake_spent: None,
+                    },
+                ];
+
+                for state in from_states {
+                    let mut sm = GraphSM {
+                        context: context.clone(),
+                        state,
+                    };
+
+                    let claim_output = sm
+                        .process_event(
+                            cfg.clone(),
+                            GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
+                                claim_txid: test_graph_summary().claim,
+                                claim_block_height: CLAIM_BLOCK_HEIGHT,
+                            }),
+                        )
+                        .expect("faulty claim must be accepted");
+                    assert_eq!(claim_output.duties, vec![expected_duty.clone()]);
+
+                    let retry_output = sm
+                        .process_event(cfg.clone(), GraphEvent::RetryTick(RetryTickEvent))
+                        .expect("retry tick must be accepted");
+                    assert_eq!(
+                        retry_output.duties,
+                        vec![expected_duty.clone()],
+                        "owner {graph_owner_idx}, pov {pov_idx}: retry must re-emit the contest"
+                    );
+                }
+            }
+        }
     }
 
     // ===== BridgeProofPosted retry tick tests =====
