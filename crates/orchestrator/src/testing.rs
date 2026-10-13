@@ -90,7 +90,9 @@ pub(crate) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
 
 /// Creates a test `GraphSMCfg`, mirroring `bridge-sm/graph/tests::test_graph_sm_cfg`.
 pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let payout_descs = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
+    let payout_descs = (0..N_TEST_OPERATORS as OperatorIdx)
+        .map(|idx| (idx, random_p2tr_desc()))
+        .collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: GameProtocolParams {
