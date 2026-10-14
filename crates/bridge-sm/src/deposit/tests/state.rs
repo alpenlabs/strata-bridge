@@ -9,7 +9,7 @@ mod tests {
     fn deposit_state_variant_indices_are_stable() {
         let desc = random_p2tr_desc();
 
-        let cases: [(u8, DepositState); 14] = [
+        let cases: [(u8, DepositState); 15] = [
             (
                 0,
                 DepositState::Created {
@@ -128,6 +128,7 @@ mod tests {
                     sweep_partials: BTreeMap::new(),
                 },
             ),
+            (14, DepositState::Skipped),
         ];
 
         for (expected_index, state) in cases {

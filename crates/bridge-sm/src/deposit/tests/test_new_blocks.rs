@@ -159,6 +159,7 @@ mod tests {
                 assignee: Some(TEST_ASSIGNEE),
             },
             DepositState::Aborted,
+            DepositState::Skipped,
         ] {
             let mut sm = create_sm(terminal_state.clone());
             let result = sm.process_new_block(NewBlockEvent { block_height });

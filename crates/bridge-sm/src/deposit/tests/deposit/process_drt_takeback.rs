@@ -141,6 +141,19 @@ mod tests {
     }
 
     #[test]
+    fn test_drt_takeback_duplicate_in_skipped() {
+        let state = DepositState::Skipped;
+
+        let tx = test_takeback_tx(OutPoint::default());
+
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: state,
+            event: DepositEvent::UserTakeBack(UserTakeBackEvent { tx }),
+            expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+        });
+    }
+
+    #[test]
     fn test_wrong_drt_takeback_tx_rejection() {
         let initial_state = DepositState::Created {
             deposit_transaction: test_deposit_txn(),

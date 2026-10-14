@@ -321,6 +321,7 @@ pub(crate) const fn deposit_state_kind(state: &DepositState) -> &'static str {
         DepositState::SweepNoncesCollected { .. } => "sweep_nonces_collected",
         DepositState::Spent { .. } => "spent",
         DepositState::Aborted => "aborted",
+        DepositState::Skipped => "skipped",
     }
 }
 

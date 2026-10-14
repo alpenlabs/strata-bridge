@@ -164,6 +164,22 @@ impl DepositSM {
         }
     }
 
+    /// Declines this deposit request under the node's deposit cap.
+    ///
+    /// Meant for a machine fresh out of [`DepositSM::new`]: the context is kept, so the deposit
+    /// index and outpoints still match every other operator's, but the state becomes
+    /// [`DepositState::Skipped`] and nothing is ever signed or emitted for it.
+    pub fn into_skipped(self) -> Self {
+        debug_assert!(
+            matches!(self.state, DepositState::Created { .. }),
+            "only a freshly created deposit request can be skipped"
+        );
+        DepositSM {
+            state: DepositState::Skipped,
+            ..self
+        }
+    }
+
     /// Returns a reference to the Deposit State Machine params.
     pub const fn context(&self) -> &DepositSMCtx {
         &self.context

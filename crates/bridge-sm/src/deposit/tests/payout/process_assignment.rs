@@ -241,6 +241,21 @@ mod tests {
         }
     }
 
+    /// Tests that an assignment for a skipped deposit is rejected rather than fatal: no deposit
+    /// transaction was signed here, so it can only come from a foreign or stale feed.
+    #[test]
+    fn test_assignment_in_skipped_is_rejected() {
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Skipped,
+            event: DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_ASSIGNEE,
+                deadline: LATER_BLOCK_HEIGHT,
+                recipient_desc: random_p2tr_desc(),
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
+
     /// tests that post-assignment states treat re-delivered Assignment events as duplicates
     #[test]
     fn test_assignment_duplicate_from_post_assignment_states() {
