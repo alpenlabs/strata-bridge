@@ -136,6 +136,7 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
             ExternalBtcBridgeNetworkEnv(
                 bridge_protocol_params=self.bridge_protocol_params,
                 bridge_config_params=BridgeConfigParams(
+                    allow_unsafe_timelocks=True,
                     cooperative_payout_timeout=0,
                     min_withdrawal_fulfillment_window=0,
                     retry_interval_secs=120,
@@ -246,9 +247,11 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
         for idx in watchtower_idxs:
             verdict = wait_for_log_capture(
                 dishonest_node.props["logfile"],
+                # The idx is a span field, and where the formatter renders span fields
+                # relative to the message is not ours to pin, so accept it on either side.
                 re.compile(
-                    rf"({NO_FAULT_SECRET_LOG_MARKER}|{EVALUATION_ERROR_LOG_MARKER})"
-                    rf".*\b(?:operator_idx|counterprover_idx)={idx}\b"
+                    rf"^(?=.*\b(?:operator_idx|counterprover_idx)={idx}\b)"
+                    rf".*?({NO_FAULT_SECRET_LOG_MARKER}|{EVALUATION_ERROR_LOG_MARKER})"
                 ),
                 log_offsets=dishonest_log_offsets,
                 timeout=1800,

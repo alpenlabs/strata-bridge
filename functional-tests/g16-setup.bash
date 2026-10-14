@@ -71,8 +71,7 @@ g16_start_generation() {
     G16_GEN_LOG="$G16_RUNS_DIR/g16-gen.log"
 
     # CI pre-clones g16 (G16_DIR) so Swatinem/rust-cache covers its build; local
-    # runs clone into functional-tests/.g16-src (same pattern as .asm-src in
-    # sp1-setup.bash).
+    # runs clone into functional-tests/.g16-src.
     if [ -n "${G16_DIR:-}" ]; then
         if [ ! -d "$G16_DIR" ]; then
             echo "ERROR: G16_DIR=$G16_DIR does not exist" >&2
