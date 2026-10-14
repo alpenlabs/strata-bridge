@@ -218,22 +218,21 @@ pub(crate) fn classify_unsigned_gossip(
             }
         }
         UnsignedGossipsubMsg::UnstakingDataExchange {
-            operator_idx,
+            stake_key,
             unstaking_input,
         } => {
-            let Some(stake_key) = sm_registry.resolve_legacy_stake_key(*operator_idx) else { return vec![]; };
-            let sm_id = SMId::Stake(stake_key);
+            let sm_id = SMId::Stake(*stake_key);
             let Some(sender_idx) = sm_registry.lookup_operator(&sm_id, key) else {
                 warn!(
-                    %operator_idx,
+                    %stake_key,
                     "Received unstaking data from unknown sender, ignoring"
                 );
                 return vec![];
             };
 
-            if sender_idx != *operator_idx {
+            if sender_idx != stake_key.operator {
                 warn!(
-                    claimed_operator_idx=%operator_idx, resolved_operator_idx=%sender_idx,
+                    %stake_key, resolved_operator_idx=%sender_idx,
                     "Received unstaking data with sender/operator mismatch, ignoring"
                 );
                 return vec![];
@@ -243,14 +242,14 @@ pub(crate) fn classify_unsigned_gossip(
                 Descriptor::try_from(unstaking_input.unstaking_operator_desc.clone())
             else {
                 warn!(
-                    %operator_idx,
+                    %stake_key,
                     "Received unstaking data with invalid operator descriptor, ignoring"
                 );
                 return vec![];
             };
 
             info!(
-                %operator_idx,
+                %stake_key,
                 stake_funds = %unstaking_input.stake_funds,
                 unstaking_image = %unstaking_input.unstaking_image,
                 "classified UnstakingDataExchange as StakeEvent::StakeDataReceived"
@@ -1345,14 +1344,16 @@ mod tests {
 
     // ===== classify_nag_request tests =====
     mod nag_request_tests {
-        use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
-        use strata_bridge_primitives::types::GraphIdx;
+        use bitcoin::hashes::sha256;
+        use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, UnstakingInput};
+        use strata_bridge_primitives::{covenant::StakeKey, types::GraphIdx};
         use strata_bridge_sm::stake::context::StakeSMCtx;
 
         use super::*;
         use crate::testing::{
             INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX,
-            insert_deposit_with_graphs, insert_stakes_for_all_operators, test_operator_table,
+            insert_deposit_with_graphs, insert_stakes_for_all_operators, random_p2tr_desc,
+            test_operator_table,
         };
 
         #[test]
@@ -1604,6 +1605,52 @@ mod tests {
             assert!(
                 result.is_empty(),
                 "Should drop graph nag from unknown sender"
+            );
+        }
+
+        fn unstaking_data_from(stake_key: StakeKey) -> UnsignedGossipsubMsg {
+            UnsignedGossipsubMsg::UnstakingDataExchange {
+                stake_key,
+                unstaking_input: UnstakingInput {
+                    stake_funds: OutPoint::null(),
+                    unstaking_image: sha256::Hash::all_zeros(),
+                    unstaking_operator_desc: random_p2tr_desc().into(),
+                },
+            }
+        }
+
+        #[test]
+        fn classify_unstaking_data_accepts_only_the_stake_owner() {
+            let mut registry = test_empty_registry();
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            insert_stakes_for_all_operators(&mut registry, &operator_table);
+            let stake_key_of = |operator_idx| {
+                StakeSMCtx::new(operator_idx, operator_table.clone(), INITIAL_BLOCK_HEIGHT)
+                    .stake_key()
+            };
+            let owner_p2p_key = operator_table.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
+
+            let owned = classify_unsigned_gossip(
+                &registry,
+                &OperatorKey::Peer(&owner_p2p_key),
+                &unstaking_data_from(stake_key_of(TEST_NONPOV)),
+            );
+            assert!(
+                matches!(
+                    owned.as_slice(),
+                    [SMEvent::Stake(event)] if matches!(event.as_ref(), StakeEvent::StakeDataReceived(_))
+                ),
+                "the stake owner's data must be classified for its stake"
+            );
+
+            let foreign = classify_unsigned_gossip(
+                &registry,
+                &OperatorKey::Peer(&owner_p2p_key),
+                &unstaking_data_from(stake_key_of(TEST_POV_IDX)),
+            );
+            assert!(
+                foreign.is_empty(),
+                "a peer must not publish stake data for another operator's stake"
             );
         }
 
