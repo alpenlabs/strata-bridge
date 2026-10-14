@@ -114,6 +114,7 @@ class BridgeConfigParams:
     prometheus_metrics: bool = False
     dev: bool = False
     allow_unsafe_timelocks: bool = False
+    max_active_deposits: int | None = None
 
 
 @dataclass
@@ -133,6 +134,7 @@ class BridgeOperatorConfig:
     shutdown_timeout: Duration
     cooperative_payout_timeout: int
     max_fee_rate: int
+    max_active_deposits: int | None
     dev: bool
     allow_unsafe_timelocks: bool
     secret_service_client: SecretServiceClientConfig
