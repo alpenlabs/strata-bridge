@@ -323,13 +323,12 @@ impl SMRegistry {
         self.graphs.get(graph_idx)
     }
 
-    /// Resolves an operator-only legacy message only when there is exactly one stake instance.
-    /// Ambiguous messages are rejected until covenant-qualified wire messages are available.
+    /// Resolves an operator-only lookup only when the operator has exactly one stake instance.
+    /// Ambiguous lookups are rejected.
     ///
-    /// Temporary compatibility shim for operator-only callers. Replace these lookups with explicit
-    /// [`StakeKey`] lookups as storage ([STR-4043](https://alpenlabs.atlassian.net/browse/STR-4043)),
-    /// P2P messages ([STR-4044](https://alpenlabs.atlassian.net/browse/STR-4044)), and RPCs
-    /// ([STR-3625](https://alpenlabs.atlassian.net/browse/STR-3625)) adopt covenant-qualified identities.
+    /// Temporary compatibility shim for operator-only RPCs. Replace these lookups with explicit
+    /// [`StakeKey`] lookups once RPCs ([STR-3625](https://alpenlabs.atlassian.net/browse/STR-3625))
+    /// adopt covenant-qualified identities.
     pub fn resolve_legacy_stake_key(&self, operator: OperatorIdx) -> Option<StakeKey> {
         let mut candidates = self.stakes.keys().filter(|key| key.operator == operator);
         let key = *candidates.next()?;
