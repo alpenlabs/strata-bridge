@@ -105,6 +105,12 @@ if [ "$MOSAIC_CIRCUIT_MODE" = "full" ]; then
         echo "ERROR: MOSAIC_CIRCUIT_MODE=full requires BRIDGE_PROOF_SP1=1 (the circuit embeds this run's counterproof vkey)" >&2
         exit 1
     fi
+    # sp1-setup.bash defaults SP1_PROVER to mock; catch that here rather than after the
+    # hour-long circuit generation and mosaic setup.
+    if [ "${SP1_PROVER:-mock}" = "mock" ]; then
+        echo "ERROR: MOSAIC_CIRCUIT_MODE=full requires a real SP1 prover (SP1_PROVER=cpu|cuda|network), not mock" >&2
+        exit 1
+    fi
     if [ -n "${MOSAIC_CIRCUIT_PATH:-}" ]; then
         if [ ! -f "$MOSAIC_CIRCUIT_PATH" ]; then
             echo "ERROR: MOSAIC_CIRCUIT_PATH=$MOSAIC_CIRCUIT_PATH does not exist" >&2
