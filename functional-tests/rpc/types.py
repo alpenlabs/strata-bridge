@@ -115,6 +115,27 @@ RpcReimbursementStatus = (
 )
 
 
+def reimbursement_status_from_json(data: dict) -> RpcReimbursementStatus:
+    """Parse the `status`-tagged union returned by `stratabridge_reimbursementStatus`."""
+    match data.get("status"):
+        case "not_started":
+            return RpcReimbursementStatusNotStarted()
+        case "in_progress":
+            return RpcReimbursementStatusInProgress(
+                claim_txid=data["claim_txid"], phase=data["phase"]
+            )
+        case "slashed":
+            return RpcReimbursementStatusSlashed(claim_txid=data["claim_txid"])
+        case "aborted":
+            return RpcReimbursementStatusAborted(claim_txid=data["claim_txid"])
+        case "complete":
+            return RpcReimbursementStatusComplete(
+                claim_txid=data["claim_txid"], payout_txid=data["payout_txid"]
+            )
+        case other:
+            raise ValueError(f"unknown reimbursement status: {other!r}")
+
+
 @dataclass
 class RpcDepositInfo:
     """Represents deposit transaction details."""

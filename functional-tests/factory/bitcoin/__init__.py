@@ -1,12 +1,14 @@
 import http.client
 import os
+import threading
+from typing import Any
 from urllib.parse import urlparse
 
 import flexitest
 from bitcoinlib.services.authproxy import AuthServiceProxy
 from bitcoinlib.services.bitcoind import BitcoindClient
 
-from constants import BITCOIND_RPC_TIMEOUT_SECS
+from constants import BITCOIND_RPC_SERVER_TIMEOUT_SECS, BITCOIND_RPC_TIMEOUT_SECS
 from factory.common.ports import PortProbingFactory
 
 BD_USERNAME = "user"
@@ -78,19 +80,56 @@ class _FreshHTTPConnection(http.client.HTTPConnection):
         super().request(method, url, body, headers or {}, encode_chunked=encode_chunked)
 
 
+class _ThreadLocalProxy:
+    """Per-thread `AuthServiceProxy` facade, so one `BitcoindClient` is safe to share between a
+    test and its miner threads.
+
+    `AuthServiceProxy.__getattr__` hands out children that share the parent's single
+    `HTTPConnection`, and `__call__` runs request -> getresponse -> close with no lock, so one
+    client driven from two threads corrupts calls: bitcoind answers `-32700 Parse error` to
+    interleaved requests, or one thread's `_FreshHTTPConnection.close()` drops the other's
+    in-flight socket. Each thread lazily gets its own proxy and connection, freed with the
+    thread. Resolve `client.proxy.<method>` in the calling thread; never hand a bound child
+    proxy to another thread.
+    """
+
+    def __init__(self, url: str, timeout: int):
+        parsed = urlparse(url)
+        if parsed.hostname is None:
+            raise ValueError(f"bitcoind rpc url has no host: {url!r}")
+        self._url = url
+        self._host = parsed.hostname
+        self._port = parsed.port
+        self._timeout = timeout
+        self._local = threading.local()
+
+    def _proxy(self) -> AuthServiceProxy:
+        proxy = getattr(self._local, "proxy", None)
+        if proxy is None:
+            conn = _FreshHTTPConnection(self._host, self._port, timeout=self._timeout)
+            proxy = AuthServiceProxy(self._url, timeout=self._timeout, connection=conn)
+            self._local.proxy = proxy
+        return proxy
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):  # dunder probes and pre-__init__ lookups must not recurse
+            raise AttributeError(name)
+        return getattr(self._proxy(), name)
+
+    def __repr__(self) -> str:
+        return f"<_ThreadLocalProxy {self._host}:{self._port} timeout={self._timeout}>"
+
+
 def make_bitcoind_client(url: str, timeout: int = BITCOIND_RPC_TIMEOUT_SECS) -> BitcoindClient:
-    """Build a regtest `BitcoindClient` whose RPC calls time out after `timeout` seconds.
+    """Build a regtest `BitcoindClient` whose RPC calls time out after `timeout` seconds and
+    that is safe to use from several threads.
 
     `BitcoindClient` hard-wires bitcoinlib's 10s `HTTP_TIMEOUT`, so the proxy is replaced
-    after construction with one that carries the longer timeout and a self-resetting
-    connection.
+    after construction with one that carries the longer timeout, a self-resetting connection,
+    and one connection per thread (see `_ThreadLocalProxy`).
     """
-    parsed = urlparse(url)
-    if parsed.hostname is None:
-        raise ValueError(f"bitcoind rpc url has no host: {url!r}")
     client = BitcoindClient(base_url=url, network="regtest")
-    conn = _FreshHTTPConnection(parsed.hostname, parsed.port, timeout=timeout)
-    client.proxy = AuthServiceProxy(url, timeout=timeout, connection=conn)
+    client.proxy = _ThreadLocalProxy(url, timeout)
     return client
 
 
@@ -140,6 +179,8 @@ class BitcoinFactory(PortProbingFactory):
         # transactions must pay at least the minimum relay fee (1 sat/vB) and respect the
         # dust threshold. This catches regressions where any tx-graph transaction is
         # broadcast with zero fee or with a dust output.
+        # `-debug=rpc,http` records every RPC call and HTTP request in service.log so a
+        # client-side stall can be lined up against what bitcoind actually received.
         cmd = [
             "bitcoind",
             "-regtest",
@@ -147,6 +188,9 @@ class BitcoinFactory(PortProbingFactory):
             f"-port={p2p_port}",
             "-printtoconsole",
             "-debug=zmq",
+            "-debug=rpc",
+            "-debug=http",
+            f"-rpcservertimeout={BITCOIND_RPC_SERVER_TIMEOUT_SECS}",
             "-server=1",
             "-txindex=1",
             "-acceptnonstdtxn=0",

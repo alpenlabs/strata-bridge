@@ -82,6 +82,10 @@ jobs:
         working-directory: functional-tests
         run: uv run ruff check
 
+      - name: Unit-test the harness
+        working-directory: functional-tests
+        run: uv run python -m unittest discover -s unit -t . -v
+
   # Builds the instrumented bridge binaries (plus mosaic and asm-runner) once and hands them to
   # every test group as an artifact, so the matrix jobs neither compile nor restore a Rust cache.
   build:
