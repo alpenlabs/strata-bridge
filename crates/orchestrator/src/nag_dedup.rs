@@ -126,7 +126,10 @@ impl NagDedup {
 
 #[cfg(test)]
 mod tests {
+    use strata_bridge_sm::stake::context::StakeSMCtx;
+
     use super::*;
+    use crate::testing::{N_TEST_OPERATORS, TEST_POV_IDX, test_operator_table};
 
     const WINDOW: Duration = Duration::from_secs(30);
     const IN_FLIGHT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -137,6 +140,29 @@ mod tests {
 
     fn dedup() -> NagDedup {
         NagDedup::new(WINDOW, IN_FLIGHT_TIMEOUT)
+    }
+
+    #[test]
+    fn stake_nags_for_different_covenants_are_tracked_separately() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let stake_nag = |activation_height| NagRequestPayload::UnstakingData {
+            stake_key: StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height).stake_key(),
+        };
+        let (earlier, later) = (stake_nag(100), stake_nag(200));
+        let dedup = dedup();
+        let t0 = Instant::now();
+
+        dedup.reply_dispatched(earlier.clone(), t0);
+        dedup.reply_settled(earlier.clone(), t0, true, t0);
+
+        assert!(
+            dedup.should_drop(&earlier, t0),
+            "a repeat nag for the answered stake is dropped"
+        );
+        assert!(
+            !dedup.should_drop(&later, t0),
+            "a reply for one covenant's stake must not suppress another covenant's nag"
+        );
     }
 
     #[test]

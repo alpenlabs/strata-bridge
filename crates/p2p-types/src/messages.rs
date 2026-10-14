@@ -6,7 +6,10 @@ use bitcoin::hashes::Hash;
 use libp2p_identity::ed25519;
 use proptest_derive::Arbitrary;
 use rkyv::{Archive, Deserialize, Serialize};
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, OperatorIdx, P2POperatorPubKey},
+};
 
 use crate::{
     unstaking_data::UnstakingInput, GraphData, PartialSignature, PayoutDescriptor, PubNonce,
@@ -80,6 +83,14 @@ enum NagPayloadKind {
     SweepNonce = 0x0A,
     /// Request missing sweep partial signature.
     SweepPartial = 0x0B,
+}
+
+/// Appends the signing encoding of a stake key: the covenant's x-only aggregate key, its
+/// activation height (little-endian), and the operator index (little-endian).
+fn extend_stake_key(buf: &mut Vec<u8>, stake_key: &StakeKey) {
+    buf.extend(stake_key.covenant.aggregate_pubkey.serialize());
+    buf.extend(stake_key.covenant.activation_height.to_le_bytes());
+    buf.extend(stake_key.operator.to_le_bytes());
 }
 
 /// MuSig2 nonce variants for different signing contexts.
@@ -381,18 +392,18 @@ pub enum NagRequestPayload {
     },
     /// Request missing unstaking graph data.
     UnstakingData {
-        /// The index of the staking operator whose unstaking graph data is missing.
-        operator_idx: OperatorIdx,
+        /// The stake whose unstaking graph data is missing.
+        stake_key: StakeKey,
     },
     /// Request missing unstaking graph nonces.
     UnstakingNonces {
-        /// The index of the staking operator whose unstaking graph nonces are missing.
-        operator_idx: OperatorIdx,
+        /// The stake whose unstaking graph nonces are missing.
+        stake_key: StakeKey,
     },
     /// Request missing unstaking graph partial signatures.
     UnstakingPartials {
-        /// The index of the staking operator whose unstaking graph partial signatures are missing.
-        operator_idx: OperatorIdx,
+        /// The stake whose unstaking graph partial signatures are missing.
+        stake_key: StakeKey,
     },
     /// Request missing sweep nonce.
     SweepNonce {
@@ -445,17 +456,17 @@ impl NagRequestPayload {
                 buf.extend(graph_idx.operator.to_le_bytes());
                 buf.extend(graph_idx.deposit.to_le_bytes());
             }
-            Self::UnstakingData { operator_idx } => {
+            Self::UnstakingData { stake_key } => {
                 buf.push(NagPayloadKind::UnstakingData as u8);
-                buf.extend(operator_idx.to_le_bytes());
+                extend_stake_key(&mut buf, stake_key);
             }
-            Self::UnstakingNonces { operator_idx } => {
+            Self::UnstakingNonces { stake_key } => {
                 buf.push(NagPayloadKind::UnstakingNonces as u8);
-                buf.extend(operator_idx.to_le_bytes());
+                extend_stake_key(&mut buf, stake_key);
             }
-            Self::UnstakingPartials { operator_idx } => {
+            Self::UnstakingPartials { stake_key } => {
                 buf.push(NagPayloadKind::UnstakingPartials as u8);
-                buf.extend(operator_idx.to_le_bytes());
+                extend_stake_key(&mut buf, stake_key);
             }
             Self::SweepNonce { deposit_idx } => {
                 buf.push(NagPayloadKind::SweepNonce as u8);
@@ -518,25 +529,22 @@ impl fmt::Debug for NagRequestPayload {
                     graph_idx.operator, graph_idx.deposit
                 )
             }
-            Self::UnstakingData { operator_idx } => {
+            Self::UnstakingData { stake_key } => {
                 write!(
                     f,
-                    "NagRequestPayload::UnstakingData(operator_idx: {})",
-                    operator_idx
+                    "NagRequestPayload::UnstakingData(stake_key: {stake_key})"
                 )
             }
-            Self::UnstakingNonces { operator_idx } => {
+            Self::UnstakingNonces { stake_key } => {
                 write!(
                     f,
-                    "NagRequestPayload::UnstakingNonces(operator_idx: {})",
-                    operator_idx
+                    "NagRequestPayload::UnstakingNonces(stake_key: {stake_key})"
                 )
             }
-            Self::UnstakingPartials { operator_idx } => {
+            Self::UnstakingPartials { stake_key } => {
                 write!(
                     f,
-                    "NagRequestPayload::UnstakingPartials(operator_idx: {})",
-                    operator_idx
+                    "NagRequestPayload::UnstakingPartials(stake_key: {stake_key})"
                 )
             }
             Self::SweepNonce { deposit_idx } => {
@@ -845,9 +853,10 @@ impl fmt::Display for GossipsubMsg {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::sha256, OutPoint, Txid};
+    use bitcoin::{hashes::sha256, OutPoint, Txid, XOnlyPublicKey};
     use libp2p_identity::ed25519::Keypair;
     use secp256k1::rand::{rngs::OsRng, Rng};
+    use strata_bridge_primitives::covenant::CovenantId;
     use strata_bridge_test_utils::{
         bitcoin::generate_xonly_pubkey,
         musig2::{generate_partial_signature, generate_pubnonce},
@@ -892,6 +901,33 @@ mod tests {
     // Helper to create a test PartialSignature using test-utils.
     fn test_partial_signature() -> PartialSignature {
         generate_partial_signature().into()
+    }
+
+    // x coordinate of the secp256k1 generator, a valid x-only public key.
+    const TEST_COVENANT_KEY: [u8; 32] = [
+        0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62, 0x95, 0xce, 0x87, 0x0b,
+        0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28, 0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8,
+        0x17, 0x98,
+    ];
+
+    // Helper to create a stake key in a covenant activated at `activation_height`.
+    fn test_stake_key(activation_height: u64, operator: OperatorIdx) -> StakeKey {
+        StakeKey {
+            covenant: CovenantId {
+                aggregate_pubkey: XOnlyPublicKey::from_slice(&TEST_COVENANT_KEY)
+                    .expect("valid x-only key"),
+                activation_height,
+            },
+            operator,
+        }
+    }
+
+    // Helper to create the expected signing bytes of `test_stake_key`.
+    fn test_stake_key_bytes(activation_height: u64, operator: OperatorIdx) -> Vec<u8> {
+        let mut bytes = TEST_COVENANT_KEY.to_vec();
+        bytes.extend(activation_height.to_le_bytes());
+        bytes.extend(operator.to_le_bytes());
+        bytes
     }
 
     // Helper to create a test PayoutDescriptor.
@@ -1152,17 +1188,23 @@ mod tests {
             ),
             (
                 "UnstakingData",
-                NagRequestPayload::UnstakingData { operator_idx: 11 },
+                NagRequestPayload::UnstakingData {
+                    stake_key: test_stake_key(101, 11),
+                },
                 NagPayloadKind::UnstakingData as u8,
             ),
             (
                 "UnstakingNonces",
-                NagRequestPayload::UnstakingNonces { operator_idx: 12 },
+                NagRequestPayload::UnstakingNonces {
+                    stake_key: test_stake_key(101, 12),
+                },
                 NagPayloadKind::UnstakingNonces as u8,
             ),
             (
                 "UnstakingPartials",
-                NagRequestPayload::UnstakingPartials { operator_idx: 13 },
+                NagRequestPayload::UnstakingPartials {
+                    stake_key: test_stake_key(101, 13),
+                },
                 NagPayloadKind::UnstakingPartials as u8,
             ),
             (
@@ -1848,27 +1890,47 @@ mod tests {
     }
 
     // Verifies unstaking nag payload bytes are stable and ordered as
-    // [discriminator][operator_idx].
+    // [discriminator][aggregate key][activation height LE][operator_idx LE].
     #[test]
     fn nag_payload_unstaking_content_bytes_stability() {
-        let data = NagRequestPayload::UnstakingData { operator_idx: 1 };
-        let nonces = NagRequestPayload::UnstakingNonces { operator_idx: 1 };
-        let partials = NagRequestPayload::UnstakingPartials { operator_idx: 1 };
+        let stake_key = test_stake_key(0x0102_0304_0506_0708, 1);
+        let data = NagRequestPayload::UnstakingData { stake_key };
+        let nonces = NagRequestPayload::UnstakingNonces { stake_key };
+        let partials = NagRequestPayload::UnstakingPartials { stake_key };
+        let key_bytes = test_stake_key_bytes(0x0102_0304_0506_0708, 1);
 
         assert_eq!(
             data.content_bytes(),
-            vec![0x07, 1, 0, 0, 0],
-            "UnstakingData must serialize as [0x07][operator_idx LE]"
+            [vec![0x07], key_bytes.clone()].concat(),
+            "UnstakingData must serialize as [0x07][stake key]"
         );
         assert_eq!(
             nonces.content_bytes(),
-            vec![0x08, 1, 0, 0, 0],
-            "UnstakingNonces must serialize as [0x08][operator_idx LE]"
+            [vec![0x08], key_bytes.clone()].concat(),
+            "UnstakingNonces must serialize as [0x08][stake key]"
         );
         assert_eq!(
             partials.content_bytes(),
-            vec![0x09, 1, 0, 0, 0],
-            "UnstakingPartials must serialize as [0x09][operator_idx LE]"
+            [vec![0x09], key_bytes].concat(),
+            "UnstakingPartials must serialize as [0x09][stake key]"
+        );
+    }
+
+    // Verifies a stake nag signed for one covenant is not valid for a covenant that shares its
+    // aggregate key but activated at another height.
+    #[test]
+    fn nag_payload_unstaking_binds_the_covenant_activation_height() {
+        let earlier = NagRequestPayload::UnstakingData {
+            stake_key: test_stake_key(100, 1),
+        };
+        let later = NagRequestPayload::UnstakingData {
+            stake_key: test_stake_key(200, 1),
+        };
+
+        assert_ne!(
+            earlier.content_bytes(),
+            later.content_bytes(),
+            "equal aggregates at different activation heights must sign different bytes"
         );
     }
 
