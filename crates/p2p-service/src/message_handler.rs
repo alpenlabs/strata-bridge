@@ -255,12 +255,12 @@ impl MessageHandler {
     /// Sends unstaking nonces for signing the unstaking transaction graph.
     pub async fn send_unstaking_nonces(
         &mut self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         nonces: Vec<PubNonce>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
-            operator_idx,
+            stake_key,
             nonces: nonces.into_iter().map(Into::into).collect(),
         });
 
@@ -270,12 +270,12 @@ impl MessageHandler {
     /// Sends unstaking partial signatures for signing the unstaking transaction graph.
     pub async fn send_unstaking_partials(
         &mut self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         partials: Vec<PartialSignature>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Unstake {
-            operator_idx,
+            stake_key,
             partials: partials.into_iter().map(Into::into).collect(),
         });
 
