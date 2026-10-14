@@ -53,4 +53,11 @@ ignore = [
   # semver until inferno upstream updates.
   "RUSTSEC-2026-0194",
   "RUSTSEC-2026-0195",
+
+  # ruzstd 0.8.3 pulled by object 0.37.3 (via sp1-core-executor).
+  # object 0.37 requires ruzstd ^0.8; fix needs >=0.9.1, which only object >=0.40 accepts.
+  # Low risk: sp1 only reads symbols from our own guest ELFs, never untrusted zstd input.
+  # Every published sp1-core-executor (through 6.9.0) still pins object ^0.37.3.
+  # Blocked on sp1 upstream.
+  "RUSTSEC-2026-0344",
 ]
