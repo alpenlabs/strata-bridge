@@ -92,9 +92,7 @@ pub(crate) fn classify_routed(
     };
 
     if let Some(UnsignedGossipsubMsg::NagRequestExchange(nag_request)) = gossip {
-        let Some(target_sm_id) = nag_target_sm_id(&nag_request.payload, sm_registry) else {
-            return ClassificationOutcome::ExpectedDrop;
-        };
+        let target_sm_id = nag_target_sm_id(&nag_request.payload);
         if let Some(pov_p2p_key) = pov_p2p_key_for_sm(sm_registry, &target_sm_id)
             && nag_request.recipient != pov_p2p_key
         {
@@ -556,7 +554,7 @@ pub(crate) fn classify_unsigned_gossip(
         }
 
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => {
-            let Some(sm_id) = nag_target_sm_id(&nag_request.payload, sm_registry) else { return vec![]; };
+            let sm_id = nag_target_sm_id(&nag_request.payload);
 
             info!(
                 target_sm = %sm_id,
@@ -644,8 +642,8 @@ pub(crate) fn classify_unsigned_gossip(
     }
 }
 
-fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Option<SMId> {
-    Some(match payload {
+const fn nag_target_sm_id(payload: &NagRequestPayload) -> SMId {
+    match payload {
         NagRequestPayload::DepositNonce { deposit_idx }
         | NagRequestPayload::DepositPartial { deposit_idx }
         | NagRequestPayload::PayoutNonce { deposit_idx }
@@ -655,12 +653,10 @@ fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Optio
         NagRequestPayload::GraphData { graph_idx }
         | NagRequestPayload::GraphNonces { graph_idx }
         | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
-        NagRequestPayload::UnstakingData { operator_idx }
-        | NagRequestPayload::UnstakingNonces { operator_idx }
-        | NagRequestPayload::UnstakingPartials { operator_idx } => {
-            SMId::Stake(registry.resolve_legacy_stake_key(*operator_idx)?)
-        }
-    })
+        NagRequestPayload::UnstakingData { stake_key }
+        | NagRequestPayload::UnstakingNonces { stake_key }
+        | NagRequestPayload::UnstakingPartials { stake_key } => SMId::Stake(*stake_key),
+    }
 }
 
 fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POperatorPubKey> {
@@ -1351,11 +1347,12 @@ mod tests {
     mod nag_request_tests {
         use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
         use strata_bridge_primitives::types::GraphIdx;
+        use strata_bridge_sm::stake::context::StakeSMCtx;
 
         use super::*;
         use crate::testing::{
-            N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, insert_deposit_with_graphs,
-            insert_stakes_for_all_operators, test_operator_table,
+            INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX,
+            insert_deposit_with_graphs, insert_stakes_for_all_operators, test_operator_table,
         };
 
         #[test]
@@ -1623,9 +1620,12 @@ mod tests {
                 .unwrap()
                 .clone();
 
+            let stake_key =
+                StakeSMCtx::new(operator_idx, operator_table.clone(), INITIAL_BLOCK_HEIGHT)
+                    .stake_key();
             let nag_request = NagRequest {
                 recipient: pov_p2p_key,
-                payload: NagRequestPayload::UnstakingNonces { operator_idx },
+                payload: NagRequestPayload::UnstakingNonces { stake_key },
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);

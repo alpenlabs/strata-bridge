@@ -117,16 +117,11 @@ fn route_gossipsub_msg(
             NagRequestPayload::GraphData { graph_idx }
             | NagRequestPayload::GraphNonces { graph_idx }
             | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
-            NagRequestPayload::UnstakingData { operator_idx }
-            | NagRequestPayload::UnstakingNonces { operator_idx }
-            | NagRequestPayload::UnstakingPartials { operator_idx } => {
-                debug!(%operator_idx, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
-                {
-                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
-                        return vec![];
-                    };
-                    SMId::Stake(key)
-                }
+            NagRequestPayload::UnstakingData { stake_key }
+            | NagRequestPayload::UnstakingNonces { stake_key }
+            | NagRequestPayload::UnstakingPartials { stake_key } => {
+                debug!(%stake_key, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
+                SMId::Stake(*stake_key)
             }
         },
     };
@@ -440,6 +435,8 @@ mod tests {
 
 #[cfg(test)]
 mod covenant_wire_tests {
+    use strata_bridge_p2p_types::NagRequest;
+    use strata_bridge_primitives::covenant::{CovenantId, StakeKey};
     use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 
     use super::*;
@@ -465,5 +462,45 @@ mod covenant_wire_tests {
         registry.insert_stake(second).unwrap();
         assert!(route_gossipsub_msg(&registry, &msg).is_empty());
         assert!(classify_unsigned_gossip(&registry, &OperatorKey::Pov, &msg).is_empty());
+    }
+
+    #[test]
+    fn stake_nags_route_to_the_exact_covenant_stake() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let mut keys = Vec::new();
+        for activation_height in [100, 200] {
+            let (stake, _) = StakeSM::new(
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                100,
+            );
+            keys.push(stake.context().stake_key());
+            registry.insert_stake(stake).unwrap();
+        }
+        let nag = |stake_key| {
+            UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                recipient: table.pov_p2p_key().clone(),
+                payload: NagRequestPayload::UnstakingData { stake_key },
+            })
+        };
+
+        for key in &keys {
+            assert_eq!(
+                route_gossipsub_msg(&registry, &nag(*key)),
+                vec![SMId::Stake(*key)],
+                "a stake nag must reach only the stake of the covenant it names"
+            );
+        }
+        let unknown = StakeKey {
+            covenant: CovenantId {
+                activation_height: 300,
+                ..keys[0].covenant
+            },
+            ..keys[0]
+        };
+        assert!(
+            route_gossipsub_msg(&registry, &nag(unknown)).is_empty(),
+            "a stake nag for an untracked covenant must not reach another covenant's stake"
+        );
     }
 }

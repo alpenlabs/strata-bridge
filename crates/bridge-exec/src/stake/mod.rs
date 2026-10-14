@@ -90,7 +90,7 @@ pub async fn execute_stake_duty(
         }
         StakeDuty::Nag(nag_duty) => {
             info!(?nag_duty, "executing StakeDuty::Nag");
-            nag::execute_nag_duty(&output_handles, nag_duty).await
+            nag::execute_nag_duty(&output_handles, stake_key, nag_duty).await
         }
     }
 }
