@@ -20,7 +20,9 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_sm::{
     cross_sm_context::CrossSmContext,
-    deposit::{config::DepositSMCfg, events::DepositEvent, machine::DepositSM},
+    deposit::{
+        config::DepositSMCfg, events::DepositEvent, machine::DepositSM, state::DepositState,
+    },
     errors::BridgeSMError,
     graph::{config::GraphSMCfg, events::GraphEvent, machine::GraphSM},
     operator_set::{OperatorSetError, OperatorSetEvent, OperatorSetSM},
@@ -47,6 +49,31 @@ pub struct SMConfig {
     pub graph: Arc<GraphSMCfg>,
     /// Static configuration for all stake state machines.
     pub stake: Arc<StakeSMCfg>,
+    /// Node-local cap on the deposits this node admits at once; `None` means unlimited. See
+    /// [`SMRegistry::num_active_deposits`] for what counts.
+    pub max_active_deposits: Option<u32>,
+}
+
+/// Whether a deposit no longer occupies bridge capacity.
+///
+/// Exhaustive on purpose: a new state must decide whether it still counts toward the deposit
+/// cap, since a wrong default would either leak capacity or let the bridge exceed the cap.
+const fn is_terminal(state: &DepositState) -> bool {
+    match state {
+        DepositState::Spent { .. } | DepositState::Aborted | DepositState::Skipped => true,
+        DepositState::Created { .. }
+        | DepositState::GraphGenerated { .. }
+        | DepositState::DepositNoncesCollected { .. }
+        | DepositState::DepositPartialsCollected { .. }
+        | DepositState::Deposited { .. }
+        | DepositState::Assigned { .. }
+        | DepositState::Fulfilled { .. }
+        | DepositState::PayoutDescriptorReceived { .. }
+        | DepositState::PayoutNoncesCollected { .. }
+        | DepositState::CooperativePathFailed { .. }
+        | DepositState::SweepNoncesPending { .. }
+        | DepositState::SweepNoncesCollected { .. } => false,
+    }
 }
 
 /// The registry that holds all the active state machines in `strata-bridge`.
@@ -193,6 +220,22 @@ impl SMRegistry {
     /// Returns `true` iff safe harbour has been latched on this node.
     pub const fn safe_harbour_active(&self) -> bool {
         self.safe_harbour.is_some()
+    }
+
+    /// Number of deposits the deposit cap bounds: those holding funds in the bridge plus the
+    /// deposit requests still being signed. Spent, aborted and skipped deposits do not count.
+    pub fn num_active_deposits(&self) -> usize {
+        self.deposits
+            .values()
+            .filter(|sm| !is_terminal(sm.state()))
+            .count()
+    }
+
+    /// Whether this node's deposit cap leaves no room for another deposit.
+    pub fn deposit_cap_reached(&self) -> bool {
+        self.cfg
+            .max_active_deposits
+            .is_some_and(|cap| self.num_active_deposits() >= cap as usize)
     }
 
     /// Gets the total number of deposit state machines currently in the registry.
@@ -808,6 +851,7 @@ mod tests {
             INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
             insert_created_stake, insert_deposit_with_graphs, make_confirmed_stake_sm,
             test_empty_registry, test_operator_table, test_populated_registry,
+            test_registry_with_cap,
         },
     };
 
@@ -818,6 +862,45 @@ mod tests {
         let registry = test_empty_registry();
         assert_eq!(registry.num_deposits(), 0);
         assert!(registry.get_all_ids().is_empty());
+    }
+
+    #[test]
+    fn num_active_deposits_excludes_spent_aborted_and_skipped() {
+        // Deposits are never pruned, so capacity has to be measured by state.
+        let mut registry = test_populated_registry(4);
+        registry.deposits.get_mut(&0).unwrap().state = DepositState::Spent {
+            fulfillment_txid: None,
+            assignee: None,
+        };
+        registry.deposits.get_mut(&1).unwrap().state = DepositState::Aborted;
+        registry.deposits.get_mut(&2).unwrap().state = DepositState::Skipped;
+
+        assert_eq!(registry.num_active_deposits(), 1);
+        assert_eq!(
+            registry.num_deposits(),
+            4,
+            "terminal deposits stay registered"
+        );
+    }
+
+    #[test]
+    fn deposit_cap_reached_compares_live_deposits_with_cap() {
+        let mut registry = test_registry_with_cap(Some(1));
+        assert!(!registry.deposit_cap_reached());
+
+        insert_deposit_with_graphs(&mut registry, 0);
+        assert!(registry.deposit_cap_reached());
+
+        registry.deposits.get_mut(&0).unwrap().state = DepositState::Aborted;
+        assert!(
+            !registry.deposit_cap_reached(),
+            "a freed slot reopens admission"
+        );
+
+        assert!(
+            !test_populated_registry(3).deposit_cap_reached(),
+            "no cap means no limit"
+        );
     }
 
     // ===== Safe-harbour latch tests =====
