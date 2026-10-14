@@ -42,7 +42,7 @@ pub(crate) use strata_bridge_test_utils::bridge_fixtures::{
     test_operator_table,
 };
 use strata_bridge_test_utils::{
-    bitcoin::generate_xonly_pubkey,
+    bitcoin::{generate_spending_tx, generate_xonly_pubkey},
     bridge_fixtures::{TEST_RECOVERY_DELAY, TEST_SWEEP_FEE_RATE},
     prelude::generate_txid,
 };
@@ -126,12 +126,27 @@ pub(crate) fn test_sm_config() -> SMConfig {
         deposit: test_deposit_sm_cfg(),
         graph: test_graph_sm_cfg(),
         stake: test_stake_sm_cfg(),
+        max_active_deposits: None,
     }
 }
 
 /// Creates an empty `SMRegistry` with test config.
 pub(crate) fn test_empty_registry() -> SMRegistry {
     SMRegistry::new(test_sm_config())
+}
+
+/// Creates an empty `SMRegistry` with test config and the given deposit cap.
+pub(crate) fn test_registry_with_cap(max_active_deposits: Option<u32>) -> SMRegistry {
+    SMRegistry::new(SMConfig {
+        max_active_deposits,
+        ..test_sm_config()
+    })
+}
+
+/// Spends `outpoint` on a script path: any spend of a deposit-request output other than the
+/// deposit transaction is read by the deposit classifier as the depositor taking it back.
+pub(crate) fn takeback_tx(outpoint: OutPoint) -> Transaction {
+    generate_spending_tx(outpoint, &[vec![0u8; 64], vec![1u8; 32]])
 }
 
 /// Builds a P2TR [`SafeHarborAddress`] from a fixed x-only pubkey payload.

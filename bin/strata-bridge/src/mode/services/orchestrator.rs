@@ -343,6 +343,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         deposit: Arc::new(deposit_config),
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
+        max_active_deposits: config.max_active_deposits,
     }
 }
 

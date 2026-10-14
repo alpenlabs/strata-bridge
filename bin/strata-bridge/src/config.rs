@@ -66,6 +66,18 @@ pub(crate) struct Config {
     /// The maximum fee rate for any transaction (in sats/vb).
     pub max_fee_rate: u64,
 
+    /// Upper bound on the deposits this node takes part in at once: every deposit holding funds
+    /// in the bridge plus every deposit request still being signed. Spent, aborted and skipped
+    /// deposits do not count.
+    ///
+    /// Absent means unlimited; `0` admits no new deposit. A deposit request that arrives at the
+    /// cap is still registered, so the deposit index advances identically on every operator
+    /// whatever cap each one runs, but it is recorded as skipped: this node never acts on it and
+    /// the depositor reclaims it after the recovery delay. Operators may run different values; a
+    /// request skipped here and admitted elsewhere never completes, and it holds one of the
+    /// admitting operators' slots until the depositor reclaims it.
+    pub max_active_deposits: Option<u32>,
+
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
@@ -407,6 +419,7 @@ pub(crate) fn test_config() -> Config {
             shutdown_timeout = { secs = 15, nanos = 0 }
             cooperative_payout_timeout = 144 # ~24 hours
             max_fee_rate = 10 # sats/vbyte
+            max_active_deposits = 2
 
             [secret_service_client]
             server_addr = "localhost:1234"
@@ -504,6 +517,21 @@ mod tests {
             reserialized, serialized,
             "serde round-trip must preserve every field"
         );
+    }
+
+    #[test]
+    fn max_active_deposits_absent_means_unlimited() {
+        assert_eq!(test_config().max_active_deposits, Some(2));
+
+        let without_cap: String = toml::to_string(&test_config())
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with("max_active_deposits"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let config = toml::from_str::<Config>(&without_cap).unwrap();
+
+        assert_eq!(config.max_active_deposits, None);
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
