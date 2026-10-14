@@ -392,6 +392,7 @@ pub(crate) struct OperatorWalletConfig {
 
 /// Configuration for the mosaic client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MosaicConfig {
     /// Mosaic RPC HTTP endpoint (local mosaic instance).
     pub rpc_url: String,
@@ -405,9 +406,21 @@ pub(crate) struct MosaicConfig {
     /// Poll interval for watched deposits.
     pub poll_interval: Duration,
 
-    /// Mosaic peer IDs for each operator, ordered by operator index.
-    /// Each entry is a 32-byte hex-encoded peer ID.
-    pub peer_ids: Vec<String>,
+    /// Mosaic peer ID of every operator registered in params, including this node.
+    ///
+    /// Entry order carries no meaning.
+    pub peers: Vec<MosaicPeerConfig>,
+}
+
+/// Mosaic peer ID of one operator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MosaicPeerConfig {
+    /// The operator's permanent index in params.
+    pub operator_idx: OperatorIdx,
+
+    /// The operator's 32-byte hex-encoded Mosaic peer ID.
+    pub peer_id: String,
 }
 
 /// Configuration for bridge process metrics exporters.
@@ -506,9 +519,9 @@ pub(crate) fn test_config() -> Config {
             retry_delay = { secs = 2, nanos = 0 }
             max_retries = 5
             poll_interval = { secs = 5, nanos = 0 }
-            peer_ids = [
-                "0000000000000000000000000000000000000000000000000000000000000001",
-                "0000000000000000000000000000000000000000000000000000000000000002",
+            peers = [
+                { operator_idx = 1, peer_id = "0000000000000000000000000000000000000000000000000000000000000002" },
+                { operator_idx = 0, peer_id = "0000000000000000000000000000000000000000000000000000000000000001" },
             ]
 
             [bridge_proof]
@@ -588,6 +601,46 @@ mod tests {
                 },
             ],
             "each peer entry must keep its operator index and every address"
+        );
+    }
+
+    #[test]
+    fn mosaic_peers_are_keyed_by_operator_index() {
+        let peers = test_config().mosaic.peers;
+
+        assert_eq!(
+            peers
+                .iter()
+                .map(|peer| (peer.operator_idx, peer.peer_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    1,
+                    "0000000000000000000000000000000000000000000000000000000000000002"
+                ),
+                (
+                    0,
+                    "0000000000000000000000000000000000000000000000000000000000000001"
+                ),
+            ],
+            "each mosaic peer entry must keep its operator index and peer ID"
+        );
+    }
+
+    #[test]
+    fn mosaic_config_rejects_unknown_fields() {
+        let unkeyed = r#"
+            rpc_url = "http://localhost:7500"
+            retry_delay = { secs = 2, nanos = 0 }
+            max_retries = 5
+            poll_interval = { secs = 5, nanos = 0 }
+            peers = []
+            peer_ids = ["0000000000000000000000000000000000000000000000000000000000000001"]
+        "#;
+
+        assert!(
+            toml::from_str::<MosaicConfig>(unkeyed).is_err(),
+            "peer IDs outside a keyed peer entry must not be silently ignored"
         );
     }
 

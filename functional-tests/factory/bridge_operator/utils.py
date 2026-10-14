@@ -23,6 +23,7 @@ from .config_cfg import (
     FdbRetryConfig,
     MetricsConfig,
     MosaicConfig,
+    MosaicPeerConfig,
     OperatorWalletConfig,
     P2pConfig,
     P2pPeerConfig,
@@ -152,7 +153,12 @@ def generate_config_toml(
         operator_wallet=OperatorWalletConfig(claim_funding_pool_size=32, data_dir=wallet_data_dir),
         mosaic=MosaicConfig(
             rpc_url=mosaic_rpc,
-            peer_ids=mosaic_peers,
+            # Listed in descending index order so that every run exercises peer resolution that
+            # does not depend on entry order.
+            peers=[
+                MosaicPeerConfig(operator_idx=i, peer_id=peer_id)
+                for i, peer_id in reversed(list(enumerate(mosaic_peers)))
+            ],
             retry_delay=Duration(secs=2, nanos=0),
             max_retries=1000,
             poll_interval=Duration(secs=2, nanos=0),
