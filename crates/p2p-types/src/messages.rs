@@ -619,8 +619,8 @@ pub enum UnsignedGossipsubMsg {
 
     /// Data required to construct the Unstaking Graph.
     UnstakingDataExchange {
-        /// The index of the staking operator.
-        operator_idx: OperatorIdx,
+        /// The stake whose unstaking graph needs this data.
+        stake_key: StakeKey,
         /// The input that funds the stake transaction.
         unstaking_input: UnstakingInput,
     },
@@ -714,11 +714,11 @@ impl UnsignedGossipsubMsg {
                 }
             }
             Self::UnstakingDataExchange {
-                operator_idx,
+                stake_key,
                 unstaking_input,
             } => {
                 buf.push(GossipsubMsgKind::UnstakingDataExchange as u8);
-                buf.extend(operator_idx.to_le_bytes());
+                extend_stake_key(&mut buf, stake_key);
                 let UnstakingInput {
                     stake_funds,
                     unstaking_image,
@@ -782,13 +782,12 @@ impl fmt::Debug for UnsignedGossipsubMsg {
                 )
             }
             Self::UnstakingDataExchange {
-                operator_idx,
+                stake_key,
                 unstaking_input,
             } => {
                 write!(
                     f,
-                    "UnstakingDataExchange(operator_idx: {}, unstaking_input: {:?})",
-                    operator_idx, unstaking_input
+                    "UnstakingDataExchange(stake_key: {stake_key}, unstaking_input: {unstaking_input:?})"
                 )
             }
             Self::Musig2NoncesExchange(nonce) => {
@@ -1084,7 +1083,7 @@ mod tests {
             (
                 "UnstakingDataExchange",
                 UnsignedGossipsubMsg::UnstakingDataExchange {
-                    operator_idx: 6,
+                    stake_key: test_stake_key(101, 6),
                     unstaking_input: UnstakingInput {
                         stake_funds: OutPoint {
                             txid: Txid::from_byte_array([0xCD; 32]),
@@ -1394,16 +1393,14 @@ mod tests {
             unstaking_operator_desc: desc,
         };
 
-        let operator_idx: OperatorIdx = 3;
         let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
-            operator_idx,
+            stake_key: test_stake_key(101, 3),
             unstaking_input,
         };
         let content = msg.content_bytes();
 
-        // Structure: discriminator (1) + operator_idx (4) + txid (32) + vout (4) + image (32) +
-        // desc
-        let expected_len = 1 + 4 + 32 + 4 + 32 + desc_bytes.len();
+        // Structure: discriminator (1) + stake_key (44) + txid (32) + vout (4) + image (32) + desc
+        let expected_len = 1 + 44 + 32 + 4 + 32 + desc_bytes.len();
         assert_eq!(
             content.len(),
             expected_len,
@@ -1418,11 +1415,11 @@ mod tests {
         );
         offset += 1;
         assert_eq!(
-            &content[offset..offset + 4],
-            &operator_idx.to_le_bytes(),
-            "operator_idx should be serialized as little-endian u32"
+            &content[offset..offset + 44],
+            test_stake_key_bytes(101, 3).as_slice(),
+            "stake_key should follow the discriminator"
         );
-        offset += 4;
+        offset += 44;
         assert_eq!(
             &content[offset..offset + 32],
             &stake_funds_txid,

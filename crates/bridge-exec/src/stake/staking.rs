@@ -82,12 +82,10 @@ pub(crate) async fn publish_stake_data(
         unstaking_operator_desc: output_desc.into(),
     };
 
-    info!(%operator_idx, "broadcasting the unstaking input to the p2p network");
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4044>
-    // Carry the full stake key in stake wire messages.
+    info!(%stake_key, "broadcasting the unstaking input to the p2p network");
     let mut msg_handler = output_handles.msg_handler.write().await;
     msg_handler
-        .send_unstaking_input(operator_idx, unstaking_input, None)
+        .send_unstaking_input(stake_key, unstaking_input, None)
         .await?;
 
     Ok(())
