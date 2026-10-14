@@ -426,11 +426,16 @@ mod covenant_wire_tests {
     };
     use strata_bridge_p2p_types::{NagRequest, PayoutDescriptor, UnstakingInput};
     use strata_bridge_primitives::covenant::{CovenantId, StakeKey};
-    use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
+    use strata_bridge_sm::stake::{context::StakeSMCtx, duties::StakeDuty, machine::StakeSM};
 
     use super::*;
-    use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+    use crate::{
+        events_classifier::offchain::classify_unsigned_gossip,
+        sm_registry::ProcessOutcome,
+        sm_types::{OperatorKey, UnifiedDuty},
+        testing::{
+            N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, test_empty_registry, test_operator_table,
+        },
     };
 
     #[test]
@@ -538,5 +543,50 @@ mod covenant_wire_tests {
             route_gossipsub_msg(&registry, &nag(unknown)).is_empty(),
             "a stake nag for an untracked covenant must not reach another covenant's stake"
         );
+    }
+
+    #[test]
+    fn answering_a_stake_nag_publishes_data_only_for_the_named_stake() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let mut keys = Vec::new();
+        for activation_height in [100, 200] {
+            let (stake, _) = StakeSM::new(
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                100,
+            );
+            keys.push(stake.context().stake_key());
+            registry.insert_stake(stake).unwrap();
+        }
+        let nagger = table.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
+
+        for key in keys {
+            let msg = UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                recipient: table.pov_p2p_key().clone(),
+                payload: NagRequestPayload::UnstakingData { stake_key: key },
+            });
+            let [target] = route_gossipsub_msg(&registry, &msg)[..] else {
+                panic!("a stake nag must route to exactly one stake");
+            };
+            let [event] = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&nagger), &msg)
+                .try_into()
+                .expect("a stake nag addressed to the owner must classify to one event");
+            let ProcessOutcome::Applied(output) = registry.process_event(&target, event).unwrap()
+            else {
+                panic!("the owner must answer a stake data nag");
+            };
+
+            assert!(
+                matches!(
+                    output.duties.as_slice(),
+                    [UnifiedDuty::Stake {
+                        stake_key,
+                        duty: StakeDuty::PublishStakeData { .. },
+                    }] if *stake_key == key
+                ),
+                "a nag for one covenant's stake must only republish that stake's data: {:?}",
+                output.duties
+            );
+        }
     }
 }
