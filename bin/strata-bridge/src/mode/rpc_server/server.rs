@@ -336,6 +336,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             DepositState::Aborted => RpcDepositStatus::Failed {
                 reason: "Deposit request spent elsewhere".to_string(),
             },
+            DepositState::Skipped => RpcDepositStatus::Failed {
+                reason: "Deposit cap reached".to_string(),
+            },
             _ => RpcDepositStatus::Complete {
                 deposit_txid: dsm.context().deposit_outpoint().txid,
             },

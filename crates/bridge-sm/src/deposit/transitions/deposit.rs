@@ -30,7 +30,7 @@ impl DepositSM {
         &mut self,
         takeback: UserTakeBackEvent,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        if self.state() == &DepositState::Aborted {
+        if matches!(self.state(), DepositState::Aborted | DepositState::Skipped) {
             return Err(DSMError::duplicate(self.state().clone(), takeback.into()));
         }
 
@@ -171,12 +171,12 @@ impl DepositSM {
                         Ok(DSMOutput::new())
                     }
 
-                    // An abort can preempt graph generation; drop late links rather than
-                    // escalate (GraphMessage is not softened).
-                    DepositState::Aborted => Err(DSMError::rejected(
+                    // An abort can preempt graph generation and a skip never starts it; drop
+                    // late links rather than escalate (GraphMessage is not softened).
+                    DepositState::Aborted | DepositState::Skipped => Err(DSMError::rejected(
                         self.state().clone(),
                         DepositEvent::GraphMessage(graph_msg),
-                        "deposit aborted; graph links are no longer collected",
+                        "deposit aborted or skipped; graph links are no longer collected",
                     )),
 
                     // The full graph set was collected on leaving `Created`, so a late

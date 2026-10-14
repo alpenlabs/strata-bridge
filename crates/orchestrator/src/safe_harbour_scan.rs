@@ -56,7 +56,8 @@ pub fn safe_harbour_scan(registry: &SMRegistry) -> Vec<(SMId, SMEvent)> {
                 DepositState::SweepNoncesPending { .. }
                 | DepositState::SweepNoncesCollected { .. }
                 | DepositState::Spent { .. }
-                | DepositState::Aborted => return None,
+                | DepositState::Aborted
+                | DepositState::Skipped => return None,
             };
 
             Some((SMId::Deposit(deposit_idx), event.into()))

@@ -314,6 +314,7 @@ mod tests {
                 assignee: Some(TEST_ASSIGNEE),
             },
             DepositState::Aborted,
+            DepositState::Skipped,
         ];
 
         for state in non_retriable_states {

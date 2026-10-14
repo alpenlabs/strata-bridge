@@ -312,6 +312,7 @@ mod tests {
                 deposit_transaction: test_deposit_txn().as_ref().clone(),
             },
             DepositState::Aborted,
+            DepositState::Skipped,
         ];
 
         for state in invalid_states {

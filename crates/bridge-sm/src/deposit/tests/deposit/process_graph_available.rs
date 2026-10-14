@@ -149,6 +149,21 @@ mod tests {
         });
     }
 
+    /// Tests that a GraphAvailable reaching a skipped deposit is dropped rather than fatal: no
+    /// graph is generated for it, so the link can only be stray.
+    #[test]
+    fn test_late_graph_available_after_skip_is_rejected() {
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Skipped,
+            event: DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                claim_txid: generate_txid(),
+                operator_idx: 0,
+                deposit_idx: TEST_DEPOSIT_IDX,
+            }),
+            expected_error: |e| matches!(e, DSMError::Rejected { .. }),
+        });
+    }
+
     /// tests that a DepositConfirmed event with a deposit tx that doesn't spend the DRT outpoint
     /// is rejected from the DepositPartialsCollected state.
     #[test]
