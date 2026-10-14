@@ -7,7 +7,10 @@ use strata_asm_proto_bridge::AssignmentEntry;
 use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
-use strata_bridge_primitives::types::P2POperatorPubKey;
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{OperatorIdx, P2POperatorPubKey},
+};
 use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
     graph::events::{self as GraphEvents, AdaptorsVerifiedEvent, GraphEvent},
@@ -221,12 +224,9 @@ pub(crate) fn classify_unsigned_gossip(
             stake_key,
             unstaking_input,
         } => {
-            let sm_id = SMId::Stake(*stake_key);
-            let Some(sender_idx) = sm_registry.lookup_operator(&sm_id, key) else {
-                warn!(
-                    %stake_key,
-                    "Received unstaking data from unknown sender, ignoring"
-                );
+            let Some(sender_idx) =
+                stake_message_sender(sm_registry, stake_key, key, "unstaking data")
+            else {
                 return vec![];
             };
 
@@ -338,8 +338,7 @@ pub(crate) fn classify_unsigned_gossip(
             MuSig2Nonce::Unstake {
                 stake_key,
                 nonces,
-            } => sm_registry
-                .lookup_operator(&SMId::Stake(*stake_key), key)
+            } => stake_message_sender(sm_registry, stake_key, key, "unstaking nonces")
                 .into_iter()
                 .filter_map(|sender_idx| {
                     let parsed: Result<Vec<_>, _> =
@@ -481,8 +480,7 @@ pub(crate) fn classify_unsigned_gossip(
                 MuSig2Partial::Unstake {
                     stake_key,
                     partials,
-                } => sm_registry
-                    .lookup_operator(&SMId::Stake(*stake_key), key)
+                } => stake_message_sender(sm_registry, stake_key, key, "unstaking partials")
                     .into_iter()
                     .filter_map(|sender_idx| {
                         let parsed: Result<Vec<_>, _> = partials
@@ -637,6 +635,26 @@ pub(crate) fn classify_unsigned_gossip(
             vec![event]
         }
     }
+}
+
+/// Resolves the sender of a stake message within the exact stake it names.
+///
+/// Logs and returns `None` if the stake is not tracked or the sender is not a member of its
+/// covenant.
+fn stake_message_sender(
+    sm_registry: &SMRegistry,
+    stake_key: &StakeKey,
+    key: &OperatorKey<'_>,
+    message: &'static str,
+) -> Option<OperatorIdx> {
+    let sender = sm_registry.lookup_operator(&SMId::Stake(*stake_key), key);
+    if sender.is_none() {
+        warn!(
+            %stake_key, sender = ?key, message,
+            "dropping stake message: the stake is not tracked or the sender is not a member of its covenant"
+        );
+    }
+    sender
 }
 
 const fn nag_target_sm_id(payload: &NagRequestPayload) -> SMId {
@@ -1344,8 +1362,10 @@ mod tests {
     mod nag_request_tests {
         use bitcoin::hashes::sha256;
         use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, UnstakingInput};
-        use strata_bridge_primitives::{covenant::StakeKey, types::GraphIdx};
-        use strata_bridge_sm::stake::context::StakeSMCtx;
+        use strata_bridge_primitives::{
+            covenant::StakeKey, operator_table::OperatorTable, types::GraphIdx,
+        };
+        use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 
         use super::*;
         use crate::testing::{
@@ -1649,6 +1669,63 @@ mod tests {
             assert!(
                 foreign.is_empty(),
                 "a peer must not publish stake data for another operator's stake"
+            );
+        }
+
+        fn table_without(table: &OperatorTable, removed: OperatorIdx) -> OperatorTable {
+            let entries = table
+                .operator_idxs()
+                .into_iter()
+                .filter(|idx| *idx != removed)
+                .map(|idx| {
+                    (
+                        idx,
+                        table.idx_to_p2p_key(&idx).unwrap().clone(),
+                        table.idx_to_btc_key(&idx).unwrap(),
+                    )
+                })
+                .collect();
+            let pov = table.pov_idx();
+            OperatorTable::new(entries, move |entry| entry.0 == pov)
+                .expect("successor membership retains the pov")
+        }
+
+        #[test]
+        fn removed_operator_is_heard_only_for_its_historical_covenant() {
+            let historical = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            let successor = table_without(&historical, TEST_NONPOV);
+            let mut registry = test_empty_registry();
+            let mut stake_key_in = |table: &OperatorTable, activation_height| {
+                let (stake, _) = StakeSM::new(
+                    StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                    INITIAL_BLOCK_HEIGHT,
+                );
+                let stake_key = stake.context().stake_key();
+                registry.insert_stake(stake).unwrap();
+                stake_key
+            };
+            let historical_key = stake_key_in(&historical, 100);
+            let successor_key = stake_key_in(&successor, 200);
+            let removed_p2p_key = historical.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
+            let nag_from_removed = |stake_key| {
+                classify_unsigned_gossip(
+                    &registry,
+                    &OperatorKey::Peer(&removed_p2p_key),
+                    &UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                        recipient: historical.pov_p2p_key().clone(),
+                        payload: NagRequestPayload::UnstakingData { stake_key },
+                    }),
+                )
+            };
+
+            assert_eq!(
+                nag_from_removed(historical_key).len(),
+                1,
+                "a removed operator keeps its role in the historical covenant's stake"
+            );
+            assert!(
+                nag_from_removed(successor_key).is_empty(),
+                "a removed operator must not take part in the successor covenant's stake"
             );
         }
 
