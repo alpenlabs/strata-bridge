@@ -119,8 +119,8 @@ pub enum MuSig2Nonce {
     },
     /// Multiple nonces for unstaking graph signing (one per graph transaction input).
     Unstake {
-        /// The index of the staking operator.
-        operator_idx: OperatorIdx,
+        /// The stake whose unstaking graph is being signed.
+        stake_key: StakeKey,
         /// One nonce per transaction input in the unstaking graph.
         nonces: Vec<PubNonce>,
     },
@@ -160,12 +160,9 @@ impl MuSig2Nonce {
                     buf.extend(nonce.to_bytes());
                 }
             }
-            Self::Unstake {
-                operator_idx,
-                nonces,
-            } => {
+            Self::Unstake { stake_key, nonces } => {
                 buf.push(SigningContext::Unstake as u8);
-                buf.extend(operator_idx.to_le_bytes());
+                extend_stake_key(&mut buf, stake_key);
                 for nonce in nonces {
                     buf.extend(nonce.to_bytes());
                 }
@@ -198,14 +195,10 @@ impl fmt::Debug for MuSig2Nonce {
                     nonces.len()
                 )
             }
-            Self::Unstake {
-                operator_idx,
-                nonces,
-            } => {
+            Self::Unstake { stake_key, nonces } => {
                 write!(
                     f,
-                    "MuSig2Nonce::Unstake(operator_idx: {}, nonces: {})",
-                    operator_idx,
+                    "MuSig2Nonce::Unstake(stake_key: {stake_key}, nonces: {})",
                     nonces.len()
                 )
             }
@@ -242,8 +235,8 @@ pub enum MuSig2Partial {
     },
     /// Multiple partials for unstaking graph signing (one per graph transaction input).
     Unstake {
-        /// The index of the staking operator.
-        operator_idx: OperatorIdx,
+        /// The stake whose unstaking graph is being signed.
+        stake_key: StakeKey,
         /// One partial signature per transaction input in the unstaking graph.
         partials: Vec<PartialSignature>,
     },
@@ -293,11 +286,11 @@ impl MuSig2Partial {
                 }
             }
             Self::Unstake {
-                operator_idx,
+                stake_key,
                 partials,
             } => {
                 buf.push(SigningContext::Unstake as u8);
-                buf.extend(operator_idx.to_le_bytes());
+                extend_stake_key(&mut buf, stake_key);
                 for partial in partials {
                     buf.extend(partial.to_bytes());
                 }
@@ -337,13 +330,12 @@ impl fmt::Debug for MuSig2Partial {
                 )
             }
             Self::Unstake {
-                operator_idx,
+                stake_key,
                 partials,
             } => {
                 write!(
                     f,
-                    "MuSig2Partial::Unstake(operator_idx: {}, partials: {})",
-                    operator_idx,
+                    "MuSig2Partial::Unstake(stake_key: {stake_key}, partials: {})",
                     partials.len()
                 )
             }
@@ -972,7 +964,7 @@ mod tests {
             (
                 "Unstake",
                 MuSig2Nonce::Unstake {
-                    operator_idx: 13,
+                    stake_key: test_stake_key(101, 13),
                     nonces: vec![test_pubnonce()],
                 },
                 SigningContext::Unstake as u8,
@@ -1032,7 +1024,7 @@ mod tests {
             (
                 "Unstake",
                 MuSig2Partial::Unstake {
-                    operator_idx: 13,
+                    stake_key: test_stake_key(101, 13),
                     partials: vec![test_partial_signature()],
                 },
                 SigningContext::Unstake as u8,
@@ -1535,23 +1527,23 @@ mod tests {
     fn musig2_nonce_unstake_serializes_multiple_nonces() {
         let nonces = vec![test_pubnonce(), test_pubnonce(), test_pubnonce()];
         let nonce = MuSig2Nonce::Unstake {
-            operator_idx: 10,
+            stake_key: test_stake_key(101, 10),
             nonces: nonces.clone(),
         };
         let content = nonce.content_bytes();
 
-        // Check structure: kind (1) + discriminator (1) + operator_idx (4) + nonces (3 * 66)
+        // Check structure: kind (1) + discriminator (1) + stake_key (44) + nonces (3 * 66)
         assert_eq!(
             content.len(),
-            1 + 1 + 4 + 3 * 66,
-            "Unstake nonce content should be 204 bytes: kind (1) + discriminator (1) + operator_idx (4) + 3 nonces (198)"
+            1 + 1 + 44 + 3 * 66,
+            "Unstake nonce content should be 244 bytes: kind (1) + discriminator (1) + stake_key (44) + 3 nonces (198)"
         );
         assert_eq!(content[0], 0x01, "kind byte should be 0x01");
         assert_eq!(content[1], 0x03, "Unstake discriminator should be 0x03");
         assert_eq!(
-            &content[2..6],
-            &10u32.to_le_bytes(),
-            "operator_idx should be serialized as little-endian u32"
+            &content[2..46],
+            test_stake_key_bytes(101, 10).as_slice(),
+            "stake_key should follow the discriminator"
         );
     }
 
@@ -1560,23 +1552,23 @@ mod tests {
     fn musig2_partial_unstake_serializes_multiple_partials() {
         let partials = vec![test_partial_signature(), test_partial_signature()];
         let partial = MuSig2Partial::Unstake {
-            operator_idx: 5,
+            stake_key: test_stake_key(101, 5),
             partials: partials.clone(),
         };
         let content = partial.content_bytes();
 
-        // Check structure: kind (1) + discriminator (1) + operator_idx (4) + partials (2 * 32)
+        // Check structure: kind (1) + discriminator (1) + stake_key (44) + partials (2 * 32)
         assert_eq!(
             content.len(),
-            1 + 1 + 4 + 2 * 32,
-            "Unstake partial content should be 70 bytes: kind (1) + discriminator (1) + operator_idx (4) + 2 partials (64)"
+            1 + 1 + 44 + 2 * 32,
+            "Unstake partial content should be 110 bytes: kind (1) + discriminator (1) + stake_key (44) + 2 partials (64)"
         );
         assert_eq!(content[0], 0x02, "kind byte should be 0x02");
         assert_eq!(content[1], 0x03, "Unstake discriminator should be 0x03");
         assert_eq!(
-            &content[2..6],
-            &5u32.to_le_bytes(),
-            "operator_idx should be serialized as little-endian u32"
+            &content[2..46],
+            test_stake_key_bytes(101, 5).as_slice(),
+            "stake_key should follow the discriminator"
         );
     }
 
@@ -1630,16 +1622,16 @@ mod tests {
     #[test]
     fn empty_nonces_unstake() {
         let nonce = MuSig2Nonce::Unstake {
-            operator_idx: 1,
+            stake_key: test_stake_key(101, 1),
             nonces: vec![],
         };
         let content = nonce.content_bytes();
 
-        // Should just have kind + discriminator + operator_idx
+        // Should just have kind + discriminator + stake_key
         assert_eq!(
             content.len(),
-            1 + 1 + 4,
-            "Empty unstake nonces should be 6 bytes: kind (1) + discriminator (1) + operator_idx (4)"
+            1 + 1 + 44,
+            "Empty unstake nonces should be 46 bytes: kind (1) + discriminator (1) + stake_key (44)"
         );
     }
 
@@ -1647,16 +1639,16 @@ mod tests {
     #[test]
     fn empty_partials_unstake() {
         let partial = MuSig2Partial::Unstake {
-            operator_idx: 1,
+            stake_key: test_stake_key(101, 1),
             partials: vec![],
         };
         let content = partial.content_bytes();
 
-        // Should just have kind + discriminator + operator_idx
+        // Should just have kind + discriminator + stake_key
         assert_eq!(
             content.len(),
-            1 + 1 + 4,
-            "Empty unstake partials should be 6 bytes: kind (1) + discriminator (1) + operator_idx (4)"
+            1 + 1 + 44,
+            "Empty unstake partials should be 46 bytes: kind (1) + discriminator (1) + stake_key (44)"
         );
     }
 

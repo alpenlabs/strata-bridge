@@ -38,7 +38,7 @@ pub async fn execute_stake_duty(
             info!(%operator_idx, "executing StakeDuty::PublishUnstakingNonces");
             staking::publish_unstaking_nonces(
                 &output_handles,
-                *operator_idx,
+                stake_key,
                 **graph_inpoints,
                 **graph_tweaks,
                 **sighashes,
@@ -57,7 +57,7 @@ pub async fn execute_stake_duty(
             info!(%operator_idx, "executing StakeDuty::PublishUnstakingPartials");
             staking::publish_unstaking_partials(
                 &output_handles,
-                *operator_idx,
+                stake_key,
                 **graph_inpoints,
                 **graph_tweaks,
                 **sighashes,

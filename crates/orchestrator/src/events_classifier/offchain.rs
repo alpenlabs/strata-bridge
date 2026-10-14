@@ -336,32 +336,31 @@ pub(crate) fn classify_unsigned_gossip(
                 .collect(),
 
             MuSig2Nonce::Unstake {
-                operator_idx,
+                stake_key,
                 nonces,
             } => sm_registry
-                .resolve_legacy_stake_key(*operator_idx)
-                .and_then(|stake_key| sm_registry.lookup_operator(&SMId::Stake(stake_key), key))
+                .lookup_operator(&SMId::Stake(*stake_key), key)
                 .into_iter()
                 .filter_map(|sender_idx| {
                     let parsed: Result<Vec<_>, _> =
                         nonces.iter().map(|n| PubNonce::try_from(*n)).collect();
                     let Ok(pubnonces) = parsed else {
                         warn!(
-                            %operator_idx, %sender_idx,
+                            %stake_key, %sender_idx,
                             "Received invalid pubnonce for stake, discarding message"
                         );
                         return None;
                     };
                     let Some(pub_nonces) = StakeFunctor::unpack(pubnonces) else {
                         warn!(
-                            %operator_idx, %sender_idx,
+                            %stake_key, %sender_idx,
                             got = nonces.len(),
                             "Received wrong number of pubnonces for stake, discarding message"
                         );
                         return None;
                     };
                     info!(
-                        stake_owner = %operator_idx,
+                        %stake_key,
                         sender = %sender_idx,
                         "classified MuSig2Nonce::Unstake as StakeEvent::UnstakingNoncesReceived"
                     );
@@ -480,11 +479,10 @@ pub(crate) fn classify_unsigned_gossip(
                     .collect(),
 
                 MuSig2Partial::Unstake {
-                    operator_idx,
+                    stake_key,
                     partials,
                 } => sm_registry
-                    .resolve_legacy_stake_key(*operator_idx)
-                    .and_then(|stake_key| sm_registry.lookup_operator(&SMId::Stake(stake_key), key))
+                    .lookup_operator(&SMId::Stake(*stake_key), key)
                     .into_iter()
                     .filter_map(|sender_idx| {
                         let parsed: Result<Vec<_>, _> = partials
@@ -493,21 +491,21 @@ pub(crate) fn classify_unsigned_gossip(
                             .collect();
                         let Ok(partial_sigs) = parsed else {
                             warn!(
-                                %operator_idx, %sender_idx,
+                                %stake_key, %sender_idx,
                                 "Received invalid partial signature for stake, discarding message"
                             );
                             return None;
                         };
                         let Some(partial_signatures) = StakeFunctor::unpack(partial_sigs) else {
                             warn!(
-                                %operator_idx, %sender_idx,
+                                %stake_key, %sender_idx,
                                 got = partials.len(),
                                 "Received wrong number of partial signatures for stake, discarding message"
                             );
                             return None;
                         };
                         info!(
-                            stake_owner = %operator_idx,
+                            %stake_key,
                             sender = %sender_idx,
                             "classified MuSig2Partial::Unstake as StakeEvent::UnstakingPartialsReceived"
                         );
