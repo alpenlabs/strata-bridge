@@ -137,11 +137,13 @@ impl DepositSM {
                 })
             }
 
-            DepositState::Spent { .. } | DepositState::Aborted => Err(DSMError::rejected(
-                self.state().clone(),
-                new_block.into(),
-                "New blocks irrelevant in terminal state",
-            )),
+            DepositState::Spent { .. } | DepositState::Aborted | DepositState::Skipped => {
+                Err(DSMError::rejected(
+                    self.state().clone(),
+                    new_block.into(),
+                    "New blocks irrelevant in terminal state",
+                ))
+            }
         }
     }
 }

@@ -69,6 +69,17 @@ mod tests {
         });
     }
 
+    /// Tests that an abort reaching a skipped deposit is a non-fatal duplicate, as for an aborted
+    /// one: nothing was signed for it, so there is nothing to abort.
+    #[test]
+    fn test_safe_harbour_abort_in_skipped_is_duplicate() {
+        test_deposit_invalid_transition(DepositInvalidTransition {
+            from_state: DepositState::Skipped,
+            event: DepositEvent::SafeHarbourAbort(SafeHarbourAbortEvent),
+            expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+        });
+    }
+
     /// Tests that the abort is invalid outside the safe window: a partial signature is gossiped
     /// from DepositNoncesCollected onward, and live-UTXO deposits are swept instead of aborted.
     #[test]

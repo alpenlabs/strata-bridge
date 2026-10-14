@@ -58,8 +58,11 @@ impl DepositSM {
                 })
             }
 
-            // The per-block scan re-emits the abort until the deposit leaves the safe window.
-            DepositState::Aborted => Err(DSMError::duplicate(self.state().clone(), abort.into())),
+            // The per-block scan re-emits the abort until the deposit leaves the safe window; a
+            // skipped deposit never receives one and has nothing to abort.
+            DepositState::Aborted | DepositState::Skipped => {
+                Err(DSMError::duplicate(self.state().clone(), abort.into()))
+            }
 
             // The scan never emits an abort outside the safe window: a partial is gossiped from
             // DepositNoncesCollected onward, and live-UTXO deposits are swept instead.
@@ -140,7 +143,8 @@ impl DepositSM {
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. }
-            | DepositState::Aborted => {
+            | DepositState::Aborted
+            | DepositState::Skipped => {
                 return Err(DSMError::invalid_event(
                     self.state().clone(),
                     sweep_request.into(),

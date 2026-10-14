@@ -462,6 +462,7 @@ impl Arbitrary for DepositState {
                 assignee: Some(TEST_ASSIGNEE),
             }),
             Just(DepositState::Aborted),
+            Just(DepositState::Skipped),
         ]
         .boxed()
     }
