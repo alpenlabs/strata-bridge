@@ -759,6 +759,7 @@ const fn transition_result(outcome: &Result<ProcessOutcome, ProcessError>) -> &'
 
 fn is_periodic_event(event: &SMEvent) -> bool {
     match event {
+        SMEvent::InitializeStake { .. } => false,
         SMEvent::OperatorSet(event) => matches!(event.as_ref(), OperatorSetEvent::NewBlock { .. }),
         SMEvent::Deposit(event) => matches!(
             event.as_ref(),
@@ -1818,7 +1819,7 @@ mod operator_set_tests {
 
     use super::{IgnoredEventReason, ProcessOutcome, RegistryInsertError};
     use crate::{
-        applicator::Applicator,
+        applicator::{Applicator, BatchOutput},
         errors::ProcessError,
         events_mux::UnifiedEvent,
         events_router,
@@ -1968,7 +1969,7 @@ mod operator_set_tests {
         registry
             .insert_operator_set(test_operator_set_sm())
             .unwrap();
-        let mut applicator = Applicator::new(&mut registry);
+        let mut applicator = Applicator::new(&mut registry, None);
         applicator
             .apply_batch([(
                 SMId::OperatorSet,
@@ -1979,7 +1980,7 @@ mod operator_set_tests {
                 .into(),
             )])
             .unwrap();
-        let (duties, tracker) = applicator.finish();
+        let BatchOutput { duties, tracker } = applicator.finish();
         assert!(duties.is_empty());
         assert_eq!(
             tracker.into_batches(),

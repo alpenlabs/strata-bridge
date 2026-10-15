@@ -40,9 +40,6 @@ fn retry_nothing_for_foreign_stake() {
 #[test]
 fn retry_nothing() {
     let has_no_retriable_duty = [
-        StakeState::Created {
-            last_block_height: STAKE_HEIGHT,
-        },
         StakeState::StakeGraphGenerated {
             last_block_height: STAKE_HEIGHT,
             stake_data: TEST_STAKE_DATA.clone(),
@@ -84,4 +81,23 @@ fn retry_nothing() {
             expected_duties: vec![],
         });
     }
+}
+
+#[test]
+fn retry_created_stake_only_for_local_owner() {
+    let state = StakeState::Created {
+        last_block_height: STAKE_HEIGHT,
+    };
+    test_pov_owned_handler_output(StakeHandlerOutput {
+        state: state.clone(),
+        event: RetryTickEvent.into(),
+        expected_duties: vec![StakeDuty::PublishStakeData {
+            operator_idx: TEST_POV_IDX,
+        }],
+    });
+    test_nonpov_handler_output(StakeHandlerOutput {
+        state,
+        event: RetryTickEvent.into(),
+        expected_duties: vec![],
+    });
 }
