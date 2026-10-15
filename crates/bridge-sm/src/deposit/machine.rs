@@ -8,7 +8,9 @@ use std::sync::Arc;
 use bitcoin::{Amount, OutPoint, XOnlyPublicKey, relative};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
-use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_primitives::{
+    covenant::CovenantId, operator_table::OperatorTable, types::BitcoinBlockHeight,
+};
 use strata_bridge_tx_graph::transactions::prelude::{DepositData, DepositTx};
 
 use crate::{
@@ -122,9 +124,11 @@ impl DepositSM {
     /// Creates a new [`DepositSM`] using the provided configuration and deposit data.
     ///
     /// The state machine starts in [`DepositState::Created`] by constructing an initial
-    /// [`DepositState`] via [`DepositState::new`].
+    /// [`DepositState`] via [`DepositState::new`]. `operator_table` must be the membership of
+    /// `covenant`.
     pub fn new(
         bridge_cfg: Arc<DepositSMCfg>,
+        covenant: CovenantId,
         operator_table: OperatorTable,
         deposit_data: DepositData,
         depositor_pubkey: XOnlyPublicKey,
@@ -152,6 +156,7 @@ impl DepositSM {
         let deposit_outpoint =
             OutPoint::new(deposit_tx.as_ref().compute_txid(), DepositTx::DEPOSIT_VOUT);
         let context = DepositSMCtx {
+            covenant,
             deposit_idx,
             deposit_request_outpoint,
             deposit_outpoint,

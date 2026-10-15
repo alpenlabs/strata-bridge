@@ -25,6 +25,7 @@ impl GraphSM {
                 let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
                 let pov_operator_idx = self.context().operator_table().pov_idx();
                 let counterproof_idx = watchtower_slot_for_operator(
+                    self.context().operator_table(),
                     self.context().operator_idx(),
                     self.context().operator_table().pov_idx(),
                 )
@@ -174,8 +175,11 @@ impl GraphSM {
                             .iter()
                             .filter(|(idx, _)| !counterproof_nacks.contains_key(idx))
                             .filter_map(|(counterprover_idx, data)| {
-                                let watchtower_slot =
-                                    watchtower_slot_for_operator(pov_idx, *counterprover_idx)?;
+                                let watchtower_slot = watchtower_slot_for_operator(
+                                    self.context().operator_table(),
+                                    pov_idx,
+                                    *counterprover_idx,
+                                )?;
                                 let counterproof_connector =
                                     connectors.counterproof.get(watchtower_slot)?;
 

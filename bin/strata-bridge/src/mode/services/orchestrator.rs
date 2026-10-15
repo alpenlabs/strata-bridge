@@ -310,7 +310,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
             .keys
             .operators
             .iter()
-            .map(|operator| operator.payout_descriptor().clone())
+            .map(|operator| (operator.index(), operator.payout_descriptor().clone()))
             .collect(),
         bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
         counterproof_predicate: params.protocol.counterproof_predicate.clone(),

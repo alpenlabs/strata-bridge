@@ -111,7 +111,9 @@ const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 /// Creates a test bridge-wide GSM configuration.
 pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let payout_descs = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
+    let payout_descs = (0..N_TEST_OPERATORS as OperatorIdx)
+        .map(|idx| (idx, random_p2tr_desc()))
+        .collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: ProtocolParams {
@@ -477,6 +479,7 @@ pub(super) fn expected_potential_counterproof_duty(
     let graph_data = test_deposit_params();
     let game_graph = machine::generate_game_graph(cfg, sm.context(), &graph_data);
     let watchtower_idx = watchtower_slot_for_operator(
+        sm.context().operator_table(),
         sm.context().operator_idx(),
         sm.context().operator_table().pov_idx(),
     )

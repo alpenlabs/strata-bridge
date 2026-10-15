@@ -833,8 +833,12 @@ mod tests {
         let counterproof_conf_height = contest_height + 1;
         let new_height = counterproof_conf_height + nack_timelock + 1;
 
-        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
-            .expect("non-POV operator should map to watchtower slot");
+        let watchtower_slot = watchtower_slot_for_operator(
+            test_graph_sm_ctx().operator_table(),
+            TEST_POV_IDX,
+            TEST_NONPOV_IDX,
+        )
+        .expect("non-POV operator should map to watchtower slot");
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
             CounterproofData {
@@ -890,8 +894,12 @@ mod tests {
         let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
         let counterproof_conf_height = contest_height + 1;
         let new_height = counterproof_conf_height + nack_timelock;
-        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
-            .expect("non-POV operator should map to watchtower slot");
+        let watchtower_slot = watchtower_slot_for_operator(
+            test_graph_sm_ctx().operator_table(),
+            TEST_POV_IDX,
+            TEST_NONPOV_IDX,
+        )
+        .expect("non-POV operator should map to watchtower slot");
 
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
@@ -937,8 +945,12 @@ mod tests {
         let nack_timelock = u64::from(cfg.game_graph_params.nack_timelock.value());
         let counterproof_conf_height = contest_height + 1;
         let new_height = counterproof_conf_height + nack_timelock - 1;
-        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
-            .expect("non-POV operator should map to watchtower slot");
+        let watchtower_slot = watchtower_slot_for_operator(
+            test_graph_sm_ctx().operator_table(),
+            TEST_POV_IDX,
+            TEST_NONPOV_IDX,
+        )
+        .expect("non-POV operator should map to watchtower slot");
 
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
@@ -987,8 +999,12 @@ mod tests {
         let new_height = counterproof_conf_height + nack_timelock + 1;
         assert!(new_height <= contest_height + ack_timelock);
 
-        let watchtower_slot = watchtower_slot_for_operator(TEST_POV_IDX, TEST_NONPOV_IDX)
-            .expect("non-POV operator should map to watchtower slot");
+        let watchtower_slot = watchtower_slot_for_operator(
+            test_graph_sm_ctx().operator_table(),
+            TEST_POV_IDX,
+            TEST_NONPOV_IDX,
+        )
+        .expect("non-POV operator should map to watchtower slot");
         let counterproofs_and_confs = BTreeMap::from([(
             TEST_NONPOV_IDX,
             CounterproofData {

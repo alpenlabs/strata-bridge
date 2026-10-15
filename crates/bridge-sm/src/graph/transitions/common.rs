@@ -282,7 +282,7 @@ impl GraphSM {
                 // NACK window has elapsed, so the counterprover can now publish ACK.
                 let graph_idx = graph_ctx.graph_idx();
                 let graph_owner_idx = graph_ctx.operator_idx();
-                let watchtower_slot = watchtower_slot_for_operator(graph_owner_idx, pov_idx)
+                let watchtower_slot = watchtower_slot_for_operator(graph_ctx.operator_table(), graph_owner_idx, pov_idx)
                     .unwrap_or_else(|| {
                         panic!(
                             "recorded POV counterproof but missing watchtower slot \

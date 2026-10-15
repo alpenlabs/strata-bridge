@@ -5,7 +5,10 @@ use bitcoin::{Amount, OutPoint, Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use strata_asm_common::TxInputRef;
 use strata_asm_proto_bridge_txs::withdrawal_fulfillment::parse_withdrawal_fulfillment_tx;
-use strata_bridge_primitives::types::{BitcoinBlockHeight, DepositIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+};
 use strata_bridge_tx_graph::{
     game_graph::GameGraphSummary,
     transactions::{
@@ -102,13 +105,16 @@ pub fn is_counterproof_txid(summary: &GameGraphSummary, txid: &Txid) -> bool {
 pub fn counterproof_operator_idx(
     summary: &GameGraphSummary,
     txid: &Txid,
+    operator_table: &OperatorTable,
     graph_owner_idx: OperatorIdx,
 ) -> Option<OperatorIdx> {
     summary
         .counterproofs
         .iter()
         .position(|summary| summary.counterproof == *txid)
-        .map(|watchtower_slot| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
+        .and_then(|watchtower_slot| {
+            watchtower_slot_to_operator_idx(operator_table, graph_owner_idx, watchtower_slot)
+        })
 }
 
 /// Checks if the transaction ID is that of a counterpoof ACK transaction.
@@ -123,13 +129,16 @@ pub fn is_counterproof_ack_txid(summary: &GameGraphSummary, txid: &Txid) -> bool
 pub fn counterproof_ack_operator_idx(
     summary: &GameGraphSummary,
     txid: &Txid,
+    operator_table: &OperatorTable,
     graph_owner_idx: OperatorIdx,
 ) -> Option<OperatorIdx> {
     summary
         .counterproofs
         .iter()
         .position(|summary| summary.counterproof_ack == *txid)
-        .map(|watchtower_slot| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
+        .and_then(|watchtower_slot| {
+            watchtower_slot_to_operator_idx(operator_table, graph_owner_idx, watchtower_slot)
+        })
 }
 
 /// Check if the transaction is a counterproof NACK transaction and return the counterprover's
@@ -139,16 +148,16 @@ pub fn counterproof_ack_operator_idx(
 /// rejects.
 pub fn nack_counterprover_idx(
     summary: &GameGraphSummary,
+    operator_table: &OperatorTable,
     graph_owner_idx: OperatorIdx,
     tx: &Transaction,
 ) -> Option<OperatorIdx> {
     summary
         .counterproofs
         .iter()
-        .enumerate()
-        .find_map(|(watchtower_slot, summary)| {
-            spends_counterproof_ack_nack(summary.counterproof, tx)
-                .then(|| watchtower_slot_to_operator_idx(watchtower_slot, graph_owner_idx))
+        .position(|summary| spends_counterproof_ack_nack(summary.counterproof, tx))
+        .and_then(|watchtower_slot| {
+            watchtower_slot_to_operator_idx(operator_table, graph_owner_idx, watchtower_slot)
         })
 }
 
