@@ -24,7 +24,6 @@ use strata_bridge_p2p_types::UnstakingInput;
 use strata_bridge_primitives::{
     covenant::StakeKey,
     scripts::taproot::{TaprootTweak, create_key_spend_hash},
-    types::OperatorIdx,
 };
 use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::prelude::StakeTx};
 use tracing::{error, info, warn};
@@ -82,12 +81,10 @@ pub(crate) async fn publish_stake_data(
         unstaking_operator_desc: output_desc.into(),
     };
 
-    info!(%operator_idx, "broadcasting the unstaking input to the p2p network");
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4044>
-    // Carry the full stake key in stake wire messages.
+    info!(%stake_key, "broadcasting the unstaking input to the p2p network");
     let mut msg_handler = output_handles.msg_handler.write().await;
     msg_handler
-        .send_unstaking_input(operator_idx, unstaking_input, None)
+        .send_unstaking_input(stake_key, unstaking_input, None)
         .await?;
 
     Ok(())
@@ -320,13 +317,13 @@ async fn sign_reservation(
 
 pub(crate) async fn publish_unstaking_nonces(
     output_handles: &OutputHandles,
-    operator_idx: OperatorIdx,
+    stake_key: StakeKey,
     graph_inpoints: StakeFunctor<OutPoint>,
     graph_tweaks: StakeFunctor<TaprootTweak>,
     sighashes: StakeFunctor<Message>,
     ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
-    info!(%operator_idx, "generating and publishing unstaking nonces for the stake graph");
+    info!(%stake_key, "generating and publishing unstaking nonces for the stake graph");
 
     let musig_signer = output_handles.s2_client.musig2_signer();
 
@@ -341,11 +338,11 @@ pub(crate) async fn publish_unstaking_nonces(
 
             musig_signer.get_pub_nonce(params).map(move |res| match res {
                 Ok(inner) => inner.map_err(|_| {
-                    warn!(%operator_idx, %inpoint, "failed to get pub nonce from secret-service: our pubkey missing from params");
+                    warn!(%stake_key, %inpoint, "failed to get pub nonce from secret-service: our pubkey missing from params");
                     ExecutorError::OurPubKeyNotInParams
                 }),
                 Err(e) => {
-                    warn!(%operator_idx, %inpoint, ?e, "failed to get pub nonce from secret-service");
+                    warn!(%stake_key, %inpoint, ?e, "failed to get pub nonce from secret-service");
                     Err(ExecutorError::SecretServiceErr(e))
                 }
             })
@@ -357,23 +354,23 @@ pub(crate) async fn publish_unstaking_nonces(
         .msg_handler
         .write()
         .await
-        .send_unstaking_nonces(operator_idx, nonces, None)
+        .send_unstaking_nonces(stake_key, nonces, None)
         .await?;
-    info!(%operator_idx, "successfully published unstaking nonces for the stake graph");
+    info!(%stake_key, "successfully published unstaking nonces for the stake graph");
 
     Ok(())
 }
 
 pub(crate) async fn publish_unstaking_partials(
     output_handles: &OutputHandles,
-    operator_idx: OperatorIdx,
+    stake_key: StakeKey,
     graph_inpoints: StakeFunctor<OutPoint>,
     graph_tweaks: StakeFunctor<TaprootTweak>,
     sighashes: StakeFunctor<Message>,
     agg_nonces: StakeFunctor<AggNonce>,
     ordered_pubkeys: Vec<XOnlyPublicKey>,
 ) -> Result<(), ExecutorError> {
-    info!(%operator_idx, "generating and publishing unstaking partial signatures for the stake graph");
+    info!(%stake_key, "generating and publishing unstaking partial signatures for the stake graph");
 
     let musig_signer = output_handles.s2_client.musig2_signer();
 
@@ -390,16 +387,16 @@ pub(crate) async fn publish_unstaking_partials(
                 .map(move |res| match res {
                     Ok(inner) => inner.map_err(|e| match e.to_enum() {
                         terrors::E2::A(_) => {
-                            warn!(?operator_idx, %inpoint, "secret service rejected partial sig request: our pubkey missing from params");
+                            warn!(%stake_key, %inpoint, "secret service rejected partial sig request: our pubkey missing from params");
                             ExecutorError::OurPubKeyNotInParams
                         }
                         terrors::E2::B(_) => {
-                            warn!(?operator_idx, %inpoint, "secret service rejected partial sig request: self-verification failed");
+                            warn!(%stake_key, %inpoint, "secret service rejected partial sig request: self-verification failed");
                             ExecutorError::SelfVerifyFailed
                         }
                     }),
                     Err(e) => {
-                        warn!(%operator_idx, %inpoint, ?e, "failed to get partial signature from secret-service");
+                        warn!(%stake_key, %inpoint, ?e, "failed to get partial signature from secret-service");
                         Err(ExecutorError::SecretServiceErr(e))
                     }
                 })
@@ -407,15 +404,15 @@ pub(crate) async fn publish_unstaking_partials(
     );
 
     let partials = try_join_all(partial_futures).await?;
-    info!(%operator_idx, "successfully generated unstaking partial signatures for the stake graph");
+    info!(%stake_key, "successfully generated unstaking partial signatures for the stake graph");
 
     output_handles
         .msg_handler
         .write()
         .await
-        .send_unstaking_partials(operator_idx, partials, None)
+        .send_unstaking_partials(stake_key, partials, None)
         .await?;
-    info!(%operator_idx, "successfully published unstaking partial signatures for the stake graph");
+    info!(%stake_key, "successfully published unstaking partial signatures for the stake graph");
 
     Ok(())
 }

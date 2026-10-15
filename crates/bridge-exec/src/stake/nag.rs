@@ -1,6 +1,7 @@
 //! Executors for nag duties of the Stake State Machine.
 
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
+use strata_bridge_primitives::covenant::StakeKey;
 use strata_bridge_sm::stake::duties::NagDuty;
 use tracing::info;
 
@@ -8,6 +9,7 @@ use crate::{errors::ExecutorError, output_handles::OutputHandles};
 
 pub(crate) async fn execute_nag_duty(
     output_handles: &OutputHandles,
+    stake_key: StakeKey,
     nag_duty: &NagDuty,
 ) -> Result<(), ExecutorError> {
     let (operator_pubkey, payload) = match nag_duty {
@@ -16,9 +18,7 @@ pub(crate) async fn execute_nag_duty(
             operator_pubkey,
         } => {
             info!(%operator_idx, "nagging for missing stake data");
-            let payload = NagRequestPayload::UnstakingData {
-                operator_idx: *operator_idx,
-            };
+            let payload = NagRequestPayload::UnstakingData { stake_key };
 
             (operator_pubkey.clone(), payload)
         }
@@ -27,9 +27,7 @@ pub(crate) async fn execute_nag_duty(
             operator_pubkey,
         } => {
             info!(%operator_idx, "nagging for missing unstaking nonces");
-            let payload = NagRequestPayload::UnstakingNonces {
-                operator_idx: *operator_idx,
-            };
+            let payload = NagRequestPayload::UnstakingNonces { stake_key };
 
             (operator_pubkey.clone(), payload)
         }
@@ -38,9 +36,7 @@ pub(crate) async fn execute_nag_duty(
             operator_pubkey,
         } => {
             info!(%operator_idx, "nagging for missing unstaking partial signatures");
-            let payload = NagRequestPayload::UnstakingPartials {
-                operator_idx: *operator_idx,
-            };
+            let payload = NagRequestPayload::UnstakingPartials { stake_key };
 
             (operator_pubkey.clone(), payload)
         }

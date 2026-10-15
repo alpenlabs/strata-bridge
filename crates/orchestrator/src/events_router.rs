@@ -68,28 +68,18 @@ fn route_gossipsub_msg(
         UnsignedGossipsubMsg::PayoutDescriptorExchange { deposit_idx, .. } => {
             SMId::Deposit(*deposit_idx)
         }
-        UnsignedGossipsubMsg::UnstakingDataExchange { operator_idx, .. } => {
-            debug!(%operator_idx, "routing UnstakingDataExchange to stake SM");
-            {
-                let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
-                    return vec![];
-                };
-                SMId::Stake(key)
-            }
+        UnsignedGossipsubMsg::UnstakingDataExchange { stake_key, .. } => {
+            debug!(%stake_key, "routing UnstakingDataExchange to stake SM");
+            SMId::Stake(*stake_key)
         }
         UnsignedGossipsubMsg::Musig2NoncesExchange(musig2_nonce) => match musig2_nonce {
             MuSig2Nonce::Deposit { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Sweep { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Nonce::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
-            MuSig2Nonce::Unstake { operator_idx, .. } => {
-                debug!(%operator_idx, "routing MuSig2Nonce::Unstake to stake SM");
-                {
-                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
-                        return vec![];
-                    };
-                    SMId::Stake(key)
-                }
+            MuSig2Nonce::Unstake { stake_key, .. } => {
+                debug!(%stake_key, "routing MuSig2Nonce::Unstake to stake SM");
+                SMId::Stake(*stake_key)
             }
         },
         UnsignedGossipsubMsg::Musig2SignaturesExchange(musig2_partial) => match musig2_partial {
@@ -97,14 +87,9 @@ fn route_gossipsub_msg(
             MuSig2Partial::Payout { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Sweep { deposit_idx, .. } => SMId::Deposit(*deposit_idx),
             MuSig2Partial::Graph { graph_idx, .. } => SMId::Graph(*graph_idx),
-            MuSig2Partial::Unstake { operator_idx, .. } => {
-                debug!(%operator_idx, "routing MuSig2Partial::Unstake to stake SM");
-                {
-                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
-                        return vec![];
-                    };
-                    SMId::Stake(key)
-                }
+            MuSig2Partial::Unstake { stake_key, .. } => {
+                debug!(%stake_key, "routing MuSig2Partial::Unstake to stake SM");
+                SMId::Stake(*stake_key)
             }
         },
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => match &nag_request.payload {
@@ -117,16 +102,11 @@ fn route_gossipsub_msg(
             NagRequestPayload::GraphData { graph_idx }
             | NagRequestPayload::GraphNonces { graph_idx }
             | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
-            NagRequestPayload::UnstakingData { operator_idx }
-            | NagRequestPayload::UnstakingNonces { operator_idx }
-            | NagRequestPayload::UnstakingPartials { operator_idx } => {
-                debug!(%operator_idx, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
-                {
-                    let Some(key) = registry.resolve_legacy_stake_key(*operator_idx) else {
-                        return vec![];
-                    };
-                    SMId::Stake(key)
-                }
+            NagRequestPayload::UnstakingData { stake_key }
+            | NagRequestPayload::UnstakingNonces { stake_key }
+            | NagRequestPayload::UnstakingPartials { stake_key } => {
+                debug!(%stake_key, payload = ?nag_request.payload, "routing unstaking nag request to stake SM");
+                SMId::Stake(*stake_key)
             }
         },
     };
@@ -440,30 +420,173 @@ mod tests {
 
 #[cfg(test)]
 mod covenant_wire_tests {
-    use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
+    use bitcoin::{
+        OutPoint,
+        hashes::{Hash, sha256},
+    };
+    use strata_bridge_p2p_types::{NagRequest, PayoutDescriptor, UnstakingInput};
+    use strata_bridge_primitives::covenant::{CovenantId, StakeKey};
+    use strata_bridge_sm::stake::{context::StakeSMCtx, duties::StakeDuty, machine::StakeSM};
 
     use super::*;
     use crate::{
         events_classifier::offchain::classify_unsigned_gossip,
-        sm_types::OperatorKey,
-        testing::{N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table},
+        sm_registry::ProcessOutcome,
+        sm_types::{OperatorKey, UnifiedDuty},
+        testing::{
+            N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, test_empty_registry, test_operator_table,
+        },
     };
 
     #[test]
-    fn operator_only_stake_messages_are_rejected_when_covenants_are_ambiguous() {
+    fn unstaking_signatures_route_to_the_exact_covenant_stake() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
-        let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
-            operator_idx: TEST_POV_IDX,
-            nonces: vec![],
-        });
-        let (first, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100), 100);
-        let key = first.context().stake_key();
-        registry.insert_stake(first).unwrap();
-        assert_eq!(route_gossipsub_msg(&registry, &msg), vec![SMId::Stake(key)]);
-        let (second, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table, 200), 100);
-        registry.insert_stake(second).unwrap();
-        assert!(route_gossipsub_msg(&registry, &msg).is_empty());
-        assert!(classify_unsigned_gossip(&registry, &OperatorKey::Pov, &msg).is_empty());
+        let mut keys = Vec::new();
+        for activation_height in [100, 200] {
+            let (stake, _) = StakeSM::new(
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                100,
+            );
+            keys.push(stake.context().stake_key());
+            registry.insert_stake(stake).unwrap();
+        }
+
+        for key in &keys {
+            let nonces = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
+                stake_key: *key,
+                nonces: vec![],
+            });
+            let partials = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Unstake {
+                stake_key: *key,
+                partials: vec![],
+            });
+            assert_eq!(
+                route_gossipsub_msg(&registry, &nonces),
+                vec![SMId::Stake(*key)],
+                "unstaking nonces must reach only the stake of the covenant they name"
+            );
+            assert_eq!(
+                route_gossipsub_msg(&registry, &partials),
+                vec![SMId::Stake(*key)],
+                "unstaking partials must reach only the stake of the covenant they name"
+            );
+        }
+    }
+
+    #[test]
+    fn unstaking_data_routes_to_the_exact_covenant_stake() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let mut keys = Vec::new();
+        for activation_height in [100, 200] {
+            let (stake, _) = StakeSM::new(
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                100,
+            );
+            keys.push(stake.context().stake_key());
+            registry.insert_stake(stake).unwrap();
+        }
+
+        for key in &keys {
+            let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
+                stake_key: *key,
+                unstaking_input: UnstakingInput {
+                    stake_funds: OutPoint::null(),
+                    unstaking_image: sha256::Hash::all_zeros(),
+                    unstaking_operator_desc: PayoutDescriptor::from(vec![]),
+                },
+            };
+            assert_eq!(
+                route_gossipsub_msg(&registry, &msg),
+                vec![SMId::Stake(*key)],
+                "stake data must reach only the stake of the covenant it names"
+            );
+        }
+    }
+
+    #[test]
+    fn stake_nags_route_to_the_exact_covenant_stake() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let mut keys = Vec::new();
+        for activation_height in [100, 200] {
+            let (stake, _) = StakeSM::new(
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                100,
+            );
+            keys.push(stake.context().stake_key());
+            registry.insert_stake(stake).unwrap();
+        }
+        let nag = |stake_key| {
+            UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                recipient: table.pov_p2p_key().clone(),
+                payload: NagRequestPayload::UnstakingData { stake_key },
+            })
+        };
+
+        for key in &keys {
+            assert_eq!(
+                route_gossipsub_msg(&registry, &nag(*key)),
+                vec![SMId::Stake(*key)],
+                "a stake nag must reach only the stake of the covenant it names"
+            );
+        }
+        let unknown = StakeKey {
+            covenant: CovenantId {
+                activation_height: 300,
+                ..keys[0].covenant
+            },
+            ..keys[0]
+        };
+        assert!(
+            route_gossipsub_msg(&registry, &nag(unknown)).is_empty(),
+            "a stake nag for an untracked covenant must not reach another covenant's stake"
+        );
+    }
+
+    #[test]
+    fn answering_a_stake_nag_publishes_data_only_for_the_named_stake() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let mut registry = test_empty_registry();
+        let mut keys = Vec::new();
+        for activation_height in [100, 200] {
+            let (stake, _) = StakeSM::new(
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                100,
+            );
+            keys.push(stake.context().stake_key());
+            registry.insert_stake(stake).unwrap();
+        }
+        let nagger = table.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
+
+        for key in keys {
+            let msg = UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                recipient: table.pov_p2p_key().clone(),
+                payload: NagRequestPayload::UnstakingData { stake_key: key },
+            });
+            let [target] = route_gossipsub_msg(&registry, &msg)[..] else {
+                panic!("a stake nag must route to exactly one stake");
+            };
+            let [event] = classify_unsigned_gossip(&registry, &OperatorKey::Peer(&nagger), &msg)
+                .try_into()
+                .expect("a stake nag addressed to the owner must classify to one event");
+            let ProcessOutcome::Applied(output) = registry.process_event(&target, event).unwrap()
+            else {
+                panic!("the owner must answer a stake data nag");
+            };
+
+            assert!(
+                matches!(
+                    output.duties.as_slice(),
+                    [UnifiedDuty::Stake {
+                        stake_key,
+                        duty: StakeDuty::PublishStakeData { .. },
+                    }] if *stake_key == key
+                ),
+                "a nag for one covenant's stake must only republish that stake's data: {:?}",
+                output.duties
+            );
+        }
     }
 }

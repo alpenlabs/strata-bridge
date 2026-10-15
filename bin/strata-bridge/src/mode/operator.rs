@@ -144,7 +144,7 @@ pub(crate) async fn bootstrap(
         &config.mosaic,
         &operator_table,
         operator_table.pov_idx(),
-    ));
+    )?);
     info!("mosaic client initialized");
     health_registry.mark_degraded(COMPONENT_MOSAIC, "setup_pending");
 

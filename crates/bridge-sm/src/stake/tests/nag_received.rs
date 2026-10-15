@@ -96,7 +96,7 @@ fn accept_nag_received_stake_data() {
         test_pov_owned_handler_output(StakeHandlerOutput {
             state: from_state.clone(),
             event: StakeEvent::NagReceived(create_nag_event(NagRequestPayload::UnstakingData {
-                operator_idx: TEST_CTX.operator_idx(),
+                stake_key: TEST_CTX.stake_key(),
             })),
             expected_duties: vec![StakeDuty::PublishStakeData {
                 operator_idx: TEST_CTX.operator_idx(),
@@ -106,7 +106,7 @@ fn accept_nag_received_stake_data() {
             state: from_state,
             event: StakeEvent::NagReceived(NagReceivedEvent {
                 payload: NagRequestPayload::UnstakingData {
-                    operator_idx: TEST_CTX.operator_idx(),
+                    stake_key: TEST_CTX.stake_key(),
                 },
                 sender_operator_idx: TEST_POV_IDX,
             }),
@@ -142,7 +142,7 @@ fn reject_nag_received_stake_data() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: StakeEvent::NagReceived(create_nag_event(NagRequestPayload::UnstakingData {
-                operator_idx: TEST_CTX.operator_idx(),
+                stake_key: TEST_CTX.stake_key(),
             })),
             expected_error: |e| {
                 matches!(
@@ -187,7 +187,7 @@ fn accept_nag_received_unstaking_nonces() {
         test_pov_owned_handler_output(StakeHandlerOutput {
             state: from_state,
             event: StakeEvent::NagReceived(create_nag_event(NagRequestPayload::UnstakingNonces {
-                operator_idx: TEST_CTX.operator_idx(),
+                stake_key: TEST_CTX.stake_key(),
             })),
             expected_duties: vec![expected_publish_unstaking_nonces_duty()],
         });
@@ -224,7 +224,7 @@ fn reject_nag_received_unstaking_nonces() {
         test_stake_invalid_transition(StakeInvalidTransition {
             from_state,
             event: StakeEvent::NagReceived(create_nag_event(NagRequestPayload::UnstakingNonces {
-                operator_idx: TEST_CTX.operator_idx(),
+                stake_key: TEST_CTX.stake_key(),
             })),
             expected_error: |e| {
                 matches!(
@@ -264,7 +264,7 @@ fn accept_nag_received_unstaking_partials() {
             state: from_state,
             event: StakeEvent::NagReceived(create_nag_event(
                 NagRequestPayload::UnstakingPartials {
-                    operator_idx: TEST_CTX.operator_idx(),
+                    stake_key: TEST_CTX.stake_key(),
                 },
             )),
             expected_duties: vec![expected_publish_unstaking_partials_duty()],
@@ -309,7 +309,7 @@ fn reject_nag_received_unstaking_partials() {
             from_state,
             event: StakeEvent::NagReceived(create_nag_event(
                 NagRequestPayload::UnstakingPartials {
-                    operator_idx: TEST_CTX.operator_idx(),
+                    stake_key: TEST_CTX.stake_key(),
                 },
             )),
             expected_error: |e| {

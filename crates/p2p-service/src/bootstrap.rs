@@ -2,6 +2,7 @@
 
 use std::{num::NonZeroUsize, time::Duration};
 
+use anyhow::bail;
 use libp2p::gossipsub::{PeerScoreParams, PeerScoreThresholds, Sha256Topic, TopicScoreParams};
 use strata_p2p::{
     swarm::{
@@ -165,7 +166,17 @@ fn rate_limiter(config: &Configuration) -> anyhow::Result<Box<dyn Validator>> {
 }
 
 /// Bootstrap the p2p node by hooking up all the required services.
+///
+/// Fails if [`Configuration::peer_addresses`] names a peer outside the allowlist.
 pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandles> {
+    if let Some(peer_id) = config
+        .peer_addresses
+        .keys()
+        .find(|peer_id| !config.allowlist.contains(peer_id))
+    {
+        bail!("addresses are configured for peer {peer_id}, which is not on the allowlist");
+    }
+
     observability::describe_metrics();
 
     // Determine scoring parameters based on preset
@@ -191,7 +202,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
             .unwrap_or(Duration::from_secs(DEFAULT_IDLE_CONNECTION_TIMEOUT)),
         max_retries: None,
         listening_addrs: vec![config.listening_addr.clone()],
-        connect_to: config.connect_to.clone(),
+        connect_to: config.peer_addresses.values().flatten().cloned().collect(),
         dial_timeout: Some(config.dial_timeout.unwrap_or(DEFAULT_DIAL_TIMEOUT)),
         general_timeout: Some(config.general_timeout.unwrap_or(DEFAULT_GENERAL_TIMEOUT)),
         connection_check_interval: Some(
@@ -258,16 +269,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
     let peer_reconnect_interval = config
         .peer_reconnect_interval
         .unwrap_or(DEFAULT_PEER_RECONNECT_INTERVAL);
-    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3442>
-    // `allowlist` and `connect_to` are parallel lists (in operator-index order, excluding self),
-    // so zipping them yields the `(peer_id, address)` pairs the maintainer needs.
-    // This is brittle as it relies on the config to maintain this invariant.
-    let peers: Vec<(libp2p::PeerId, libp2p::Multiaddr)> = config
-        .allowlist
-        .iter()
-        .copied()
-        .zip(config.connect_to.iter().cloned())
-        .collect();
+    let peers = config.peer_addresses.clone();
     let maintainer_handle = command_handle.clone();
     let maintainer_cancel = cancel.clone();
     tokio::spawn(async move {

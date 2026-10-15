@@ -18,7 +18,7 @@ use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
-use strata_bridge_primitives::types::{DepositIdx, GameIndex};
+use strata_bridge_primitives::types::{DepositIdx, GameIndex, OperatorIdx};
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
 
 /// Configuration values that dictate the behavior of the bridge node.
@@ -227,6 +227,7 @@ pub(crate) struct BtcZmqConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct P2PConfig {
     /// Idle connection timeout.
     pub idle_connection_timeout: Option<Duration>,
@@ -234,8 +235,11 @@ pub(crate) struct P2PConfig {
     /// Node's address.
     pub listening_addr: Multiaddr,
 
-    /// Initial list of nodes to connect to at startup.
-    pub connect_to: Vec<Multiaddr>,
+    /// Network addresses of other operators, keyed by their params registration.
+    ///
+    /// Entry order carries no meaning. Registrations without an entry are never dialed but may
+    /// still connect to this node.
+    pub peers: Vec<P2PPeerConfig>,
 
     /// Number of threads to use for the in memory database.
     ///
@@ -344,6 +348,20 @@ pub(crate) struct P2PConfig {
     pub gossip_command_buffer_size: Option<NonZeroUsize>,
 }
 
+/// Network addresses at which one operator's P2P node listens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct P2PPeerConfig {
+    /// The operator's permanent index in params.
+    pub operator_idx: OperatorIdx,
+
+    /// Addresses to dial, in order of preference.
+    ///
+    /// An address may end in `/p2p/<peer-id>`, which must name the identity of the operator's
+    /// params P2P key.
+    pub addrs: Vec<Multiaddr>,
+}
+
 /// RPC server configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RpcConfig {
@@ -392,6 +410,7 @@ pub(crate) struct OperatorWalletConfig {
 
 /// Configuration for the mosaic client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MosaicConfig {
     /// Mosaic RPC HTTP endpoint (local mosaic instance).
     pub rpc_url: String,
@@ -405,9 +424,21 @@ pub(crate) struct MosaicConfig {
     /// Poll interval for watched deposits.
     pub poll_interval: Duration,
 
-    /// Mosaic peer IDs for each operator, ordered by operator index.
-    /// Each entry is a 32-byte hex-encoded peer ID.
-    pub peer_ids: Vec<String>,
+    /// Mosaic peer ID of every operator registered in params, including this node.
+    ///
+    /// Entry order carries no meaning.
+    pub peers: Vec<MosaicPeerConfig>,
+}
+
+/// Mosaic peer ID of one operator.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MosaicPeerConfig {
+    /// The operator's permanent index in params.
+    pub operator_idx: OperatorIdx,
+
+    /// The operator's 32-byte hex-encoded Mosaic peer ID.
+    pub peer_id: String,
 }
 
 /// Configuration for bridge process metrics exporters.
@@ -466,7 +497,10 @@ const TEST_CONFIG_TOML: &str = r#"
             [p2p]
             idle_connection_timeout = { secs = 1_000, nanos = 0 }
             listening_addr = "/ip4/127.0.0.1/tcp/1234"
-            connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
+            peers = [
+                { operator_idx = 2, addrs = ["/ip4/127.0.0.1/tcp/9012"] },
+                { operator_idx = 1, addrs = ["/ip4/127.0.0.1/tcp/5678", "/dns4/bridge-1/tcp/5678"] },
+            ]
             num_threads = 4
             dial_timeout = { secs = 0, nanos = 250_000_000 }
             general_timeout = { secs = 0, nanos = 250_000_000 }
@@ -506,9 +540,9 @@ const TEST_CONFIG_TOML: &str = r#"
             retry_delay = { secs = 2, nanos = 0 }
             max_retries = 5
             poll_interval = { secs = 5, nanos = 0 }
-            peer_ids = [
-                "0000000000000000000000000000000000000000000000000000000000000001",
-                "0000000000000000000000000000000000000000000000000000000000000002",
+            peers = [
+                { operator_idx = 1, peer_id = "0000000000000000000000000000000000000000000000000000000000000002" },
+                { operator_idx = 0, peer_id = "0000000000000000000000000000000000000000000000000000000000000001" },
             ]
 
             [bridge_proof]
@@ -598,6 +632,83 @@ mod tests {
     }
 
     #[test]
+    fn p2p_peers_are_keyed_by_operator_index() {
+        let peers = test_config().p2p.peers;
+
+        assert_eq!(
+            peers,
+            vec![
+                P2PPeerConfig {
+                    operator_idx: 2,
+                    addrs: vec!["/ip4/127.0.0.1/tcp/9012".parse().expect("valid multiaddr")],
+                },
+                P2PPeerConfig {
+                    operator_idx: 1,
+                    addrs: vec![
+                        "/ip4/127.0.0.1/tcp/5678".parse().expect("valid multiaddr"),
+                        "/dns4/bridge-1/tcp/5678".parse().expect("valid multiaddr"),
+                    ],
+                },
+            ],
+            "each peer entry must keep its operator index and every address"
+        );
+    }
+
+    #[test]
+    fn mosaic_peers_are_keyed_by_operator_index() {
+        let peers = test_config().mosaic.peers;
+
+        assert_eq!(
+            peers
+                .iter()
+                .map(|peer| (peer.operator_idx, peer.peer_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    1,
+                    "0000000000000000000000000000000000000000000000000000000000000002"
+                ),
+                (
+                    0,
+                    "0000000000000000000000000000000000000000000000000000000000000001"
+                ),
+            ],
+            "each mosaic peer entry must keep its operator index and peer ID"
+        );
+    }
+
+    #[test]
+    fn mosaic_config_rejects_unknown_fields() {
+        let unkeyed = r#"
+            rpc_url = "http://localhost:7500"
+            retry_delay = { secs = 2, nanos = 0 }
+            max_retries = 5
+            poll_interval = { secs = 5, nanos = 0 }
+            peers = []
+            peer_ids = ["0000000000000000000000000000000000000000000000000000000000000001"]
+        "#;
+
+        assert!(
+            toml::from_str::<MosaicConfig>(unkeyed).is_err(),
+            "peer IDs outside a keyed peer entry must not be silently ignored"
+        );
+    }
+
+    #[test]
+    fn p2p_config_rejects_unknown_fields() {
+        let unkeyed = r#"
+            listening_addr = "/ip4/127.0.0.1/tcp/1234"
+            peers = []
+            connect_to = ["/ip4/127.0.0.1/tcp/5678"]
+        "#;
+
+        assert!(
+            toml::from_str::<P2PConfig>(unkeyed).is_err(),
+            "addresses outside a keyed peer entry must not be silently ignored"
+        );
+    }
+
+    #[test]
     fn p2p_gossip_buffer_sizes_are_optional_and_nonzero() {
         let p2p = test_config().p2p;
         assert_eq!(p2p.gossip_event_buffer_size, NonZeroUsize::new(8192));
@@ -605,7 +716,7 @@ mod tests {
 
         let zero = r#"
             listening_addr = "/ip4/127.0.0.1/tcp/1234"
-            connect_to = []
+            peers = []
             gossip_command_buffer_size = 0
         "#;
         assert!(toml::from_str::<P2PConfig>(zero).is_err());

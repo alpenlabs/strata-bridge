@@ -7,7 +7,10 @@ use strata_bridge_p2p_types::{
     GraphData, MuSig2Nonce, MuSig2Partial, NagRequest, PayoutDescriptor, UnsignedGossipsubMsg,
     UnstakingInput,
 };
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx, OperatorIdx},
+};
 use strata_p2p::{commands::GossipCommand, swarm::handle::GossipHandle};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
@@ -237,12 +240,12 @@ impl MessageHandler {
     /// Sends unstaking input data for generating the unstaking transaction graph.
     pub async fn send_unstaking_input(
         &mut self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         unstaking_input: UnstakingInput,
         peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
-            operator_idx,
+            stake_key,
             unstaking_input,
         };
 
@@ -252,12 +255,12 @@ impl MessageHandler {
     /// Sends unstaking nonces for signing the unstaking transaction graph.
     pub async fn send_unstaking_nonces(
         &mut self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         nonces: Vec<PubNonce>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2NoncesExchange(MuSig2Nonce::Unstake {
-            operator_idx,
+            stake_key,
             nonces: nonces.into_iter().map(Into::into).collect(),
         });
 
@@ -267,12 +270,12 @@ impl MessageHandler {
     /// Sends unstaking partial signatures for signing the unstaking transaction graph.
     pub async fn send_unstaking_partials(
         &mut self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
         partials: Vec<PartialSignature>,
         peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<(), DispatchError> {
         let msg = UnsignedGossipsubMsg::Musig2SignaturesExchange(MuSig2Partial::Unstake {
-            operator_idx,
+            stake_key,
             partials: partials.into_iter().map(Into::into).collect(),
         });
 

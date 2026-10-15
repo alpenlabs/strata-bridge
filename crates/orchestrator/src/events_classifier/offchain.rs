@@ -7,7 +7,10 @@ use strata_asm_proto_bridge::AssignmentEntry;
 use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
-use strata_bridge_primitives::types::P2POperatorPubKey;
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{OperatorIdx, P2POperatorPubKey},
+};
 use strata_bridge_sm::{
     deposit::events::{self as DepositEvents, DepositEvent, RetryTickEvent},
     graph::events::{self as GraphEvents, AdaptorsVerifiedEvent, GraphEvent},
@@ -92,9 +95,7 @@ pub(crate) fn classify_routed(
     };
 
     if let Some(UnsignedGossipsubMsg::NagRequestExchange(nag_request)) = gossip {
-        let Some(target_sm_id) = nag_target_sm_id(&nag_request.payload, sm_registry) else {
-            return ClassificationOutcome::ExpectedDrop;
-        };
+        let target_sm_id = nag_target_sm_id(&nag_request.payload);
         if let Some(pov_p2p_key) = pov_p2p_key_for_sm(sm_registry, &target_sm_id)
             && nag_request.recipient != pov_p2p_key
         {
@@ -220,22 +221,18 @@ pub(crate) fn classify_unsigned_gossip(
             }
         }
         UnsignedGossipsubMsg::UnstakingDataExchange {
-            operator_idx,
+            stake_key,
             unstaking_input,
         } => {
-            let Some(stake_key) = sm_registry.resolve_legacy_stake_key(*operator_idx) else { return vec![]; };
-            let sm_id = SMId::Stake(stake_key);
-            let Some(sender_idx) = sm_registry.lookup_operator(&sm_id, key) else {
-                warn!(
-                    %operator_idx,
-                    "Received unstaking data from unknown sender, ignoring"
-                );
+            let Some(sender_idx) =
+                stake_message_sender(sm_registry, stake_key, key, "unstaking data")
+            else {
                 return vec![];
             };
 
-            if sender_idx != *operator_idx {
+            if sender_idx != stake_key.operator {
                 warn!(
-                    claimed_operator_idx=%operator_idx, resolved_operator_idx=%sender_idx,
+                    %stake_key, resolved_operator_idx=%sender_idx,
                     "Received unstaking data with sender/operator mismatch, ignoring"
                 );
                 return vec![];
@@ -245,14 +242,14 @@ pub(crate) fn classify_unsigned_gossip(
                 Descriptor::try_from(unstaking_input.unstaking_operator_desc.clone())
             else {
                 warn!(
-                    %operator_idx,
+                    %stake_key,
                     "Received unstaking data with invalid operator descriptor, ignoring"
                 );
                 return vec![];
             };
 
             info!(
-                %operator_idx,
+                %stake_key,
                 stake_funds = %unstaking_input.stake_funds,
                 unstaking_image = %unstaking_input.unstaking_image,
                 "classified UnstakingDataExchange as StakeEvent::StakeDataReceived"
@@ -339,32 +336,30 @@ pub(crate) fn classify_unsigned_gossip(
                 .collect(),
 
             MuSig2Nonce::Unstake {
-                operator_idx,
+                stake_key,
                 nonces,
-            } => sm_registry
-                .resolve_legacy_stake_key(*operator_idx)
-                .and_then(|stake_key| sm_registry.lookup_operator(&SMId::Stake(stake_key), key))
+            } => stake_message_sender(sm_registry, stake_key, key, "unstaking nonces")
                 .into_iter()
                 .filter_map(|sender_idx| {
                     let parsed: Result<Vec<_>, _> =
                         nonces.iter().map(|n| PubNonce::try_from(*n)).collect();
                     let Ok(pubnonces) = parsed else {
                         warn!(
-                            %operator_idx, %sender_idx,
+                            %stake_key, %sender_idx,
                             "Received invalid pubnonce for stake, discarding message"
                         );
                         return None;
                     };
                     let Some(pub_nonces) = StakeFunctor::unpack(pubnonces) else {
                         warn!(
-                            %operator_idx, %sender_idx,
+                            %stake_key, %sender_idx,
                             got = nonces.len(),
                             "Received wrong number of pubnonces for stake, discarding message"
                         );
                         return None;
                     };
                     info!(
-                        stake_owner = %operator_idx,
+                        %stake_key,
                         sender = %sender_idx,
                         "classified MuSig2Nonce::Unstake as StakeEvent::UnstakingNoncesReceived"
                     );
@@ -483,11 +478,9 @@ pub(crate) fn classify_unsigned_gossip(
                     .collect(),
 
                 MuSig2Partial::Unstake {
-                    operator_idx,
+                    stake_key,
                     partials,
-                } => sm_registry
-                    .resolve_legacy_stake_key(*operator_idx)
-                    .and_then(|stake_key| sm_registry.lookup_operator(&SMId::Stake(stake_key), key))
+                } => stake_message_sender(sm_registry, stake_key, key, "unstaking partials")
                     .into_iter()
                     .filter_map(|sender_idx| {
                         let parsed: Result<Vec<_>, _> = partials
@@ -496,21 +489,21 @@ pub(crate) fn classify_unsigned_gossip(
                             .collect();
                         let Ok(partial_sigs) = parsed else {
                             warn!(
-                                %operator_idx, %sender_idx,
+                                %stake_key, %sender_idx,
                                 "Received invalid partial signature for stake, discarding message"
                             );
                             return None;
                         };
                         let Some(partial_signatures) = StakeFunctor::unpack(partial_sigs) else {
                             warn!(
-                                %operator_idx, %sender_idx,
+                                %stake_key, %sender_idx,
                                 got = partials.len(),
                                 "Received wrong number of partial signatures for stake, discarding message"
                             );
                             return None;
                         };
                         info!(
-                            stake_owner = %operator_idx,
+                            %stake_key,
                             sender = %sender_idx,
                             "classified MuSig2Partial::Unstake as StakeEvent::UnstakingPartialsReceived"
                         );
@@ -556,7 +549,7 @@ pub(crate) fn classify_unsigned_gossip(
         }
 
         UnsignedGossipsubMsg::NagRequestExchange(nag_request) => {
-            let Some(sm_id) = nag_target_sm_id(&nag_request.payload, sm_registry) else { return vec![]; };
+            let sm_id = nag_target_sm_id(&nag_request.payload);
 
             info!(
                 target_sm = %sm_id,
@@ -644,8 +637,28 @@ pub(crate) fn classify_unsigned_gossip(
     }
 }
 
-fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Option<SMId> {
-    Some(match payload {
+/// Resolves the sender of a stake message within the exact stake it names.
+///
+/// Logs and returns `None` if the stake is not tracked or the sender is not a member of its
+/// covenant.
+fn stake_message_sender(
+    sm_registry: &SMRegistry,
+    stake_key: &StakeKey,
+    key: &OperatorKey<'_>,
+    message: &'static str,
+) -> Option<OperatorIdx> {
+    let sender = sm_registry.lookup_operator(&SMId::Stake(*stake_key), key);
+    if sender.is_none() {
+        warn!(
+            %stake_key, sender = ?key, message,
+            "dropping stake message: the stake is not tracked or the sender is not a member of its covenant"
+        );
+    }
+    sender
+}
+
+const fn nag_target_sm_id(payload: &NagRequestPayload) -> SMId {
+    match payload {
         NagRequestPayload::DepositNonce { deposit_idx }
         | NagRequestPayload::DepositPartial { deposit_idx }
         | NagRequestPayload::PayoutNonce { deposit_idx }
@@ -655,12 +668,10 @@ fn nag_target_sm_id(payload: &NagRequestPayload, registry: &SMRegistry) -> Optio
         NagRequestPayload::GraphData { graph_idx }
         | NagRequestPayload::GraphNonces { graph_idx }
         | NagRequestPayload::GraphPartials { graph_idx } => SMId::Graph(*graph_idx),
-        NagRequestPayload::UnstakingData { operator_idx }
-        | NagRequestPayload::UnstakingNonces { operator_idx }
-        | NagRequestPayload::UnstakingPartials { operator_idx } => {
-            SMId::Stake(registry.resolve_legacy_stake_key(*operator_idx)?)
-        }
-    })
+        NagRequestPayload::UnstakingData { stake_key }
+        | NagRequestPayload::UnstakingNonces { stake_key }
+        | NagRequestPayload::UnstakingPartials { stake_key } => SMId::Stake(*stake_key),
+    }
 }
 
 fn pov_p2p_key_for_sm(sm_registry: &SMRegistry, sm_id: &SMId) -> Option<P2POperatorPubKey> {
@@ -710,6 +721,11 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
     }
 }
 
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-4599>
+// Nag and retry ticks reach every tracked stake, including stakes of a future covenant target
+// that was invalidated before activation. Abandon their preparation instead of driving it. This
+// is unlikely in practice: it only happens under rapid covenant changes, where a target is
+// invalidated while its unstaking graph is still being signed.
 fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
         SMId::OperatorSet => None,
@@ -1349,13 +1365,18 @@ mod tests {
 
     // ===== classify_nag_request tests =====
     mod nag_request_tests {
-        use strata_bridge_p2p_types::{NagRequest, NagRequestPayload};
-        use strata_bridge_primitives::types::GraphIdx;
+        use bitcoin::hashes::sha256;
+        use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, UnstakingInput};
+        use strata_bridge_primitives::{
+            covenant::StakeKey, operator_table::OperatorTable, types::GraphIdx,
+        };
+        use strata_bridge_sm::stake::{context::StakeSMCtx, machine::StakeSM};
 
         use super::*;
         use crate::testing::{
-            N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, insert_deposit_with_graphs,
-            insert_stakes_for_all_operators, test_operator_table,
+            INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX,
+            insert_deposit_with_graphs, insert_stakes_for_all_operators, random_p2tr_desc,
+            test_operator_table,
         };
 
         #[test]
@@ -1610,6 +1631,109 @@ mod tests {
             );
         }
 
+        fn unstaking_data_from(stake_key: StakeKey) -> UnsignedGossipsubMsg {
+            UnsignedGossipsubMsg::UnstakingDataExchange {
+                stake_key,
+                unstaking_input: UnstakingInput {
+                    stake_funds: OutPoint::null(),
+                    unstaking_image: sha256::Hash::all_zeros(),
+                    unstaking_operator_desc: random_p2tr_desc().into(),
+                },
+            }
+        }
+
+        #[test]
+        fn classify_unstaking_data_accepts_only_the_stake_owner() {
+            let mut registry = test_empty_registry();
+            let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            insert_stakes_for_all_operators(&mut registry, &operator_table);
+            let stake_key_of = |operator_idx| {
+                StakeSMCtx::new(operator_idx, operator_table.clone(), INITIAL_BLOCK_HEIGHT)
+                    .stake_key()
+            };
+            let owner_p2p_key = operator_table.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
+
+            let owned = classify_unsigned_gossip(
+                &registry,
+                &OperatorKey::Peer(&owner_p2p_key),
+                &unstaking_data_from(stake_key_of(TEST_NONPOV)),
+            );
+            assert!(
+                matches!(
+                    owned.as_slice(),
+                    [SMEvent::Stake(event)] if matches!(event.as_ref(), StakeEvent::StakeDataReceived(_))
+                ),
+                "the stake owner's data must be classified for its stake"
+            );
+
+            let foreign = classify_unsigned_gossip(
+                &registry,
+                &OperatorKey::Peer(&owner_p2p_key),
+                &unstaking_data_from(stake_key_of(TEST_POV_IDX)),
+            );
+            assert!(
+                foreign.is_empty(),
+                "a peer must not publish stake data for another operator's stake"
+            );
+        }
+
+        fn table_without(table: &OperatorTable, removed: OperatorIdx) -> OperatorTable {
+            let entries = table
+                .operator_idxs()
+                .into_iter()
+                .filter(|idx| *idx != removed)
+                .map(|idx| {
+                    (
+                        idx,
+                        table.idx_to_p2p_key(&idx).unwrap().clone(),
+                        table.idx_to_btc_key(&idx).unwrap(),
+                    )
+                })
+                .collect();
+            let pov = table.pov_idx();
+            OperatorTable::new(entries, move |entry| entry.0 == pov)
+                .expect("successor membership retains the pov")
+        }
+
+        #[test]
+        fn removed_operator_is_heard_only_for_its_historical_covenant() {
+            let historical = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+            let successor = table_without(&historical, TEST_NONPOV);
+            let mut registry = test_empty_registry();
+            let mut stake_key_in = |table: &OperatorTable, activation_height| {
+                let (stake, _) = StakeSM::new(
+                    StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                    INITIAL_BLOCK_HEIGHT,
+                );
+                let stake_key = stake.context().stake_key();
+                registry.insert_stake(stake).unwrap();
+                stake_key
+            };
+            let historical_key = stake_key_in(&historical, 100);
+            let successor_key = stake_key_in(&successor, 200);
+            let removed_p2p_key = historical.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
+            let nag_from_removed = |stake_key| {
+                classify_unsigned_gossip(
+                    &registry,
+                    &OperatorKey::Peer(&removed_p2p_key),
+                    &UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                        recipient: historical.pov_p2p_key().clone(),
+                        payload: NagRequestPayload::UnstakingData { stake_key },
+                    }),
+                )
+            };
+
+            assert_eq!(
+                nag_from_removed(historical_key).len(),
+                1,
+                "a removed operator keeps its role in the historical covenant's stake"
+            );
+            assert!(
+                nag_from_removed(successor_key).is_empty(),
+                "a removed operator must not take part in the successor covenant's stake"
+            );
+        }
+
         #[test]
         fn classify_stake_nag_request_addressed_to_pov_creates_stake_event() {
             let mut registry = test_empty_registry();
@@ -1623,9 +1747,12 @@ mod tests {
                 .unwrap()
                 .clone();
 
+            let stake_key =
+                StakeSMCtx::new(operator_idx, operator_table.clone(), INITIAL_BLOCK_HEIGHT)
+                    .stake_key();
             let nag_request = NagRequest {
                 recipient: pov_p2p_key,
-                payload: NagRequestPayload::UnstakingNonces { operator_idx },
+                payload: NagRequestPayload::UnstakingNonces { stake_key },
             };
 
             let msg = UnsignedGossipsubMsg::NagRequestExchange(nag_request);
