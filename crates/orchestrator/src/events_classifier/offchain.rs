@@ -721,6 +721,11 @@ fn classify_assignment(sm_id: &SMId, entries: &[AssignmentEntry]) -> Option<SMEv
     }
 }
 
+// TODO: <https://alpenlabs.atlassian.net/browse/STR-4599>
+// Nag and retry ticks reach every tracked stake, including stakes of a future covenant target
+// that was invalidated before activation. Abandon their preparation instead of driving it. This
+// is unlikely in practice: it only happens under rapid covenant changes, where a target is
+// invalidated while its unstaking graph is still being signed.
 fn classify_nag_tick(sm_id: &SMId, sm_registry: &SMRegistry) -> Option<SMEvent> {
     match sm_id {
         SMId::OperatorSet => None,
