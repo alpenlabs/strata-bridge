@@ -1642,6 +1642,64 @@ mod stake_initialization_tests {
     }
 
     #[test]
+    fn current_and_future_setup_progress_side_by_side() {
+        let mut registry = registry();
+        let membership = registry.get_operator_set().unwrap().clone();
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        apply_signals(
+            &mut applicator,
+            membership.initialization_signals().unwrap(),
+        )
+        .unwrap();
+        let current = publication_key(&applicator.finish().duties);
+        let future = publication_key(&prepare(&mut registry).duties);
+
+        assert_eq!(
+            current.covenant,
+            membership.current_covenant(),
+            "the owner stakes in the current covenant"
+        );
+        assert_eq!(
+            future.covenant.activation_height, 102,
+            "the owner also stakes in the prepared successor"
+        );
+
+        let mut applicator = Applicator::new(&mut registry, Some(0));
+        applicator
+            .apply_batch([(
+                SMId::Stake(future),
+                StakeEvent::StakeDataReceived(StakeDataReceivedEvent {
+                    stake_funds: OutPoint::null(),
+                    unstaking_image: sha256::Hash::hash(&[9; 32]),
+                    unstaking_output_desc: random_p2tr_desc(),
+                })
+                .into(),
+            )])
+            .unwrap();
+        applicator.finish();
+
+        assert!(
+            matches!(
+                registry.get_stake(&future).unwrap().state(),
+                StakeState::StakeGraphGenerated { .. }
+            ),
+            "future setup advances on its own data"
+        );
+        assert!(
+            matches!(
+                registry.get_stake(&current).unwrap().state(),
+                StakeState::Created { .. }
+            ),
+            "future data must not advance the current stake"
+        );
+        assert_eq!(
+            publication_key(&retry(&mut registry).duties),
+            current,
+            "only the stake still missing its data is retried"
+        );
+    }
+
+    #[test]
     fn conflicting_recreation_identifies_exact_stake_and_preserves_progress() {
         let mut registry = registry();
         let BatchOutput { duties, .. } = prepare(&mut registry);
