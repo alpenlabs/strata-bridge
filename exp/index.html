@@ -1,1 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ack Check</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: single column — input band, verdict, resolved fields, then the graph walk that justifies them. */
+:root {
+  --bg: #f7f8f9; --surface: #ffffff; --line: #dfe3e8;
+  --fg: #16191d; --muted: #646b75; --accent: #2d6a9f;
+  --ok: #1f7a4d; --ok-bg: #e7f4ed;
+  --warn: #8a5a12; --warn-bg: #fbf1df;
+  --bad: #9c3328; --bad-bg: #fae9e6;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171a; --surface: #1c2024; --line: #2d3339;
+    --fg: #e6e9ec; --muted: #949ba4; --accent: #6fa8d6;
+    --ok: #6ed29b; --ok-bg: #163024;
+    --warn: #e0b065; --warn-bg: #332717;
+    --bad: #e89585; --bad-bg: #351f1b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171a; --surface: #1c2024; --line: #2d3339;
+  --fg: #e6e9ec; --muted: #949ba4; --accent: #6fa8d6;
+  --ok: #6ed29b; --ok-bg: #163024; --warn: #e0b065; --warn-bg: #332717;
+  --bad: #e89585; --bad-bg: #351f1b; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 400 15px/1.55 var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 56px;
+}
+.wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+header { display: flex; flex-direction: column; gap: 6px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--muted); font-size: 13.5px; margin: 0; max-width: 60ch; }
+.net {
+  font: 500 11px/1 var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid var(--line); border-radius: 3px;
+  padding: 4px 7px; align-self: flex-start; margin-top: 2px;
+}
+form { display: flex; gap: 8px; flex-wrap: wrap; }
+input[type=text] {
+  flex: 1 1 280px; min-width: 0; font: 400 13px/1.4 var(--mono);
+  padding: 11px 12px; color: var(--fg); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 5px;
+}
+input[type=text]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+button {
+  font: 500 14px/1 var(--sans); padding: 0 18px; min-height: 42px;
+  background: var(--accent); color: #fff; border: 0; border-radius: 5px; cursor: pointer;
+}
+button[disabled] { opacity: .55; cursor: default; }
+button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.verdict { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 16px 18px; }
+.verdict.yes { background: var(--ok-bg); } .verdict.yes b { color: var(--ok); }
+.verdict.no { background: var(--warn-bg); } .verdict.no b { color: var(--warn); }
+.verdict.err { background: var(--bad-bg); } .verdict.err b { color: var(--bad); }
+.verdict.busy b { color: var(--muted); }
+.verdict b { font-size: 16px; font-weight: 600; }
+.verdict em { font-style: normal; color: var(--muted); font-size: 13.5px; }
+dl { margin: 0; padding: 16px 18px; display: grid; grid-template-columns: auto 1fr; gap: 9px 20px; border-top: 1px solid var(--line); }
+dt { color: var(--muted); font-size: 12.5px; }
+dd { margin: 0; font: 500 13px/1.4 var(--mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.walk { border-top: 1px solid var(--line); padding: 16px 18px; }
+.walk h2 { font-size: 12.5px; font-weight: 500; color: var(--muted); margin: 0 0 10px; }
+.step { display: grid; grid-template-columns: 14px 1fr; gap: 12px; }
+.rail { display: flex; flex-direction: column; align-items: center; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-top: 6px; flex: none; }
+.dot.off { background: var(--line); }
+.bar { width: 1px; flex: 1; background: var(--line); min-height: 18px; }
+.step-body { padding-bottom: 14px; min-width: 0; }
+.step:last-child .step-body { padding-bottom: 0; }
+.step-label { font-size: 13px; font-weight: 600; }
+.step-note { font-size: 12.5px; color: var(--muted); }
+a.txid { font: 400 12px/1.5 var(--mono); color: var(--accent); overflow-wrap: anywhere; display: block; margin-top: 2px; }
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+summary { cursor: pointer; padding: 12px 18px; font-size: 13px; color: var(--muted); }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+details dl { border-top: 1px solid var(--line); }
+details dd { font-size: 12px; font-weight: 400; }
+details ol { margin: 0; padding-left: 1.4em; font: 400 12px/1.7 var(--mono); overflow-wrap: anywhere; }
+footer { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
 
+  <header>
+    <h1>Ack Check</h1>
+    <p class="sub">Paste a claim transaction. Its contest identifies the operator and deposit, and whatever spends the contest's payout connector says whether a watchtower ack reached the chain.</p>
+    <span class="net">signet</span>
+  </header>
+
+  <form id="f">
+    <input type="text" id="txid" spellcheck="false" autocomplete="off" placeholder="claim txid"
+           value="eaf25a3ef1a0ada03f8864dd65adb8367333ac050aedd2e4a2f835cc2b607716">
+    <button type="submit" id="go">Check</button>
+  </form>
+
+  <div class="card" id="result"></div>
+
+  <details id="cfg">
+    <summary>Configuration</summary>
+    <dl>
+      <dt>N/N key</dt><dd id="c-nofn"></dd>
+      <dt>Proof timelock</dt><dd id="c-tl"></dd>
+      <dt>Deposits searched</dt><dd id="c-max"></dd>
+      <dt>Operators</dt><dd><ol id="c-ops" start="0"></ol></dd>
+    </dl>
+  </details>
+
+  <footer>Transactions and spend status from mempool.space. Verification runs in this page.</footer>
+
+</div>
+
+<script type="module">
+// Self-contained bridge-claim verification: sha256, secp256k1, taproot, and the graph walk.
+// No dependencies. Mirrors crates/tx-graph/src/verify_contest.rs and verify_ack.rs.
+
+/* ---------- sha256 ---------- */
+const K = new Uint32Array([
+  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+
+function sha256(msg) {
+  const len = msg.length;
+  const withPad = new Uint8Array((((len + 9) >> 6) + 1) << 6);
+  withPad.set(msg);
+  withPad[len] = 0x80;
+  const dv = new DataView(withPad.buffer);
+  dv.setUint32(withPad.length - 4, len << 3, false);
+  dv.setUint32(withPad.length - 8, Math.floor(len / 536870912), false);
+
+  const h = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+                             0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+  const w = new Uint32Array(64);
+  for (let off = 0; off < withPad.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(off + i * 4, false);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i-15],7) ^ rotr(w[i-15],18) ^ (w[i-15] >>> 3);
+      const s1 = rotr(w[i-2],17) ^ rotr(w[i-2],19) ^ (w[i-2] >>> 10);
+      w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+    }
+    let [a,b,c,d,e,f,g,hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (hh + S1 + ch + K[i] + w[i]) | 0;
+      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0;
+      d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    h[0]=(h[0]+a)|0; h[1]=(h[1]+b)|0; h[2]=(h[2]+c)|0; h[3]=(h[3]+d)|0;
+    h[4]=(h[4]+e)|0; h[5]=(h[5]+f)|0; h[6]=(h[6]+g)|0; h[7]=(h[7]+hh)|0;
+  }
+  const out = new Uint8Array(32);
+  new DataView(out.buffer).setUint32(0, h[0], false);
+  for (let i = 0; i < 8; i++) new DataView(out.buffer).setUint32(i * 4, h[i], false);
+  return out;
+}
+
+const concat = (...parts) => {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+};
+const enc = new TextEncoder();
+const tagCache = new Map();
+function taggedHash(tag, ...parts) {
+  let pre = tagCache.get(tag);
+  if (!pre) { const t = sha256(enc.encode(tag)); pre = concat(t, t); tagCache.set(tag, pre); }
+  return sha256(concat(pre, ...parts));
+}
+
+/* ---------- hex ---------- */
+const toHex = b => Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
+const fromHex = h => {
+  if (h.length % 2) throw new Error("odd-length hex");
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.substr(i * 2, 2), 16);
+  return out;
+};
+const bytesToBig = b => BigInt("0x" + (toHex(b) || "0"));
+const bigToBytes32 = n => fromHex(n.toString(16).padStart(64, "0"));
+
+/* ---------- secp256k1, Jacobian ---------- */
+const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+const GX = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
+const GY = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
+
+const mod = a => { const r = a % P; return r >= 0n ? r : r + P; };
+const inv = a => {           // Fermat; p is prime
+  let r = 1n, b = mod(a), e = P - 2n;
+  while (e > 0n) { if (e & 1n) r = mod(r * b); b = mod(b * b); e >>= 1n; }
+  return r;
+};
+
+// Jacobian point {X, Y, Z}; Z === 0n is the point at infinity.
+const INF = { X: 0n, Y: 1n, Z: 0n };
+
+function jDouble(p) {
+  if (p.Z === 0n || p.Y === 0n) return INF;
+  const A = mod(p.X * p.X), B = mod(p.Y * p.Y), C = mod(B * B);
+  const D = mod(2n * (mod((p.X + B) * (p.X + B)) - A - C));
+  const E = mod(3n * A), F = mod(E * E);
+  const X = mod(F - 2n * D);
+  return { X, Y: mod(E * (D - X) - 8n * C), Z: mod(2n * p.Y * p.Z) };
+}
+
+function jAdd(p, q) {
+  if (p.Z === 0n) return q;
+  if (q.Z === 0n) return p;
+  const Z1Z1 = mod(p.Z * p.Z), Z2Z2 = mod(q.Z * q.Z);
+  const U1 = mod(p.X * Z2Z2), U2 = mod(q.X * Z1Z1);
+  const S1 = mod(p.Y * q.Z * Z2Z2), S2 = mod(q.Y * p.Z * Z1Z1);
+  if (U1 === U2) return S1 === S2 ? jDouble(p) : INF;
+  const H = mod(U2 - U1), I = mod(mod(2n * H) * mod(2n * H));
+  const J = mod(H * I), R = mod(2n * (S2 - S1)), V = mod(U1 * I);
+  const X = mod(R * R - J - 2n * V);
+  return { X, Y: mod(R * (V - X) - 2n * S1 * J), Z: mod(mod((p.Z + q.Z) * (p.Z + q.Z)) - Z1Z1 - Z2Z2) * H % P };
+}
+
+function toAffine(p) {
+  if (p.Z === 0n) return null;
+  const zi = inv(p.Z), zi2 = mod(zi * zi);
+  return { x: mod(p.X * zi2), y: mod(p.Y * zi2 * zi) };
+}
+
+// 4-bit windowed table for G, built once.
+const G_TABLE = (() => {
+  const windows = [];
+  let base = { X: GX, Y: GY, Z: 1n };
+  for (let w = 0; w < 64; w++) {
+    const row = [INF];
+    let acc = INF;
+    for (let i = 1; i < 16; i++) { acc = jAdd(acc, base); row.push(acc); }
+    windows.push(row);
+    for (let i = 0; i < 4; i++) base = jDouble(base);
+  }
+  return windows;
+})();
+
+function mulG(k) {
+  k = ((k % N) + N) % N;
+  let acc = INF;
+  for (let w = 0; w < 64 && k > 0n; w++) {
+    const nib = Number(k & 15n);
+    if (nib) acc = jAdd(acc, G_TABLE[w][nib]);
+    k >>= 4n;
+  }
+  return acc;
+}
+
+function liftX(xBytes) {          // BIP-340: even-Y lift
+  const x = bytesToBig(xBytes);
+  if (x >= P) return null;
+  const y2 = mod(mod(x * x) * x + 7n);
+  let y = 1n, b = y2, e = (P + 1n) / 4n;
+  while (e > 0n) { if (e & 1n) y = mod(y * b); b = mod(b * b); e >>= 1n; }
+  if (mod(y * y) !== y2) return null;
+  if (y & 1n) y = P - y;
+  return { X: x, Y: y, Z: 1n };
+}
+
+/** x-only point + scalar*G, returned x-only. */
+function xOnlyAddTweak(xBytes, scalar) {
+  const Pt = liftX(xBytes);
+  if (!Pt) return null;
+  const sum = toAffine(jAdd(Pt, mulG(scalar)));
+  return sum ? bigToBytes32(sum.x) : null;
+}
+
+/** BIP-341 output key: taptweak(internal, merkleRoot | undefined). */
+function tapTweak(internalX, merkleRoot) {
+  const t = bytesToBig(taggedHash("TapTweak", internalX, merkleRoot ?? new Uint8Array(0)));
+  if (t >= N) return null;
+  return xOnlyAddTweak(internalX, t);
+}
+
+/* ---------- script ---------- */
+const pushBytes = b => concat(Uint8Array.of(b.length), b);
+function pushInt(v) {                     // rust-bitcoin push_int, for the values we emit
+  if (v === 0) return Uint8Array.of(0x00);
+  if (v >= 1 && v <= 16) return Uint8Array.of(0x50 + v);
+  const out = [];
+  let n = v;
+  while (n > 0) { out.push(n & 0xff); n >>= 8; }
+  if (out[out.length - 1] & 0x80) out.push(0x00);
+  return pushBytes(Uint8Array.from(out));
+}
+const OP_CHECKSIG = 0xac, OP_CHECKSIGVERIFY = 0xad, OP_CSV = 0xb2;
+
+/** `<key> OP_CHECKSIGVERIFY <n> OP_CSV` — the timelocked connectors' timeout leaf. */
+const timelockedLeaf = (keyX, timelock) =>
+  concat(pushBytes(keyX), Uint8Array.of(OP_CHECKSIGVERIFY), pushInt(timelock), Uint8Array.of(OP_CSV));
+
+/** TapLeaf hash at the default tapscript version. */
+function leafHash(script) {
+  if (script.length >= 0xfd) throw new Error("script too long for this encoder");
+  return taggedHash("TapLeaf", Uint8Array.of(0xc0), Uint8Array.of(script.length), script);
+}
+
+/** Script pubkey of the contest proof connector for one candidate game. */
+function proofConnectorSpk(params, operatorKeyHex, gameIndex) {
+  const internal = xOnlyAddTweak(fromHex(operatorKeyHex), BigInt(gameIndex));
+  if (!internal) return null;
+  const root = leafHash(timelockedLeaf(fromHex(params.nOfN), params.proofTimelock));
+  const outputKey = tapTweak(internal, root);
+  return outputKey ? "5120" + toHex(outputKey) : null;
+}
+
+/* ---------- witness leaf parsing ---------- */
+/** Last-but-one witness item of a tapscript spend, or null for a key path spend. */
+function tapscriptLeaf(witness) {
+  if (!witness || witness.length < 2) return null;
+  let items = witness;
+  const last = items[items.length - 1];
+  if (last && last.length && fromHex(last)[0] === 0x50) items = items.slice(0, -1); // annex
+  if (items.length < 2) return null;
+  const control = fromHex(items[items.length - 1]);
+  if (control.length < 33 || (control.length - 33) % 32 !== 0) return null;
+  if ((control[0] & 0xfe) !== 0xc0) return null;
+  return fromHex(items[items.length - 2]);
+}
+
+/** `<32> OP_CHECKSIGVERIFY <32> OP_CHECKSIG` -> both keys, else null. */
+function parseCovenantLeaf(leaf) {
+  if (!leaf || leaf.length !== 68) return null;
+  if (leaf[0] !== 32 || leaf[33] !== OP_CHECKSIGVERIFY || leaf[34] !== 32 || leaf[67] !== OP_CHECKSIG) return null;
+  return [toHex(leaf.slice(1, 33)), toHex(leaf.slice(35, 67))];
+}
+
+/** `<32> OP_CHECKSIGVERIFY <n> OP_CSV` -> the key, else null. */
+function parseTimelockedLeaf(leaf) {
+  if (!leaf || leaf.length < 36 || leaf[0] !== 32 || leaf[33] !== OP_CHECKSIGVERIFY) return null;
+  if (leaf[leaf.length - 1] !== OP_CSV) return null;
+  return toHex(leaf.slice(1, 33));
+}
+
+/* ---------- verification ---------- */
+const CONTEST_PROOF_VOUT = 0, CONTEST_PAYOUT_VOUT = 1, CLAIM_CONTEST_VOUT = 0;
+
+const isP2tr = spk => typeof spk === "string" && spk.length === 68 && spk.startsWith("5120");
+
+function hasContestStructure(tx, nWatchtowers) {
+  return tx.version === 3 && tx.locktime === 0 &&
+    tx.vin.length === 1 && tx.vout.length === 4 + nWatchtowers &&
+    tx.vout.every(o => isP2tr(o.scriptpubkey));
+}
+
+/**
+ * Resolves the game a contest belongs to.
+ * Returns {ok:true, operatorIdx, depositIdx, watchtowerIdx} or {ok:false, error}.
+ */
+function verifyContest(params, tx) {
+  const nWatchtowers = params.operators.length - 1;
+  if (nWatchtowers < 0) return { ok: false, error: "NoOperators" };
+  if (!hasContestStructure(tx, nWatchtowers)) return { ok: false, error: "BadStructure" };
+
+  const leaf = tapscriptLeaf(tx.vin[0].witness);
+  if (!leaf) return { ok: false, error: "NotScriptSpend" };
+  const pair = parseCovenantLeaf(leaf);
+  if (!pair) return { ok: false, error: "NotCovenantSigned" };
+  const [nOfN, watchtower] = pair;
+  const watchtowerIdx = params.operators.indexOf(watchtower);
+  if (nOfN !== params.nOfN || watchtowerIdx < 0) return { ok: false, error: "NotCovenantSigned" };
+
+  const observed = tx.vout[CONTEST_PROOF_VOUT].scriptpubkey;
+  for (let operatorIdx = 0; operatorIdx < params.operators.length; operatorIdx++) {
+    for (let depositIdx = 0; depositIdx <= params.maxDepositIdx; depositIdx++) {
+      if (proofConnectorSpk(params, params.operators[operatorIdx], depositIdx + 1) === observed) {
+        return { ok: true, operatorIdx, depositIdx, watchtowerIdx };
+      }
+    }
+  }
+  return { ok: false, error: "NoMatch" };
+}
+
+/** Is `tx` the watchtower ack spending `contestTxid`'s payout connector? */
+function isAckOf(params, contestTxid, tx) {
+  const spends = vout => tx.vin.some(i => i.txid === contestTxid && i.vout === vout);
+  const shape = tx.version === 3 && tx.locktime === 0 &&
+    tx.vin.length === 2 && tx.vout.length === 1 && isP2tr(tx.vout[0].scriptpubkey) &&
+    spends(CONTEST_PAYOUT_VOUT) && !spends(CONTEST_PROOF_VOUT);
+  if (!shape) return false;
+  return tx.vin.some(i => parseTimelockedLeaf(tapscriptLeaf(i.witness)) === params.nOfN);
+}
+
+/**
+ * Walks claim -> contest -> payout connector spender.
+ * `chain` provides tx(txid) and outspend(txid, vout), both async.
+ */
+async function verifyAck(chain, params, claimTxid) {
+  const contestTxid = await chain.outspend(claimTxid, CLAIM_CONTEST_VOUT);
+  if (!contestTxid) return { ok: false, error: "NoContest" };
+
+  const contest = await chain.tx(contestTxid);
+  if (!contest) return { ok: false, error: "MissingTx", txid: contestTxid };
+
+  const game = verifyContest(params, contest);
+  if (!game.ok) return { ok: false, error: "Contest", inner: game.error, contestTxid };
+
+  const spenderTxid = await chain.outspend(contestTxid, CONTEST_PAYOUT_VOUT);
+  let ack = false, spender = null;
+  if (spenderTxid) {
+    spender = await chain.tx(spenderTxid);
+    if (!spender) return { ok: false, error: "MissingTx", txid: spenderTxid };
+    ack = isAckOf(params, contestTxid, spender);
+  }
+
+  return {
+    ok: true, contestTxid, spenderTxid, spender, ack,
+    operatorIdx: game.operatorIdx, depositIdx: game.depositIdx, watchtowerIdx: game.watchtowerIdx
+  };
+}
+
+const PARAMS = {
+  nOfN: "e5b7273af014acd41112d67377be1543499a642e8891481141d578c7df698497",
+  proofTimelock: 24,
+  maxDepositIdx: 99,
+  operators: [
+    "ff79389655916a41e7f8278c1de678ed34c17171122afece179b8a7583a84450",
+    "19ef09eaecff5c4cc875f9ac56c1849712ed4019d0280ad08c743a8635c796e3",
+    "7e2b01bdbc6925f103d2157f7494bc4feebc744066042d3618351b29991cfdce",
+    "35be0db46188725d717ae159ba2b56c971d718b8c827d405664b987390091b90",
+    "72eb41053d4dfafe53f237cf37071220b54ffa782435dba94a2009063296c565",
+  ],
+};
+
+const API = "https://mempool.space/signet/api";
+const EXPLORER = "https://mempool.space/signet/tx/";
+
+const chain = {
+  async tx(txid) {
+    const r = await fetch(`${API}/tx/${txid}`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`mempool.space returned ${r.status}`);
+    return r.json();
+  },
+  async outspend(txid, vout) {
+    const r = await fetch(`${API}/tx/${txid}/outspend/${vout}`);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`mempool.space returned ${r.status}`);
+    const o = await r.json();
+    return o.spent ? o.txid : null;
+  },
+};
+
+/* ---------- rendering ---------- */
+const $ = id => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+};
+const short = k => k.slice(0, 8) + "…" + k.slice(-6);
+
+function banner(kind, headline, note) {
+  const v = el("div", `verdict ${kind}`);
+  v.append(el("b", null, headline));
+  if (note) v.append(el("em", null, note));
+  return v;
+}
+
+function fields(pairs) {
+  const dl = el("dl");
+  for (const [k, v] of pairs) { dl.append(el("dt", null, k), el("dd", null, v)); }
+  return dl;
+}
+
+function walk(steps) {
+  const box = el("div", "walk");
+  box.append(el("h2", null, "Graph walk"));
+  steps.forEach(([label, txid, note], i) => {
+    const step = el("div", "step");
+    const rail = el("div", "rail");
+    rail.append(el("span", `dot${txid ? "" : " off"}`));
+    if (i < steps.length - 1) rail.append(el("span", "bar"));
+    const body = el("div", "step-body");
+    body.append(el("div", "step-label", label));
+    if (txid) {
+      const a = el("a", "txid", txid);
+      a.href = EXPLORER + txid;
+      a.target = "_blank";
+      a.rel = "noopener";
+      body.append(a);
+    }
+    body.append(el("div", "step-note", note));
+    step.append(rail, body);
+    box.append(step);
+  });
+  return box;
+}
+
+const CONTEST_ERRORS = {
+  NoOperators: "no operators configured",
+  BadStructure: "the transaction spending the claim is not shaped like a contest",
+  NotScriptSpend: "the contest's input is a key path spend, so it reveals no covenant leaf",
+  NotCovenantSigned: "the revealed leaf does not carry the configured N/N key",
+  NoMatch: "no configured operator and deposit produce this proof connector",
+};
+
+function show(...nodes) {
+  const box = $("result");
+  box.replaceChildren(...nodes);
+}
+
+function render(claimTxid, r) {
+  if (!r.ok && r.error === "NoContest") {
+    return show(
+      banner("err", "No contest", "nothing on chain binds this claim to an operator"),
+      walk([
+        ["Claim", claimTxid, "contest connector unspent"],
+        ["Contest", null, "none — the claim may simply be young, or this is not a claim"],
+      ]),
+    );
+  }
+  if (!r.ok && r.error === "Contest") {
+    return show(
+      banner("err", "Not verified", CONTEST_ERRORS[r.inner] ?? r.inner),
+      walk([
+        ["Claim", claimTxid, "contest connector spent"],
+        ["Contest", r.contestTxid, `rejected: ${r.inner}`],
+      ]),
+    );
+  }
+  if (!r.ok) {
+    return show(banner("err", "Lookup failed", r.error === "MissingTx"
+      ? `transaction ${short(r.txid)} could not be fetched` : r.error));
+  }
+
+  const op = PARAMS.operators[r.operatorIdx];
+  const wt = PARAMS.operators[r.watchtowerIdx];
+  const steps = [
+    ["Claim", claimTxid, "contest connector spent"],
+    ["Contest", r.contestTxid,
+     `covenant leaf verified · contested by operator ${r.watchtowerIdx} (${short(wt)})`],
+  ];
+  if (!r.spenderTxid) {
+    steps.push(["Payout connector", null, "unspent — the game has not resolved yet"]);
+  } else if (r.ack) {
+    steps.push(["Watchtower ack", r.spenderTxid,
+                "spends the payout connector and a counterproof output"]);
+  } else {
+    steps.push(["Payout connector spent", r.spenderTxid,
+                r.spender && r.spender.vin.some(i => i.txid === r.contestTxid && i.vout === 0)
+                  ? "bridge proof timeout — it also spends the proof connector, so not an ack"
+                  : "not an ack"]);
+  }
+
+  show(
+    r.ack
+      ? banner("yes", "Ack on chain", `operator ${r.operatorIdx} is faulty`)
+      : banner("no", "No ack", r.spenderTxid ? "the game resolved another way" : "game still open"),
+    fields([
+      ["Operator", `${r.operatorIdx} — ${op}`],
+      ["Deposit", String(r.depositIdx)],
+      ["Game index", String(r.depositIdx + 1)],
+      ["Contest", r.contestTxid],
+    ]),
+    walk(steps),
+  );
+}
+
+/* ---------- wiring ---------- */
+async function run() {
+  const txid = $("txid").value.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(txid)) {
+    return show(banner("err", "Not a txid", "expected 64 hexadecimal characters"));
+  }
+  $("go").disabled = true;
+  show(banner("busy", "Checking…", "following the graph from the claim"));
+  try {
+    const claim = await chain.tx(txid);
+    if (!claim) {
+      show(banner("err", "Unknown transaction", "mempool.space has no transaction with that id on signet"));
+      return;
+    }
+    render(txid, await verifyAck(chain, PARAMS, txid));
+  } catch (e) {
+    show(banner("err", "Lookup failed", e.message || String(e)));
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+$("f").addEventListener("submit", e => { e.preventDefault(); run(); });
+
+$("c-nofn").textContent = PARAMS.nOfN;
+$("c-tl").textContent = `${PARAMS.proofTimelock} blocks`;
+$("c-max").textContent = `0 – ${PARAMS.maxDepositIdx}`;
+for (const o of PARAMS.operators) $("c-ops").append(el("li", null, o));
+
+run();
+</script>
+</body>
+</html>
