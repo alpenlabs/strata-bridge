@@ -180,6 +180,7 @@ fn test_sm_config() -> SMConfig {
             },
         }),
         max_active_deposits: None,
+        deposit_index_offset: 0,
     }
 }
 
