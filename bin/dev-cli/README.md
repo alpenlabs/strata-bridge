@@ -17,6 +17,20 @@ dev-cli bridge-in \
   --ee-address 0x<EVM_ADDRESS>
 ```
 
+### `derive-keys`
+
+Derive operator keys and addresses from a master xpriv seed.
+
+```bash
+dev-cli derive-keys <HEX_ENCODED_SEED>
+```
+
+The seed is a 32-byte hex-encoded value (64 hex characters). An optional second argument selects the network to derive addresses for (defaults to `regtest`):
+
+```bash
+dev-cli derive-keys <HEX_ENCODED_SEED> signet
+```
+
 ### `create-and-publish-mock-checkpoint`
 
 Create and broadcast a mock checkpoint via a taproot commit-reveal envelope.
@@ -35,6 +49,21 @@ dev-cli create-and-publish-mock-checkpoint \
 ```
 
 The network, magic bytes, withdrawal amount (`protocol.deposit_amount`) and default genesis L1 height (`genesis_height`, override with `--genesis-l1-height`) come from the params file.
+
+### `defcon1`
+
+Publish a Defcon1 admin transaction activating the ASM safe harbour.
+
+```bash
+dev-cli defcon1 \
+  --seed <HEX_ENCODED_SEED> \
+  --seqno 1 \
+  --btc-url http://127.0.0.1:18443/wallet/testwallet \
+  --btc-user user \
+  --btc-pass password
+```
+
+The seed is the hex-encoded seed of the council signer (operator 0 in test setups). `--seqno` is the admin action sequence number and must exceed the council's last sequence number (defaults to `1`). `--network` selects the bitcoin network (defaults to `regtest`).
 
 ### `claim`
 
@@ -70,6 +99,38 @@ dev-cli contest \
   --btc-user user \
   --btc-pass password
 ```
+
+### `bridge-proof`
+
+Post an empty bridge proof receipt transaction.
+
+```bash
+dev-cli bridge-proof \
+  --deposit-idx 0 \
+  --operator-idx 0 \
+  --bridge-node-url http://127.0.0.1:4781 \
+  --seed <HEX_ENCODED_SEED> \
+  --params ./params.toml \
+  --btc-url http://127.0.0.1:18443/wallet/testwallet \
+  --btc-user user \
+  --btc-pass password
+```
+
+The seed is the hex-encoded seed of the graph-owning operator.
+
+### `unstaking-intent`
+
+Post an unstaking intent transaction.
+
+```bash
+dev-cli unstaking-intent \
+  --operator-idx 0 \
+  --bridge-node-url http://127.0.0.1:4781 \
+  --seed <HEX_ENCODED_SEED> \
+  --params ./params.toml
+```
+
+The seed is the hex-encoded seed of the unstaking operator.
 
 ### `wallet-birthday`
 
