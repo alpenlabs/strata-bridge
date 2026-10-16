@@ -487,6 +487,7 @@ mod tests {
             GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
 
         let watchtower_slot = watchtower_slot_for_operator(
+            sm.context().operator_table(),
             sm.context().operator_table().pov_idx(),
             counterprover_idx,
         )

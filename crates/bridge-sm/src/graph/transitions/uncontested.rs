@@ -120,6 +120,7 @@ impl GraphSM {
                     Ok(GSMOutput::with_duties(duties))
                 } else {
                     let pov_counterproof_idx = watchtower_slot_for_operator(
+                        self.context().operator_table(),
                         self.context().operator_idx(),
                         pov_operator_idx,
                     )
@@ -839,6 +840,7 @@ impl GraphSM {
 
                         let contest_tx = game_graph.contest;
                         let watchtower_index = watchtower_slot_for_operator(
+                            self.context().operator_table(),
                             self.context().operator_idx(),
                             self.context().operator_table().pov_idx(),
                         )

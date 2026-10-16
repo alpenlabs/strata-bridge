@@ -45,8 +45,9 @@ use super::{drt, exits::resolve_exit_observation};
 use crate::{
     applicator::Applicator,
     errors::{PipelineError, ProcessError},
-    sm_registry::{ActiveOperatorSnapshot, RegistryInsertError, SMRegistry, SnapshotError},
+    sm_registry::{RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
+    stake_readiness::{CovenantStakes, ReadinessError},
 };
 
 /// Applies stake transitions and finalizes the block's operator membership.
@@ -284,7 +285,7 @@ fn try_register_deposit(
     // Safe harbour halts new deposits. Best-effort: a DRT admitted before the latch is caught
     // by the sweep once it reaches `Deposited`.
     if applicator.registry().safe_harbour_active() {
-        debug!(txid=%tx.compute_txid(), "safe harbour active; refusing to admit new deposit");
+        warn!(txid=%tx.compute_txid(), "safe harbour active; refusing to admit new deposit");
         return Ok(Vec::new());
     }
 
@@ -297,27 +298,18 @@ fn try_register_deposit(
         return Ok(Vec::new());
     };
 
-    let snapshot = match applicator
-        .registry()
-        .active_operator_snapshot(block_covenant.covenant, &local_table)
-    {
-        Ok(snap) => snap,
-        Err(err @ (SnapshotError::MissingStakeSM(_) | SnapshotError::StakeUnavailable(_))) => {
-            debug!(%err, "covenant stakes are not ready; refusing to admit new deposit");
-            return Ok(Vec::new());
-        }
-        Err(err) => {
-            warn!(%err, "skipping DRT check: could not derive active operator snapshot");
-            return Ok(Vec::new());
-        }
-    };
-
-    let ActiveOperatorSnapshot {
-        covenant,
-        operator_table: active_operator_table,
-        stake_inputs,
-        unstaking_images,
-    } = snapshot;
+    let CovenantStakes { covenant, stakes } =
+        match applicator.registry().covenant_readiness(block_covenant) {
+            Ok(ready) => ready,
+            Err(err @ ReadinessError::Unready { .. }) => {
+                warn!(%err, "refusing to admit new deposit");
+                return Ok(Vec::new());
+            }
+            Err(err @ ReadinessError::CovenantMismatch(_)) => {
+                warn!(%err, "skipping DRT check: could not assess covenant readiness");
+                return Ok(Vec::new());
+            }
+        };
 
     let valid = match drt::validate_candidate(tx, deposit_cfg, &block_covenant.operator_table) {
         Ok(valid) => valid,
@@ -352,7 +344,8 @@ fn try_register_deposit(
 
     let dsm = DepositSM::new(
         deposit_cfg.clone(),
-        active_operator_table.clone(),
+        covenant,
+        local_table.clone(),
         deposit_data,
         valid.depositor_pubkey,
         valid.drt_output_amount,
@@ -374,36 +367,29 @@ fn try_register_deposit(
     let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
     let _entered = span.entered();
     info!(
-        active_operator_count = active_operator_table.operator_idxs().len(),
-        "passed validation; registering DSM / GSMs from active operator snapshot"
+        operator_count = stakes.len(),
+        "passed validation; registering DSM / GSMs for the ready covenant"
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
     info!(%deposit_outpoint, %deposit_idx, "registering new DepositSM for detected DRT");
     applicator.insert_deposit(deposit_idx, dsm)?;
 
-    // Register one GraphSM per active operator, collecting initial duties.
+    // Register one GraphSM per covenant member, collecting initial duties.
     let mut duties = Vec::new();
-    for &op_idx in active_operator_table.operator_idxs().iter() {
+    for (&op_idx, binding) in &stakes {
         let graph_idx = GraphIdx {
             deposit: deposit_idx,
             operator: op_idx,
         };
 
-        let stake_outpoint = *stake_inputs
-            .get(&op_idx)
-            .expect("snapshot must contain stake input for active operator");
-        let unstaking_image = *unstaking_images
-            .get(&op_idx)
-            .expect("snapshot must contain unstaking image for active operator");
-
         let gsm_ctx = GraphSMCtx {
             covenant,
             graph_idx,
             deposit_outpoint,
-            stake_outpoint,
-            unstaking_image,
-            operator_table: active_operator_table.clone(),
+            stake_outpoint: binding.outpoint,
+            unstaking_image: binding.unstaking_image,
+            operator_table: local_table.clone(),
         };
 
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
@@ -515,7 +501,11 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use bitcoin::{absolute, transaction};
+    use bitcoin::{
+        absolute,
+        hashes::{Hash, sha256},
+        transaction,
+    };
     use btc_tracker::event::BlockStatus;
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
     use strata_bridge_primitives::operator_table::PublicOperatorTable;
@@ -523,7 +513,7 @@ mod tests {
         deposit::{events::UserTakeBackEvent, state::DepositState},
         graph::duties::GraphDuty,
         operator_set::{ConfirmedExit, ExitKind},
-        stake::state::StakeState,
+        stake::{context::StakeSMCtx, state::StakeState},
     };
     use strata_bridge_test_utils::{
         bitcoin::{
@@ -1508,7 +1498,14 @@ mod tests {
         );
         assert_eq!(restored.num_deposits(), 2);
         assert_eq!(restored.get_deposit(&0), registry.get_deposit(&0));
-        assert!(restored.active_operator_snapshot(covenant, &table).is_ok());
+        let membership = restored.get_operator_set().unwrap();
+        let block_covenant = membership
+            .covenant_at(membership.last_block_height())
+            .unwrap();
+        assert!(
+            restored.covenant_readiness(&block_covenant).is_ok(),
+            "restored stakes must keep the covenant ready"
+        );
         let original = restored.get_deposit(&0).unwrap().clone();
         let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &event)
             .await
@@ -1689,6 +1686,198 @@ mod tests {
                 .has_same_membership(&successor.operator_table),
             "The deposit must retain the block-final covenant's membership"
         );
+        assert_eq!(
+            deposit.context().covenant(),
+            successor.covenant,
+            "The deposit must record the block-final covenant"
+        );
+    }
+
+    /// Inserts a confirmed stake for `operator` in the covenant of `table` activated at
+    /// `activation_height`, with an unstaking image unique to that stake.
+    fn insert_bound_stake(
+        registry: &mut SMRegistry,
+        operator: OperatorIdx,
+        table: &OperatorTable,
+        activation_height: BitcoinBlockHeight,
+    ) {
+        let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
+        if let StakeState::Confirmed { stake_data, .. } = &mut sm.state {
+            stake_data.unstaking_image = sha256::Hash::hash(generate_txid().as_byte_array());
+        }
+        registry.insert_stake(sm).unwrap();
+    }
+
+    /// Asserts that each graph of `deposit_idx` belongs to a member of `covenant` and is bound
+    /// to that member's own stake in `covenant`.
+    fn assert_graphs_bound_to(
+        registry: &SMRegistry,
+        deposit_idx: DepositIdx,
+        covenant: CovenantId,
+        members: &BTreeSet<OperatorIdx>,
+    ) {
+        let graphs: Vec<_> = registry
+            .graphs()
+            .filter(|(idx, _)| idx.deposit == deposit_idx)
+            .collect();
+        assert_eq!(
+            graphs
+                .iter()
+                .map(|(idx, _)| idx.operator)
+                .collect::<BTreeSet<_>>(),
+            *members,
+            "deposit {deposit_idx} must have one graph per member of its covenant"
+        );
+        for (idx, graph) in graphs {
+            let ctx = graph.context();
+            let StakeState::Confirmed {
+                stake_data,
+                summary,
+                ..
+            } = registry
+                .get_stake(&StakeKey {
+                    covenant,
+                    operator: idx.operator,
+                })
+                .expect("every member has a stake in the covenant")
+                .state()
+            else {
+                panic!("fixture stakes are confirmed");
+            };
+            assert_eq!(
+                ctx.covenant, covenant,
+                "graph {idx} must belong to its deposit's covenant"
+            );
+            assert_eq!(
+                ctx.stake_outpoint,
+                OutPoint::new(summary.stake, StakeTx::STAKE_VOUT),
+                "graph {idx} must be bound to its owner's stake in the same covenant"
+            );
+            assert_eq!(
+                ctx.unstaking_image, stake_data.unstaking_image,
+                "graph {idx} must carry the image of the same stake as its outpoint"
+            );
+        }
+    }
+
+    #[test]
+    fn graphs_keep_their_own_covenants_stakes_across_an_exit() {
+        let exited = N_TEST_OPERATORS as OperatorIdx - 1;
+        let (initial, successor) = covenants_around_exit(exited);
+        let initial_table = initial
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let successor_table = successor
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let mut registry = test_empty_registry();
+        for (table, block_covenant) in [(&initial_table, &initial), (&successor_table, &successor)]
+        {
+            for operator in table.operator_idxs() {
+                insert_bound_stake(
+                    &mut registry,
+                    operator,
+                    table,
+                    block_covenant.covenant.activation_height,
+                );
+            }
+        }
+        let cfg = registry.cfg().deposit.clone();
+
+        register(
+            &mut registry,
+            &initial,
+            &DrtBuilder::aligned(&initial_table, &cfg).build(),
+        );
+        let historical: Vec<_> = registry
+            .graphs()
+            .map(|(_, graph)| graph.context().clone())
+            .collect();
+        register(
+            &mut registry,
+            &successor,
+            &DrtBuilder::aligned(&successor_table, &cfg).build(),
+        );
+
+        assert_graphs_bound_to(
+            &registry,
+            0,
+            initial.covenant,
+            &initial_table.operator_idxs(),
+        );
+        assert_graphs_bound_to(
+            &registry,
+            1,
+            successor.covenant,
+            &successor_table.operator_idxs(),
+        );
+        assert_eq!(
+            registry
+                .graphs()
+                .filter(|(idx, _)| idx.deposit == 0)
+                .map(|(_, graph)| graph.context().clone())
+                .collect::<Vec<_>>(),
+            historical,
+            "admitting a successor deposit must leave earlier graphs untouched"
+        );
+    }
+
+    #[test]
+    fn a_later_activation_of_the_same_signing_set_uses_fresh_stakes() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let earlier = block_covenant_for(&table);
+        let later = BlockCovenant {
+            covenant: CovenantId {
+                activation_height: INITIAL_BLOCK_HEIGHT + 100,
+                ..earlier.covenant
+            },
+            operator_table: earlier.operator_table.clone(),
+        };
+        let mut registry = test_empty_registry();
+        for block_covenant in [&earlier, &later] {
+            for operator in table.operator_idxs() {
+                insert_bound_stake(
+                    &mut registry,
+                    operator,
+                    &table,
+                    block_covenant.covenant.activation_height,
+                );
+            }
+        }
+        let cfg = registry.cfg().deposit.clone();
+
+        register(
+            &mut registry,
+            &earlier,
+            &DrtBuilder::aligned(&table, &cfg).build(),
+        );
+        register(
+            &mut registry,
+            &later,
+            &DrtBuilder::aligned(&table, &cfg).build(),
+        );
+
+        assert_graphs_bound_to(&registry, 0, earlier.covenant, &table.operator_idxs());
+        assert_graphs_bound_to(&registry, 1, later.covenant, &table.operator_idxs());
+        for operator in table.operator_idxs() {
+            let stake_outpoint = |deposit| {
+                registry
+                    .get_graph(&GraphIdx { deposit, operator })
+                    .expect("graph registered")
+                    .context()
+                    .stake_outpoint
+            };
+            assert_ne!(
+                stake_outpoint(0),
+                stake_outpoint(1),
+                "operator {operator}'s graphs at different activations must use different stakes"
+            );
+        }
     }
 
     #[test]

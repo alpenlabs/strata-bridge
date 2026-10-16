@@ -1,7 +1,10 @@
 //! Configuration shared across all graph state machines.
 
+use std::collections::BTreeMap;
+
 use bitcoin::Amount;
 use bitcoin_bosd::Descriptor;
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph::game_graph::{AdminMultisig, ProtocolParams};
 use strata_predicate::PredicateKey;
 
@@ -22,8 +25,11 @@ pub struct GraphSMCfg {
     /// Signatures satisfying this threshold can be used to block payouts to the operator.
     pub admin: AdminMultisig,
 
-    /// Descriptor to which payouts are to be sent in case of a successful peg out.
-    pub payout_descs: Vec<Descriptor>,
+    /// Each registered operator's payout descriptor, keyed by permanent operator index.
+    ///
+    /// Registrations are never removed and their descriptors never change, so a graph built
+    /// from this map keeps the same scripts as registrations are added.
+    pub payout_descs: BTreeMap<OperatorIdx, Descriptor>,
 
     /// Predicate key used to verify bridge proof.
     pub bridge_proof_predicate: PredicateKey,

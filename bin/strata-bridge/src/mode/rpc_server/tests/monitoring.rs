@@ -107,7 +107,7 @@ fn test_graph_cfg() -> GraphSMCfg {
             pubkeys: vec![generate_xonly_pubkey()],
             threshold: 1,
         },
-        payout_descs: (0..3).map(|_| random_p2tr_desc()).collect(),
+        payout_descs: (0..3).map(|idx| (idx, random_p2tr_desc())).collect(),
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),
     }
@@ -187,6 +187,7 @@ fn test_sm_config() -> SMConfig {
 fn test_deposit_sm(deposit_idx: DepositIdx, operator_table: OperatorTable) -> DepositSM {
     DepositSM {
         context: DepositSMCtx {
+            covenant: CovenantId::from_operator_table(&operator_table, 100).unwrap(),
             deposit_idx,
             deposit_request_outpoint: OutPoint::new(Txid::all_zeros(), 1),
             deposit_outpoint: OutPoint::new(Txid::all_zeros(), 2),

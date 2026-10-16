@@ -90,7 +90,9 @@ pub(crate) fn test_deposit_sm_cfg() -> Arc<DepositSMCfg> {
 
 /// Creates a test `GraphSMCfg`, mirroring `bridge-sm/graph/tests::test_graph_sm_cfg`.
 pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let payout_descs = (0..N_TEST_OPERATORS).map(|_| random_p2tr_desc()).collect();
+    let payout_descs = (0..N_TEST_OPERATORS as OperatorIdx)
+        .map(|idx| (idx, random_p2tr_desc()))
+        .collect();
 
     Arc::new(GraphSMCfg {
         game_graph_params: GameProtocolParams {
@@ -186,6 +188,7 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
     let deposit_request_amount = cfg.deposit_amount() + Amount::from_sat(10_000); // ensure drt output amount is greater than deposit amount
     let dsm = DepositSM::new(
         cfg,
+        CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
         operator_table.clone(),
         data,
         depositor_pubkey,

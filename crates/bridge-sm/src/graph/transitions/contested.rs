@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::Transaction;
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
 use strata_bridge_tx_graph::game_graph::{GameConnectors, GameGraphSummary};
 
 use crate::{
@@ -348,6 +348,7 @@ impl GraphSM {
                 // ACK/NACK output and is not a known counterproof ACK.
                 if !validate_counterproof_nack(
                     &graph_summary,
+                    self.context().operator_table(),
                     self.context().operator_idx(),
                     event.counterprover_idx,
                     &event.tx,
@@ -447,18 +448,21 @@ impl GraphSM {
             } => {
                 let graph_owner_idx = self.context().operator_idx();
 
-                let watchtower_slot =
-                    watchtower_slot_for_operator(graph_owner_idx, event.counterprover_idx)
-                        .ok_or_else(|| {
-                            GSMError::rejected(
-                                self.state.clone(),
-                                event.clone().into(),
-                                format!(
-                                    "operator index {} has no watchtower slot in this graph",
-                                    event.counterprover_idx
-                                ),
-                            )
-                        })?;
+                let watchtower_slot = watchtower_slot_for_operator(
+                    self.context().operator_table(),
+                    graph_owner_idx,
+                    event.counterprover_idx,
+                )
+                .ok_or_else(|| {
+                    GSMError::rejected(
+                        self.state.clone(),
+                        event.clone().into(),
+                        format!(
+                            "operator index {} has no watchtower slot in this graph",
+                            event.counterprover_idx
+                        ),
+                    )
+                })?;
 
                 let expected_ack_txid = graph_summary
                     .counterproofs
@@ -548,8 +552,7 @@ impl GraphSM {
         // consensus to make sure the transaction graph is being followed.
         //
         // No cross-SM signal is emitted on this transition. Operator-set
-        // membership is tracked by the `StakeSM` via its
-        // `active_operator_snapshot`, which is driven directly by on-chain
+        // membership and stake readiness are driven directly by on-chain
         // slash and unstake observations.
         if self.state.expected_slash_txid() == Some(spend_txid) {
             self.state = GraphState::Slashed {
@@ -628,11 +631,12 @@ fn validate_bridge_proof_spend(
 /// Validates that `tx` spends the NACK output of the counterproof transaction.
 fn validate_counterproof_nack(
     summary: &GameGraphSummary,
+    operator_table: &OperatorTable,
     graph_owner_idx: OperatorIdx,
     counterprover_idx: OperatorIdx,
     tx: &Transaction,
 ) -> bool {
-    watchtower_slot_for_operator(graph_owner_idx, counterprover_idx)
+    watchtower_slot_for_operator(operator_table, graph_owner_idx, counterprover_idx)
         .and_then(|slot| summary.counterproofs.get(slot))
         .is_some_and(|cp| {
             tx.compute_txid() != cp.counterproof_ack
