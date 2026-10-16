@@ -1,5 +1,7 @@
 //! Error types for the orchestrator crate.
 
+use bitcoin::OutPoint;
+use bitcoind_async_client::error::ClientError;
 use strata_bridge_sm::{operator_set::OperatorSetError, signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
@@ -42,6 +44,15 @@ pub enum PipelineError {
     /// A fatal error occurred while processing an event through a state machine.
     #[error("process error: {0}")]
     Process(#[from] ProcessError),
+
+    /// An exit's spent output could not be resolved for validation.
+    #[error("could not resolve exit input {outpoint}: {source}")]
+    ExitInput {
+        /// The connector input being resolved.
+        outpoint: OutPoint,
+        /// The Bitcoin RPC or response error.
+        source: ClientError,
+    },
 
     /// A fatal error occurred while persisting state to disk.
     #[error("persist error: {0}")]

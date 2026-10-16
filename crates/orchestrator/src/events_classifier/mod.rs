@@ -4,5 +4,6 @@
 //! - [`onchain`]: Block scanning, TxClassifier, and NewBlock cursor events
 
 mod drt;
+pub mod exits;
 pub mod offchain;
 pub mod onchain;
