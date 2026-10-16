@@ -3,7 +3,10 @@
 //! Responsible for driving deposit progress by reacting to events and
 //! producing the required duties and signals.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use bitcoin::{Amount, OutPoint, XOnlyPublicKey, relative};
 use musig2::PartialSignature;
@@ -122,16 +125,16 @@ impl StateMachine for DepositSM {
 /// duties and [`DepositSignal`] signals.
 pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
-/// Returns whether enough payout partials have been collected for the assignee to finalize the
-/// cooperative payout.
-// HACK: (mukeshdroid) The stricter check would have been to assert that the partials except from
-// the assignee has been collected. The following check that asserts *any* n-1 partials are
-// collected is enough since the assignee should never send their partials for their own good.
+/// Returns whether every operator other than the assignee has supplied its payout partial.
 pub(crate) fn has_all_payout_partials(
-    operator_table_cardinality: usize,
+    operator_idxs: &BTreeSet<OperatorIdx>,
+    assignee: OperatorIdx,
     payout_partials: &BTreeMap<OperatorIdx, PartialSignature>,
 ) -> bool {
-    operator_table_cardinality - 1 == payout_partials.len()
+    operator_idxs
+        .iter()
+        .filter(|&&idx| idx != assignee)
+        .all(|idx| payout_partials.contains_key(idx))
 }
 
 impl DepositSM {

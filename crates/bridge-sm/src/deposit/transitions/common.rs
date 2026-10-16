@@ -20,7 +20,7 @@ impl DepositSM {
             return Err(DSMError::duplicate(self.state().clone(), new_block.into()));
         }
 
-        let operator_table_cardinality = self.context().operator_table().cardinality();
+        let operator_idxs = self.context().operator_table().operator_idxs();
         match self.state_mut() {
             DepositState::Created {
                 last_block_height, ..
@@ -79,9 +79,10 @@ impl DepositSM {
             // The assignee can finalize the cooperative payout, so the deadline no longer applies.
             DepositState::PayoutNoncesCollected {
                 last_block_height,
+                assignee,
                 payout_partial_signatures,
                 ..
-            } if has_all_payout_partials(operator_table_cardinality, payout_partial_signatures) => {
+            } if has_all_payout_partials(&operator_idxs, *assignee, payout_partial_signatures) => {
                 *last_block_height = new_block.block_height;
 
                 Ok(SMOutput {
