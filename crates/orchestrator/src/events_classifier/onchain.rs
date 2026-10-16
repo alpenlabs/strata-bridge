@@ -319,10 +319,7 @@ fn try_register_deposit(
         }
     };
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
-    // Supply the progress of the request's covenant sequence once admission is no longer
-    // limited to the initial covenant. Until then, every registered deposit shares one sequence.
-    let previous = applicator.registry().last_deposit_idx();
+    let previous = applicator.registry().last_covenant_deposit_idx(covenant);
     let deposit_idx = match applicator.registry().next_deposit_idx(
         previous,
         &block_covenant.operator_table,
@@ -531,11 +528,11 @@ mod tests {
         sm_registry::{SMConfig, SMRegistry},
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
-            insert_confirmed_stake, insert_deposit_with_graphs, insert_test_membership,
-            make_confirmed_stake_sm, takeback_tx, test_deposit_sm_cfg, test_empty_registry,
-            test_fdb_config, test_membership, test_membership_table, test_operator_table,
-            test_populated_registry, test_registry_with_cap, test_safe_harbour_address,
-            test_sm_config, test_stake_key, unavailable_bitcoin_client,
+            insert_confirmed_stake, insert_deposit_activated_at, insert_deposit_with_graphs,
+            insert_test_membership, make_confirmed_stake_sm, takeback_tx, test_deposit_sm_cfg,
+            test_empty_registry, test_fdb_config, test_membership, test_membership_table,
+            test_operator_table, test_populated_registry, test_registry_with_cap,
+            test_safe_harbour_address, test_sm_config, test_stake_key, unavailable_bitcoin_client,
         },
     };
 
@@ -782,6 +779,31 @@ mod tests {
             1,
             "skipped deposits do not count"
         );
+    }
+
+    #[test]
+    fn registration_continues_only_its_own_covenants_indices() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_empty_registry();
+        confirm_all_stakes(&mut registry, &operator_table);
+        let historical_idx = 50;
+        insert_deposit_activated_at(&mut registry, historical_idx, INITIAL_BLOCK_HEIGHT - 10);
+        let offset = registry.cfg().deposit_index_offset;
+
+        for expected in [offset, offset + 1] {
+            let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+            register_drt(&mut registry, &operator_table, &cfg, &drt);
+            let (registered_idx, _) = registry
+                .deposits()
+                .find(|(_, sm)| sm.context().deposit_request_outpoint().txid == drt.compute_txid())
+                .expect("the request must be registered");
+            assert_eq!(
+                *registered_idx, expected,
+                "A covenant's requests must follow its own retained indices, not the historical \
+                 covenant's index {historical_idx}"
+            );
+        }
     }
 
     #[test]
@@ -1798,6 +1820,7 @@ mod tests {
             .graphs()
             .map(|(_, graph)| graph.context().clone())
             .collect();
+        registry.set_deposit_index_offset(1);
         register(
             &mut registry,
             &successor,
@@ -1856,6 +1879,7 @@ mod tests {
             &earlier,
             &DrtBuilder::aligned(&table, &cfg).build(),
         );
+        registry.set_deposit_index_offset(1);
         register(
             &mut registry,
             &later,
