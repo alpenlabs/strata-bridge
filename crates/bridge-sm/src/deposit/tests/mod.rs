@@ -18,7 +18,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Amount, Network, OutPoint};
 use bitcoin_bosd::Descriptor;
-use musig2::KeyAggContext;
+use musig2::{AggNonce, KeyAggContext, PubNonce};
 use proptest::prelude::*;
 use secp256k1::{Message, SecretKey};
 use strata_bridge_connectors::n_of_n::NOfNConnector;
@@ -224,6 +224,68 @@ pub(super) fn get_payout_signing_info(
         .expect("must create key agg context");
     let message = payout_tx.signing_info()[0].sighash;
     (key_agg_ctx, message)
+}
+
+/// Helper to create test setup for payout partial tests.
+/// Returns (state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx).
+pub(super) fn create_payout_partial_test_setup(
+    assignee: OperatorIdx,
+) -> (
+    DepositState,
+    Vec<TestMusigSigner>,
+    KeyAggContext,
+    AggNonce,
+    Message,
+    CooperativePayoutTx,
+) {
+    let signers = test_operator_signers();
+    let operator_desc = random_p2tr_desc();
+    let fulfillment_txid = generate_txid();
+
+    // Build cooperative payout tx and get signing info
+    let payout_tx = test_cooperative_payout_txn(operator_desc);
+    let (key_agg_ctx, message) = get_payout_signing_info(&payout_tx, &signers);
+
+    // Generate nonces (counter=0 for this signing round)
+    let agg_pubkey = key_agg_ctx.aggregated_pubkey();
+    let nonce_counter = 0u64;
+    let nonces: BTreeMap<OperatorIdx, PubNonce> = signers
+        .iter()
+        .map(|s| (s.operator_idx(), s.pubnonce(agg_pubkey, nonce_counter)))
+        .collect();
+    let agg_nonce = AggNonce::sum(nonces.values().cloned());
+
+    let state = DepositState::PayoutNoncesCollected {
+        last_block_height: INITIAL_BLOCK_HEIGHT,
+        assignee,
+        fulfillment_txid,
+        cooperative_payout_tx: payout_tx.clone(),
+        cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+        payout_nonces: nonces,
+        payout_aggregated_nonce: agg_nonce.clone(),
+        payout_partial_signatures: BTreeMap::new(),
+    };
+
+    (state, signers, key_agg_ctx, agg_nonce, message, payout_tx)
+}
+
+/// Creates a `PayoutNoncesCollected` state together with a valid payout partial from every
+/// operator other than `assignee`.
+pub(super) fn payout_signing_round(assignee: OperatorIdx) -> (DepositState, Vec<DepositEvent>) {
+    let (state, signers, key_agg_ctx, agg_nonce, message, _) =
+        create_payout_partial_test_setup(assignee);
+    let partials = signers
+        .iter()
+        .filter(|s| s.operator_idx() != assignee)
+        .map(|s| {
+            DepositEvent::PayoutPartialReceived(PayoutPartialReceivedEvent {
+                partial_signature: s.sign(&key_agg_ctx, 0, &agg_nonce, message),
+                operator_idx: s.operator_idx(),
+            })
+        })
+        .collect();
+
+    (state, partials)
 }
 
 // ===== Sweep Transaction Helpers =====
