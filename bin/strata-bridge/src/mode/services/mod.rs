@@ -10,3 +10,6 @@ pub(in crate::mode) mod orchestrator;
 pub(in crate::mode) mod p2p_handles;
 pub(in crate::mode) mod secret_service;
 pub(in crate::mode) mod startup_checks;
+
+#[cfg(test)]
+pub(in crate::mode) mod test_fixtures;

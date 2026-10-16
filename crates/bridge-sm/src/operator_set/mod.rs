@@ -13,7 +13,8 @@ pub use exits::{ExitObservation, ParsedExit};
 pub use machine::{OperatorSetEvent, OperatorSetOutput, OperatorSetSignal};
 pub use schedule::MembershipUpdate;
 pub use state::{
-    ConfirmedExit, ExitKind, MembershipCause, MembershipSnapshot, OperatorSetError, OperatorSetSM,
+    BlockCovenant, ConfirmedExit, ExitKind, MembershipCause, MembershipSnapshot, OperatorSetError,
+    OperatorSetSM,
 };
 
 #[cfg(test)]

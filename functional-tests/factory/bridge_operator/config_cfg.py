@@ -115,6 +115,9 @@ class BridgeConfigParams:
     dev: bool = False
     allow_unsafe_timelocks: bool = False
     max_active_deposits: int | None = None
+    # Index of the first deposit in a deposit sequence; omitted when `None` so the node uses its
+    # default of zero.
+    deposit_index_offset: int | None = None
 
 
 @dataclass
@@ -135,6 +138,7 @@ class BridgeOperatorConfig:
     cooperative_payout_timeout: int
     max_fee_rate: int
     max_active_deposits: int | None
+    deposit_index_offset: int | None
     dev: bool
     allow_unsafe_timelocks: bool
     secret_service_client: SecretServiceClientConfig

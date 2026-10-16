@@ -648,7 +648,6 @@ mod stake_initialization_tests {
     };
     use bitcoind_async_client::Client as BitcoinClient;
     use btc_tracker::event::{BlockEvent, BlockStatus};
-    use libp2p_identity::Keypair;
     use strata_asm_proto_bridge_txs::unstake::{
         UnstakeTxHeaderAux, expected_stake_connector_script_pubkey, stake_connector_script,
     };
@@ -702,38 +701,17 @@ mod stake_initialization_tests {
         sm_registry::{RegistryInsertError, SMRegistry},
         sm_types::{SMId, UnifiedDuty},
         testing::{
-            DrtBuilder, TEST_MAGIC_BYTES, make_confirmed_stake_sm, mock_bitcoin_rpc,
-            random_p2tr_desc, test_empty_registry, test_fdb_config, test_operator_table,
-            test_populated_registry, test_slash, unavailable_bitcoin_client,
+            DrtBuilder, INITIAL_BLOCK_HEIGHT, TEST_MAGIC_BYTES, make_confirmed_stake_sm,
+            mock_bitcoin_rpc, random_p2tr_desc, test_empty_registry, test_fdb_config,
+            test_membership, test_membership_table, test_operator_table, test_populated_registry,
+            test_slash, unavailable_bitcoin_client,
         },
     };
 
     fn registry() -> SMRegistry {
-        let table = test_operator_table(3, 0);
-        let registrations = table
-            .operator_idxs()
-            .into_iter()
-            .map(|index| {
-                ScheduledOperator::new(
-                    index,
-                    table.idx_to_btc_key(&index).unwrap().x_only_public_key().0,
-                    Keypair::generate_ed25519()
-                        .public()
-                        .try_into_ed25519()
-                        .unwrap()
-                        .to_bytes()
-                        .to_vec()
-                        .into(),
-                    random_p2tr_desc(),
-                    100,
-                    None,
-                )
-                .unwrap()
-            })
-            .collect();
         let membership = OperatorSetSM::new(
-            100,
-            OperatorSetSchedule::new(registrations).unwrap(),
+            INITIAL_BLOCK_HEIGHT,
+            test_membership().registrations().clone(),
             vec![MembershipUpdate {
                 activation_height: 102,
                 additions: BTreeSet::new(),
@@ -1387,7 +1365,7 @@ mod stake_initialization_tests {
         registry
             .insert_operator_set(source.get_operator_set().unwrap().clone())
             .unwrap();
-        let table = test_operator_table(3, 0);
+        let table = test_membership_table();
         let covenant = registry.get_operator_set().unwrap().current_covenant();
         for operator in table.operator_idxs() {
             registry
@@ -1733,7 +1711,7 @@ mod stake_initialization_tests {
     #[tokio::test]
     async fn partial_deposit_registration_preserves_indices_and_peer_nag_recovery() {
         let bitcoin_client = unavailable_bitcoin_client();
-        let table = test_operator_table(3, 0);
+        let table = test_membership_table();
         let mut initial = registry();
         let covenant = initial.get_operator_set().unwrap().current_covenant();
         for operator in table.operator_idxs() {
@@ -1912,7 +1890,7 @@ mod stake_initialization_tests {
     #[tokio::test]
     async fn every_block_write_boundary_recovers() {
         let bitcoin_client = unavailable_bitcoin_client();
-        let table = test_operator_table(3, 0);
+        let table = test_membership_table();
         let mut initial = registry();
         let covenant = initial.get_operator_set().unwrap().current_covenant();
         for operator in table.operator_idxs() {
@@ -2224,16 +2202,18 @@ mod block_persistence_tests {
 
     use super::*;
     use crate::testing::{
-        DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm,
-        test_fdb_config, test_operator_table, test_populated_registry, unavailable_bitcoin_client,
+        DrtBuilder, INITIAL_BLOCK_HEIGHT, TEST_POV_IDX, insert_test_membership,
+        make_confirmed_stake_sm, test_fdb_config, test_membership_table, test_populated_registry,
+        unavailable_bitcoin_client,
     };
 
     #[tokio::test]
     async fn durable_block_replay_cannot_admit_an_older_unready_request() {
         let bitcoin_client = unavailable_bitcoin_client();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let table = test_membership_table();
         let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
+        insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
         let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
         for operator in table.operator_idxs() {
             let mut stake = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
