@@ -4,7 +4,7 @@ use crate::{
     deposit::{
         errors::{DSMError, DSMResult},
         events::NewBlockEvent,
-        machine::{DSMOutput, DepositSM},
+        machine::{DSMOutput, DepositSM, has_all_payout_partials},
         state::DepositState,
     },
     signals::{DepositSignal, DepositToGraph},
@@ -20,6 +20,7 @@ impl DepositSM {
             return Err(DSMError::duplicate(self.state().clone(), new_block.into()));
         }
 
+        let operator_table_cardinality = self.context().operator_table().cardinality();
         match self.state_mut() {
             DepositState::Created {
                 last_block_height, ..
@@ -67,6 +68,21 @@ impl DepositSM {
                 } else {
                     *last_block_height = new_block.block_height;
                 }
+
+                Ok(SMOutput {
+                    duties: vec![],
+                    signals: vec![],
+                    state_mutation: StateMutation::Mutated,
+                })
+            }
+
+            // The assignee can finalize the cooperative payout, so the deadline no longer applies.
+            DepositState::PayoutNoncesCollected {
+                last_block_height,
+                payout_partial_signatures,
+                ..
+            } if has_all_payout_partials(operator_table_cardinality, payout_partial_signatures) => {
+                *last_block_height = new_block.block_height;
 
                 Ok(SMOutput {
                     duties: vec![],

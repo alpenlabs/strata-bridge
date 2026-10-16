@@ -56,7 +56,8 @@ pub(crate) struct Config {
     pub shutdown_timeout: Duration,
 
     /// The number of blocks to wait before considering the cooperative payout path unviable and
-    /// start with the unilateral reimbursement process.
+    /// start with the unilateral reimbursement process. Once all the payout partials have been
+    /// collected, the cooperative payout path is never abandoned.
     ///
     /// If set to `0`, the bridge will not wait and will immediately start with the unilateral
     /// reimbursement process. The node will also not accept any requests for cooperative payouts

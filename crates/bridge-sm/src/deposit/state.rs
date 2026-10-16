@@ -130,7 +130,7 @@ pub enum DepositState {
         /// The txid of the fulfillment transaction.
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
         fulfillment_txid: Txid,
-        /// The block height by which the cooperative payout must be completed.
+        /// The block height by which the partials for the cooperative payout must be collected.
         cooperative_payment_deadline: BitcoinBlockHeight,
         /// The cooperative payout transaction.
         cooperative_payout_tx: CooperativePayoutTx,
@@ -150,7 +150,7 @@ pub enum DepositState {
         fulfillment_txid: Txid,
         /// The cooperative payout transaction.
         cooperative_payout_tx: CooperativePayoutTx,
-        /// The block height by which the cooperative payout must be completed.
+        /// The block height by which the partials for the cooperative payout must be collected.
         cooperative_payment_deadline: BitcoinBlockHeight,
         /// The pubnonces, indexed by operator, required to sign the cooperative payout
         /// transaction.
