@@ -1830,6 +1830,103 @@ mod stake_initialization_tests {
         );
     }
 
+    #[tokio::test]
+    async fn preparation_recovers_from_every_write_boundary_and_is_reused_at_activation() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let table = test_membership_table();
+        let initial = registry();
+        let preparing = BlockEvent {
+            block: generate_block_with_height(101),
+            status: BlockStatus::Buried,
+        };
+        let activating = BlockEvent {
+            block: generate_block_with_height(102),
+            status: BlockStatus::Buried,
+        };
+        let mut expected = initial.clone();
+        let batch = super::process_block(&bitcoin_client, &mut expected, &table, &preparing)
+            .await
+            .unwrap();
+        let prepared = publication_key(&batch.duties);
+        let batches = batch.tracker.into_batches();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-preparation-recovery-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+
+        for committed in 0..=batches.len() {
+            for key in expected.get_stake_ids() {
+                db.delete_stake_state(key).await.unwrap();
+            }
+            persister
+                .persist_batch(initial.get_all_ids().into_iter().collect(), &initial)
+                .await
+                .unwrap();
+            for batch in &batches[..committed] {
+                persister
+                    .persist_batch(batch.clone(), &expected)
+                    .await
+                    .unwrap();
+            }
+
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            let replay = super::process_block(&bitcoin_client, &mut restored, &table, &preparing)
+                .await
+                .unwrap();
+            assert_eq!(
+                replay.duties.is_empty(),
+                committed == batches.len(),
+                "replay after {committed} committed batches must re-request only lost preparation"
+            );
+            persister
+                .persist_batches(replay.tracker, &restored)
+                .await
+                .unwrap();
+            assert_eq!(
+                restored.stakes().collect::<Vec<_>>(),
+                expected.stakes().collect::<Vec<_>>(),
+                "recovery after {committed} committed batches must reproduce the prepared stakes"
+            );
+            assert!(
+                retry(&mut restored).duties.iter().any(|duty| matches!(
+                    duty,
+                    UnifiedDuty::Stake {
+                        stake_key,
+                        duty: StakeDuty::PublishStakeData { .. }
+                    } if *stake_key == prepared
+                )),
+                "retry must recover publication of the prepared stake if its dispatch was lost"
+            );
+
+            let activation =
+                super::process_block(&bitcoin_client, &mut restored, &table, &activating)
+                    .await
+                    .unwrap();
+            assert!(
+                activation.duties.is_empty(),
+                "activation after recovery must reuse the prepared stakes"
+            );
+            assert_eq!(
+                restored.get_operator_set().unwrap().current_covenant(),
+                prepared.covenant
+            );
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
     #[test]
     fn conflicting_recreation_identifies_exact_stake_and_preserves_progress() {
         let mut registry = registry();
