@@ -1,6 +1,7 @@
 //! State-machine events and covenant initialization intent.
 
 use std::{
+    collections::BTreeSet,
     convert::Infallible,
     fmt::{Display, Formatter, Result as FmtResult},
 };
@@ -149,6 +150,28 @@ impl OperatorSetSM {
         let covenant = CovenantId::from_operator_table(&table, activation_height)
             .map_err(|_| OperatorSetError::InvalidMembership)?;
         Ok(SMOutput::with_signals(initialization_signals(covenant, table)).mark_unchanged())
+    }
+
+    /// Prepares the earliest pending admin activation that changes membership.
+    ///
+    /// Returns no signals when no pending operation takes effect. See
+    /// [`Self::prepare_covenant`].
+    pub fn prepare_next_covenant(&self) -> Result<OperatorSetOutput, OperatorSetError> {
+        let heights: BTreeSet<_> = self
+            .pending_updates
+            .as_slice()
+            .iter()
+            .map(|update| update.activation_height)
+            .collect();
+
+        for height in heights {
+            let prepared = self.prepare_covenant(height)?;
+            if !prepared.signals.is_empty() {
+                return Ok(prepared);
+            }
+        }
+
+        Ok(SMOutput::new().mark_unchanged())
     }
 }
 

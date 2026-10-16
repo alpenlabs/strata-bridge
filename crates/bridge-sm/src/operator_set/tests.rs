@@ -798,6 +798,48 @@ fn automatic_exit_changes_future_projection_and_retains_current_admin_height() {
 }
 
 #[test]
+fn next_preparation_targets_the_earliest_effective_pending_change() {
+    let mut sm = OperatorSetSM::new(
+        10,
+        three_members(),
+        vec![
+            update(15, &[], &[]),
+            update(20, &[], &[1]),
+            update(30, &[], &[2]),
+        ],
+    )
+    .unwrap();
+    let before = sm.clone();
+    assert_eq!(
+        sm.prepare_next_covenant().unwrap(),
+        sm.prepare_covenant(20).unwrap(),
+        "Preparation must skip pending operations that leave membership unchanged"
+    );
+    assert_eq!(
+        sm, before,
+        "Preparing the next covenant must not alter membership, history, or the processing height"
+    );
+
+    for height in 11..=20 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    assert_eq!(
+        sm.prepare_next_covenant().unwrap(),
+        sm.prepare_covenant(30).unwrap(),
+        "After an activation, preparation must move on to the next pending change"
+    );
+
+    for height in 21..=30 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    let exhausted = sm.prepare_next_covenant().unwrap();
+    assert!(
+        exhausted.signals.is_empty() && !exhausted.did_mutate(),
+        "Without pending changes nothing must be prepared"
+    );
+}
+
+#[test]
 fn serialization_preserves_initialization_intent_and_replay_does_not_emit_again() {
     let mut sm = OperatorSetSM::new(10, three_members(), vec![]).unwrap();
     let event = OperatorSetEvent::NewBlock {
