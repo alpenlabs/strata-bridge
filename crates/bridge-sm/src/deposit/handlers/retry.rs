@@ -4,7 +4,7 @@ use crate::deposit::{
     config::DepositSMCfg,
     duties::DepositDuty,
     errors::DSMResult,
-    machine::{DSMOutput, DepositSM},
+    machine::{DSMOutput, DepositSM, has_all_payout_partials},
     state::DepositState,
 };
 
@@ -67,11 +67,10 @@ impl DepositSM {
                 payout_partial_signatures,
                 ..
             } if self.context().operator_table().pov_idx() == *assignee
-                // HACK: (mukeshdroid) The stricter check would have been to assert that the
-                // partials except from the assignee has been collected. The following check that
-                // asserts *any* n-1 partials are collected is enough since the assignee should
-                // never send their partials for their own good.
-                && operator_table_cardinality - 1 == payout_partial_signatures.len() =>
+                && has_all_payout_partials(
+                    operator_table_cardinality,
+                    payout_partial_signatures,
+                ) =>
             {
                 let ordered_pubkeys = self
                     .context()
