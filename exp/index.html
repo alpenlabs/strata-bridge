@@ -560,19 +560,64 @@ function normalizeKey(raw) {
 }
 
 /* ---------- chain access ---------- */
+const txCache = new Map();
+
+async function json(url) {
+  const r = await fetch(url);
+  if (!r.ok) return { status: r.status, body: null };
+  // an explorer missing a route may answer 200 with an HTML error page
+  const type = r.headers.get("content-type") || "";
+  if (!type.includes("json")) return { status: r.status, body: null };
+  return { status: r.status, body: await r.json() };
+}
+
 const chain = {
   async tx(txid) {
+    const key = `${config.api}|${txid}`;
+    if (txCache.has(key)) return txCache.get(key);
     const r = await fetch(`${config.api}/tx/${txid}`);
     if (r.status === 404) return null;
     if (!r.ok) throw new Error(`the explorer returned ${r.status}`);
-    return r.json();
+    const tx = await r.json();
+    txCache.set(key, tx);
+    return tx;
   },
+
+  /**
+   * Which transaction spends this output, if any.
+   *
+   * Esplora's `/outspend/:n` gives the spender directly, but not every explorer
+   * implements it — some answer only `[{spent}]` with no txid, or 404 the route.
+   * The fallback goes through the output's address: connector outputs are single
+   * use, so that list is a handful of transactions.
+   */
   async outspend(txid, vout) {
-    const r = await fetch(`${config.api}/tx/${txid}/outspend/${vout}`);
-    if (r.status === 404) return null;
-    if (!r.ok) throw new Error(`the explorer returned ${r.status}`);
-    const o = await r.json();
-    return o.spent ? o.txid : null;
+    const direct = await json(`${config.api}/tx/${txid}/outspend/${vout}`);
+    if (direct.body && typeof direct.body.spent === "boolean" && ("txid" in direct.body || !direct.body.spent)) {
+      return direct.body.spent ? direct.body.txid : null;
+    }
+
+    const all = await json(`${config.api}/tx/${txid}/outspends`);
+    if (Array.isArray(all.body)) {
+      const o = all.body[vout];
+      if (!o) return null;
+      if (!o.spent) return null;
+      if (o.txid) return o.txid;
+    } else if (direct.status === 404) {
+      return null;
+    }
+
+    // spent, but this explorer did not name the spender — find it by address
+    const parent = await this.tx(txid);
+    const out = parent?.vout?.[vout];
+    const address = out?.scriptpubkey_address;
+    if (!address) throw new Error("this explorer does not report output spends");
+
+    const list = await json(`${config.api}/address/${address}/txs`);
+    if (!Array.isArray(list.body)) throw new Error("this explorer does not report output spends");
+    const spender = list.body.find(t => t.vin?.some(i => i.txid === txid && i.vout === vout));
+    if (spender) txCache.set(`${config.api}|${spender.txid}`, spender);
+    return spender ? spender.txid : null;
   },
 };
 
