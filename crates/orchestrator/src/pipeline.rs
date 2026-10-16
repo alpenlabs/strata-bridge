@@ -617,7 +617,7 @@ mod stake_initialization_tests {
 
     use std::{
         collections::BTreeSet,
-        iter::repeat_n,
+        iter::{once, repeat_n},
         sync::Arc,
         time::{SystemTime, UNIX_EPOCH},
     };
@@ -642,7 +642,7 @@ mod stake_initialization_tests {
         GossipsubMsg, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
     };
     use strata_bridge_primitives::{
-        covenant::StakeKey,
+        covenant::{CovenantId, StakeKey},
         operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
         operator_table::PublicOperatorTable,
     };
@@ -782,14 +782,8 @@ mod stake_initialization_tests {
     }
 
     fn prepare(registry: &mut SMRegistry) -> BatchOutput {
-        let signals = registry
-            .get_operator_set()
-            .unwrap()
-            .prepare_covenant(102)
-            .unwrap()
-            .signals;
         let mut applicator = Applicator::new(registry, Some(0));
-        apply_signals(&mut applicator, signals).unwrap();
+        applicator.prepare_next_covenant().unwrap();
         applicator.finish()
     }
 
@@ -915,7 +909,12 @@ mod stake_initialization_tests {
         let membership = registry.get_operator_set().unwrap();
         assert_eq!(membership.current_covenant(), before);
         assert!(!membership.exited_operators().contains(&1));
-        assert!(batch.duties.is_empty());
+        assert!(
+            published_covenants(&batch.duties)
+                .iter()
+                .all(|covenant| covenant.activation_height == 102),
+            "A forged slash must not initialize a successor; only the configured target is prepared"
+        );
     }
 
     #[tokio::test]
@@ -1243,7 +1242,10 @@ mod stake_initialization_tests {
         onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
             .await
             .unwrap();
-        assert!(applicator.finish().duties.is_empty());
+        let [prepared] = published_covenants(&applicator.finish().duties)[..] else {
+            panic!("the configured successor must be prepared before its activation");
+        };
+        let prepared_keys = registry.get_stake_ids();
         block.block = generate_block_with_height(102);
         block
             .block
@@ -1259,8 +1261,20 @@ mod stake_initialization_tests {
         server.await.unwrap();
         let batch = applicator.finish();
         let final_key = publication_key(&batch.duties);
-        assert_eq!(registry.get_stake_ids(), vec![final_key]);
+        assert_ne!(
+            final_key.covenant, prepared,
+            "exits in the activation block must not reuse stakes prepared for another covenant"
+        );
+        assert_eq!(
+            registry
+                .get_stake_ids()
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            once(final_key).chain(prepared_keys).collect(),
+            "the final covenant must receive fresh stakes while prepared stakes are retained"
+        );
         let membership = registry.get_operator_set().unwrap();
+        assert!(membership.is_invalidated_target(prepared).unwrap());
         let history = membership.membership_history();
         assert_eq!(history.len(), 4, "initial, two unique exits, admin no-op");
         assert!(matches!(
@@ -1280,9 +1294,12 @@ mod stake_initialization_tests {
             &membership.membership_history().last().unwrap().members,
             &BTreeSet::from([0])
         );
-        assert_eq!(
-            batch.tracker.into_batches(),
-            vec![BTreeSet::from([SMId::OperatorSet, SMId::Stake(final_key),])]
+        assert!(
+            batch
+                .tracker
+                .into_batches()
+                .contains(&BTreeSet::from([SMId::OperatorSet, SMId::Stake(final_key)])),
+            "the final covenant's stake must persist with the membership that requested it"
         );
         let before = membership.clone();
         let bitcoin_client = unavailable_bitcoin_client();
@@ -1461,8 +1478,20 @@ mod stake_initialization_tests {
             .initialize_operator_set(registrations.clone(), 100)
             .unwrap();
         let initial = applicator.finish();
-        publication_key(&initial.duties);
-        assert_eq!(registry.num_stakes(), 3);
+        let membership = registry.get_operator_set().unwrap();
+        let [current, prepared] = published_covenants(&initial.duties)[..] else {
+            panic!("startup must publish for the current covenant and the configured successor");
+        };
+        assert_eq!(current, membership.current_covenant());
+        assert_eq!(
+            prepared.activation_height, 102,
+            "startup must prepare the configured successor before its activation"
+        );
+        assert_eq!(
+            registry.num_stakes(),
+            5,
+            "three current stakes and two prepared successor stakes"
+        );
         assert_eq!(
             registry.get_operator_set().unwrap().pending_updates(),
             &[MembershipUpdate {
@@ -1547,6 +1576,136 @@ mod stake_initialization_tests {
                 assert_eq!(sm.state().last_processed_block_height(), Some(height));
             }
         }
+    }
+
+    /// Returns the covenants of `duties`' stake publications, in emission order.
+    fn published_covenants(duties: &[UnifiedDuty]) -> Vec<CovenantId> {
+        duties
+            .iter()
+            .map(|duty| match duty {
+                UnifiedDuty::Stake {
+                    stake_key,
+                    duty: StakeDuty::PublishStakeData { .. },
+                } => stake_key.covenant,
+                other => panic!("expected constructor duty, got {other:?}"),
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn block_processing_prepares_and_revises_the_next_covenant() {
+        let activation = 103;
+        let mut registry = test_empty_registry();
+        registry
+            .insert_operator_set(
+                OperatorSetSM::new(
+                    INITIAL_BLOCK_HEIGHT,
+                    test_membership().registrations().clone(),
+                    vec![MembershipUpdate {
+                        activation_height: activation,
+                        additions: BTreeSet::new(),
+                        removals: BTreeSet::from([1]),
+                    }],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let script = nn_script(
+            &registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap(),
+        );
+        let process = async |registry: &mut SMRegistry, height, txs: Vec<Transaction>| {
+            let mut block = BlockEvent {
+                block: generate_block_with_height(height),
+                status: BlockStatus::Buried,
+            };
+            let exits = txs.len();
+            block.block.txdata.extend(txs);
+            let (bitcoin_client, server) =
+                mock_exit_inputs(&mut block, repeat_n(script.clone(), exits)).await;
+            let mut applicator = Applicator::new(registry, Some(0));
+            onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+                .await
+                .unwrap();
+            server.await.unwrap();
+            applicator.finish()
+        };
+
+        let first = process(&mut registry, 101, vec![]).await;
+        let [target] = published_covenants(&first.duties)[..] else {
+            panic!("the local owner must publish exactly one prepared stake");
+        };
+        assert_eq!(target.activation_height, activation);
+        let target_keys: Vec<_> = [0, 2]
+            .map(|operator| StakeKey {
+                covenant: target,
+                operator,
+            })
+            .into();
+        assert_eq!(
+            registry.get_stake_ids(),
+            target_keys,
+            "Every projected member must receive a prepared stake"
+        );
+        assert_eq!(
+            first.tracker.into_batches(),
+            vec![
+                once(SMId::OperatorSet)
+                    .chain(target_keys.iter().copied().map(SMId::Stake))
+                    .collect::<BTreeSet<_>>()
+            ],
+            "Prepared stakes must persist with the membership update that requested them"
+        );
+        let membership = registry.get_operator_set().unwrap();
+        assert_eq!(membership.last_block_height(), 101);
+        assert_eq!(
+            membership.current_covenant().activation_height,
+            INITIAL_BLOCK_HEIGHT,
+            "Preparation must not activate the future covenant"
+        );
+        for key in &target_keys {
+            assert_eq!(
+                registry
+                    .get_stake(key)
+                    .unwrap()
+                    .state()
+                    .last_processed_block_height(),
+                Some(101),
+                "Prepared stakes must start at the current processing position"
+            );
+        }
+
+        let revised = process(&mut registry, 102, vec![test_slash(2)]).await;
+        let membership = registry.get_operator_set().unwrap();
+        let [successor, revised_target] = published_covenants(&revised.duties)[..] else {
+            panic!("an exit must request both its automatic successor and the revised target");
+        };
+        assert_eq!(successor, membership.current_covenant());
+        assert_eq!(revised_target.activation_height, activation);
+        assert_ne!(revised_target, target);
+        assert!(
+            membership.is_invalidated_target(target).unwrap(),
+            "The exit must invalidate the earlier projection"
+        );
+        for key in &target_keys {
+            assert!(
+                registry.get_stake(key).is_some(),
+                "Superseded prepared stakes must be retained"
+            );
+        }
+
+        let activated = process(&mut registry, activation, vec![]).await;
+        assert!(
+            activated.duties.is_empty(),
+            "Activation must reuse the revised prepared stake"
+        );
+        assert_eq!(
+            registry.get_operator_set().unwrap().current_covenant(),
+            revised_target
+        );
     }
 
     #[test]
@@ -1783,7 +1942,11 @@ mod stake_initialization_tests {
             .await
             .unwrap();
         let duties = batch.duties;
-        assert_eq!(duties.len(), 4);
+        assert_eq!(
+            duties.len(),
+            5,
+            "four registrations and the configured successor's prepared stake"
+        );
         for committed_deposits in 0..=4 {
             for id in expected.get_deposit_ids() {
                 db.delete_deposit(id).await.unwrap();
@@ -1804,7 +1967,11 @@ mod stake_initialization_tests {
                 assert!(matches!(result, Err(PersistError::InjectedFailure)));
             } else {
                 result.unwrap();
-                assert_eq!(batch.duties.len(), 4);
+                assert_eq!(
+                    batch.duties.len(),
+                    5,
+                    "four registrations and the configured successor's prepared stake"
+                );
             }
             let mut restored = persister
                 .recover_registry(initial.cfg().clone())
@@ -1957,7 +2124,11 @@ mod stake_initialization_tests {
             .await
             .unwrap();
         let duties = batch.duties;
-        assert_eq!(duties.len(), 2);
+        assert_eq!(
+            duties.len(),
+            3,
+            "two registrations and the configured successor's prepared stake"
+        );
         let block = BlockEvent {
             block: generate_block_with_height(102),
             status: BlockStatus::Buried,
@@ -1968,12 +2139,19 @@ mod stake_initialization_tests {
             .await
             .unwrap();
         let first = applicator.finish();
-        let successor = publication_key(&first.duties);
+        assert!(
+            first.duties.is_empty(),
+            "activation must reuse the successor stakes prepared at 101"
+        );
         let first_writes = first.tracker.into_batches().len();
         assert_eq!(
-            first_writes, 4,
-            "three historical stakes and the atomic successor group"
+            first_writes, 6,
+            "three historical stakes, two prepared successor stakes, and membership"
         );
+        let successor = StakeKey {
+            covenant: expected.get_operator_set().unwrap().current_covenant(),
+            operator: 0,
+        };
         let mut applicator = Applicator::new(&mut expected, Some(0));
         onchain::process_deposit_graph_pass(&mut applicator, &table, true, &block).unwrap();
         let second = applicator.finish();
@@ -2007,7 +2185,7 @@ mod stake_initialization_tests {
                 );
             } else {
                 result.unwrap();
-                assert_eq!(publication_key(&batch.duties), successor);
+                assert!(batch.duties.is_empty());
             }
             let mut restored = persister
                 .recover_registry(initial.cfg().clone())

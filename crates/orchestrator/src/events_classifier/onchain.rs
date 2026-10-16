@@ -136,6 +136,7 @@ pub(crate) async fn process_stake_pass(
             }
             .into(),
         )])?;
+        applicator.prepare_next_covenant()?;
     }
 
     Ok(())

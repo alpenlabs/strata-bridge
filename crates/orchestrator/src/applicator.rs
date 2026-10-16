@@ -19,7 +19,7 @@ use strata_bridge_primitives::{
 use strata_bridge_sm::{
     deposit::machine::DepositSM,
     graph::machine::GraphSM,
-    operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM},
+    operator_set::{MembershipUpdate, OperatorSetEvent, OperatorSetSM, OperatorSetSignal},
     stake::{context::StakeSMCtx, machine::StakeSM},
 };
 use tracing::{debug, info, warn};
@@ -152,7 +152,8 @@ impl<'a> Applicator<'a> {
         Ok(())
     }
 
-    /// Applies a registration schedule and initializes missing stakes for the current covenant.
+    /// Applies a registration schedule, initializes missing stakes for the current covenant, and
+    /// prepares the next configured covenant.
     ///
     /// Uses `block_height` only when membership has not yet been initialized.
     /// Existing membership history and stake progress are preserved.
@@ -220,11 +221,44 @@ impl<'a> Applicator<'a> {
             .expect("membership installed")
             .initialization_signals()
             .map_err(ProcessError::from)?;
+        self.apply_operator_set_signals(signals)?;
+
+        self.prepare_next_covenant()
+    }
+
+    /// Initializes the local participant's missing stakes for the next pending covenant change.
+    ///
+    /// Prepared stakes start at the current processing position and leave membership unchanged.
+    /// A projection that cannot be derived is skipped; the activation block reports the failure.
+    pub fn prepare_next_covenant(&mut self) -> Result<(), PipelineError> {
+        let Some(membership) = self.registry.get_operator_set() else {
+            return Ok(());
+        };
+        let signals = match membership.prepare_next_covenant() {
+            Ok(prepared) => prepared.signals,
+            Err(error) => {
+                warn!(%error, "cannot project the next covenant; skipping stake preparation");
+                return Ok(());
+            }
+        };
+        let participates = |signal: &OperatorSetSignal| {
+            let OperatorSetSignal::InitializeStake { operator_table, .. } = signal;
+            self.local_operator
+                .is_some_and(|local| operator_table.contains_idx(&local))
+        };
+        let signals = signals.into_iter().filter(participates).collect();
+        self.apply_operator_set_signals(signals)
+    }
+
+    /// Routes membership signals to their stake initialization events and applies them.
+    fn apply_operator_set_signals(
+        &mut self,
+        signals: Vec<OperatorSetSignal>,
+    ) -> Result<(), PipelineError> {
         for signal in signals {
             let events = signals_router::route_signal(self.registry, signal.into())?;
             self.apply_batch(events)?;
         }
-
         Ok(())
     }
 
