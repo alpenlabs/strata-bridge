@@ -172,9 +172,16 @@ pub(crate) fn test_safe_harbour_address() -> SafeHarborAddress {
 
 // ===== Registry population helpers =====
 
-/// Inserts one deposit SM and `N_TEST_OPERATORS` graph SMs for the given deposit index.
-pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx: DepositIdx) {
+/// Inserts a deposit SM admitted to the test membership activated at `activation_height`.
+///
+/// Returns the covenant recorded by the deposit.
+pub(crate) fn insert_deposit_activated_at(
+    registry: &mut SMRegistry,
+    deposit_idx: DepositIdx,
+    activation_height: BitcoinBlockHeight,
+) -> CovenantId {
     let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    let covenant = CovenantId::from_operator_table(&operator_table, activation_height).unwrap();
     let cfg = test_deposit_sm_cfg();
     let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
 
@@ -188,18 +195,29 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
     let deposit_request_amount = cfg.deposit_amount() + Amount::from_sat(10_000); // ensure drt output amount is greater than deposit amount
     let dsm = DepositSM::new(
         cfg,
-        CovenantId::from_operator_table(&operator_table, INITIAL_BLOCK_HEIGHT).unwrap(),
-        operator_table.clone(),
+        covenant,
+        operator_table,
         data,
         depositor_pubkey,
         deposit_request_amount,
         INITIAL_BLOCK_HEIGHT,
     );
-    let deposit_outpoint = dsm.context().deposit_outpoint();
 
     registry
         .insert_deposit(deposit_idx, dsm)
         .expect("test helper must not insert duplicate deposit index");
+    covenant
+}
+
+/// Inserts one deposit SM and `N_TEST_OPERATORS` graph SMs for the given deposit index.
+pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx: DepositIdx) {
+    let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    insert_deposit_activated_at(registry, deposit_idx, INITIAL_BLOCK_HEIGHT);
+    let deposit_outpoint = registry
+        .get_deposit(&deposit_idx)
+        .expect("deposit was just inserted")
+        .context()
+        .deposit_outpoint();
 
     // Insert one GraphSM per operator
     for op_idx in 0..N_TEST_OPERATORS as OperatorIdx {

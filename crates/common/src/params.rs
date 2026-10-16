@@ -70,10 +70,12 @@ pub struct ProtocolParams {
     /// The denomination of deposits in the bridge.
     pub deposit_amount: Amount,
 
-    /// The index of the first deposit registered in a deposit sequence.
+    /// The index of the first deposit admitted to a covenant.
     ///
-    /// Covenant participants must use the same value. A sequence with retained deposits
-    /// continues from its existing indices instead. Defaults to zero.
+    /// Each covenant numbers its deposits in its own sequence: one with retained deposits
+    /// continues from its highest index, and any other starts here. Covenant participants must use
+    /// the same value, and it must exceed every retained deposit index, since a new sequence that
+    /// reaches an index held by another covenant halts the node. Defaults to zero.
     #[serde(default, deserialize_with = "deserialize_deposit_index_offset")]
     pub deposit_index_offset: DepositIdx,
 

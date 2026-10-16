@@ -14,7 +14,7 @@ use bitcoin::{
 };
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
-    covenant::StakeKey,
+    covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GameIndex, GraphIdx, OperatorIdx},
 };
@@ -377,8 +377,18 @@ impl SMRegistry {
     }
 
     /// Returns the highest registered deposit index, if any.
+    #[cfg(test)]
     pub fn last_deposit_idx(&self) -> Option<DepositIdx> {
         self.deposits.keys().next_back().copied()
+    }
+
+    /// Returns the highest retained deposit index admitted to `covenant`, if any.
+    pub fn last_covenant_deposit_idx(&self, covenant: CovenantId) -> Option<DepositIdx> {
+        self.deposits
+            .iter()
+            .filter(|(_, sm)| sm.context().covenant() == covenant)
+            .map(|(deposit_idx, _)| *deposit_idx)
+            .max()
     }
 
     /// Returns the index for a request addressed to `covenant`, following `previous`, the last
@@ -411,6 +421,12 @@ impl SMRegistry {
         GameIndex::try_from(next_idx)
             .map_err(|_| RegistryInsertError::DepositIdxExhausted(next_idx))?;
         Ok(next_idx)
+    }
+
+    /// Replaces the configured offset, as a restart with a changed config would.
+    #[cfg(test)]
+    pub(crate) const fn set_deposit_index_offset(&mut self, offset: DepositIdx) {
+        self.cfg.deposit_index_offset = offset;
     }
 
     /// Returns the index of the first deposit in a sequence.
@@ -833,10 +849,7 @@ mod tests {
     };
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
     use strata_bridge_p2p_types::NagRequestPayload;
-    use strata_bridge_primitives::{
-        covenant::CovenantId,
-        types::{GraphIdx, P2POperatorPubKey},
-    };
+    use strata_bridge_primitives::types::{GraphIdx, P2POperatorPubKey};
     use strata_bridge_sm::{
         deposit::events::{DepositEvent, NagReceivedEvent, NewBlockEvent as DepositNewBlock},
         graph::{
@@ -864,9 +877,9 @@ mod tests {
         sm_types::OperatorKey,
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
-            insert_confirmed_stake, insert_deposit_with_graphs, insert_test_membership,
-            make_confirmed_stake_sm, mock_bitcoin_rpc, test_empty_registry, test_fdb_config,
-            test_membership_table, test_operator_table, test_populated_registry,
+            insert_confirmed_stake, insert_deposit_activated_at, insert_deposit_with_graphs,
+            insert_test_membership, make_confirmed_stake_sm, mock_bitcoin_rpc, test_empty_registry,
+            test_fdb_config, test_membership_table, test_operator_table, test_populated_registry,
             test_registry_with_cap, test_sm_config, unavailable_bitcoin_client,
         },
     };
@@ -1000,6 +1013,48 @@ mod tests {
             registry.last_deposit_idx(),
             Some(7),
             "The highest registered index must be reported regardless of insertion order"
+        );
+    }
+
+    #[test]
+    fn last_covenant_deposit_idx_ignores_other_covenants() {
+        let mut registry = test_empty_registry();
+        let earlier = insert_deposit_activated_at(&mut registry, 4, INITIAL_BLOCK_HEIGHT);
+        let later = insert_deposit_activated_at(&mut registry, 1, INITIAL_BLOCK_HEIGHT + 10);
+        insert_deposit_activated_at(&mut registry, 9, INITIAL_BLOCK_HEIGHT);
+        insert_deposit_activated_at(&mut registry, 2, INITIAL_BLOCK_HEIGHT + 10);
+
+        assert_eq!(
+            registry.last_covenant_deposit_idx(earlier),
+            Some(9),
+            "A covenant's progress must be its own highest retained index"
+        );
+        assert_eq!(
+            registry.last_covenant_deposit_idx(later),
+            Some(2),
+            "Larger indices of another covenant must not advance this covenant's progress"
+        );
+        let unused =
+            CovenantId::from_operator_table(&local_covenant(), INITIAL_BLOCK_HEIGHT + 20).unwrap();
+        assert_eq!(
+            registry.last_covenant_deposit_idx(unused),
+            None,
+            "A covenant without admitted deposits must report empty progress"
+        );
+    }
+
+    #[test]
+    fn last_covenant_deposit_idx_counts_skipped_and_terminal_deposits() {
+        let mut registry = test_empty_registry();
+        let covenant = insert_deposit_activated_at(&mut registry, 3, INITIAL_BLOCK_HEIGHT);
+        insert_deposit_activated_at(&mut registry, 5, INITIAL_BLOCK_HEIGHT);
+        registry.deposits.get_mut(&3).unwrap().state = DepositState::Aborted;
+        registry.deposits.get_mut(&5).unwrap().state = DepositState::Skipped;
+
+        assert_eq!(
+            registry.last_covenant_deposit_idx(covenant),
+            Some(5),
+            "Retained skipped and terminal deposits must keep their indices allocated"
         );
     }
 
