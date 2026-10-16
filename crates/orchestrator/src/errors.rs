@@ -2,6 +2,7 @@
 
 use bitcoin::OutPoint;
 use bitcoind_async_client::error::ClientError;
+use strata_bridge_primitives::{covenant::CovenantId, types::DepositIdx};
 use strata_bridge_sm::{operator_set::OperatorSetError, signals::Signal, state_machine::SMOutput};
 use thiserror::Error;
 
@@ -36,6 +37,28 @@ pub enum ProcessError {
     /// The membership transition failed and must not be skipped to finalize the block.
     #[error("operator membership transition failed: {0}")]
     OperatorSet(#[from] OperatorSetError),
+
+    /// A request was allocated an index already held by another covenant's deposit.
+    ///
+    /// Processing cannot continue until `deposit_index_offset` is raised clear of retained
+    /// indices.
+    #[error(
+        "deposit index {} for covenant {} is held by covenant {}; raise deposit_index_offset \
+         above the retained indices",
+        .0.deposit_idx, .0.covenant, .0.holder
+    )]
+    DepositIndexCollision(Box<DepositIndexCollision>),
+}
+
+/// An index allocated to a request for `covenant` that a deposit of `holder` already holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DepositIndexCollision {
+    /// The allocated index.
+    pub deposit_idx: DepositIdx,
+    /// The covenant of the request being admitted.
+    pub covenant: CovenantId,
+    /// The covenant of the deposit already holding the index.
+    pub holder: CovenantId,
 }
 
 /// Fatal error from the pipeline main loop.
