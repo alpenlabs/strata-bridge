@@ -445,7 +445,7 @@ impl DepositSM {
         self.check_operator_idx(payout_partial.operator_idx, &payout_partial)?;
 
         // Extract context values before the match to avoid borrow conflicts
-        let operator_table_cardinality = self.context.operator_table().cardinality();
+        let operator_idxs = self.context.operator_table().operator_idxs();
         let pov_operator_idx = self.context.operator_table().pov_idx();
         let deposit_outpoint = self.context.deposit_outpoint();
         // Get ordered pubkeys for MuSig2 signing
@@ -526,7 +526,7 @@ impl DepositSM {
                     payout_partial.partial_signature,
                 );
 
-                if has_all_payout_partials(operator_table_cardinality, payout_partial_signatures) {
+                if has_all_payout_partials(&operator_idxs, assignee, payout_partial_signatures) {
                     // Dispatch the duty to publish payout tx if the pov operator is the assignee.
                     if pov_operator_idx == assignee {
                         Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout {

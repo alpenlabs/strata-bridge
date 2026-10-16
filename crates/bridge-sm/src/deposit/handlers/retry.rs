@@ -68,7 +68,8 @@ impl DepositSM {
                 ..
             } if self.context().operator_table().pov_idx() == *assignee
                 && has_all_payout_partials(
-                    operator_table_cardinality,
+                    &self.context().operator_table().operator_idxs(),
+                    *assignee,
                     payout_partial_signatures,
                 ) =>
             {
