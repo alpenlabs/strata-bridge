@@ -1609,7 +1609,6 @@ mod tests {
     #[tokio::test]
     async fn durable_first_pass_preserves_historical_preimage_for_second_pass_burn() {
         let table = test_membership_table();
-        let covenant = test_covenant(&table);
         let graph_idx = GraphIdx {
             deposit: 0,
             operator: 1,
@@ -1635,8 +1634,7 @@ mod tests {
             .txdata
             .push(DrtBuilder::aligned(&table, &registry.cfg().deposit).build());
         let mut applicator = Applicator::new(&mut registry, Some(TEST_POV_IDX));
-        onchain::process_deposit_graph_pass(&mut applicator, &table, covenant, true, &initial)
-            .unwrap();
+        onchain::process_deposit_graph_pass(&mut applicator, &table, true, &initial).unwrap();
         applicator.finish();
         set_graph_claimed_with_unstaking_image(&mut registry, graph_idx, preimage);
         let key = registry.graphs[&graph_idx].context.stake_key();
@@ -1722,7 +1720,7 @@ mod tests {
             serialize_hex(&parent)
         );
         let (bitcoin_client, server) = mock_bitcoin_rpc(vec![reply]).await;
-        let batch = process_block(&bitcoin_client, &mut registry, &table, covenant, &block)
+        let batch = process_block(&bitcoin_client, &mut registry, &table, &block)
             .await
             .unwrap();
         assert!(matches!(
@@ -1747,7 +1745,7 @@ mod tests {
                 .last_processed_block_height(),
             Some(&100)
         );
-        let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+        let batch = process_block(&bitcoin_client, &mut restored, &table, &block)
             .await
             .unwrap();
         persister
@@ -1760,7 +1758,7 @@ mod tests {
                 if *target == graph_idx && *unstaking_preimage == preimage)), "historical preimage must reach the graph producer after recovery");
         assert!(!duties.iter().any(|duty| matches!(duty,
             UnifiedDuty::Graph(GraphDuty::PublishUnstakingBurn { unstaking_preimage, .. }) if *unstaking_preimage == [0x24; 32])));
-        let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &block)
+        let batch = process_block(&bitcoin_client, &mut restored, &table, &block)
             .await
             .unwrap();
         assert!(batch.duties.is_empty());

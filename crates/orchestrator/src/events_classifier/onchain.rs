@@ -15,7 +15,7 @@ use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::event::BlockEvent;
 use strata_asm_proto_bridge_txs::deposit_request::DRT_OUTPUT_INDEX;
 use strata_bridge_primitives::{
-    covenant::{CovenantId, StakeKey},
+    covenant::StakeKey,
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
@@ -149,7 +149,6 @@ pub(crate) async fn process_stake_pass(
 pub(crate) fn process_deposit_graph_pass(
     applicator: &mut Applicator<'_>,
     operator_table: &OperatorTable,
-    covenant: CovenantId,
     block_reaches_gate: bool,
     block_event: &BlockEvent,
 ) -> Result<(), PipelineError> {
@@ -158,15 +157,8 @@ pub(crate) fn process_deposit_graph_pass(
         .bip34_block_height()
         .expect("valid block height");
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
-    // Replace the restriction to the supplied covenant with block-final stake readiness.
-    // Keep readiness and replay checks independent of covenant/address validation.
     let block_covenant = match applicator.registry().get_operator_set() {
-        Some(membership)
-            if block_reaches_gate
-                && membership.last_block_height() == height
-                && membership.current_covenant() == covenant =>
-        {
+        Some(membership) if block_reaches_gate && membership.last_block_height() == height => {
             Some(membership.covenant_at(height).map_err(ProcessError::from)?)
         }
         _ => None,
@@ -516,7 +508,7 @@ mod tests {
     };
     use btc_tracker::event::BlockStatus;
     use strata_bridge_db::fdb::{cfg::Config, client::FdbClient};
-    use strata_bridge_primitives::operator_table::PublicOperatorTable;
+    use strata_bridge_primitives::{covenant::CovenantId, operator_table::PublicOperatorTable};
     use strata_bridge_sm::{
         deposit::{events::UserTakeBackEvent, state::DepositState},
         graph::duties::GraphDuty,
@@ -674,10 +666,6 @@ mod tests {
 
     // ===== deposit cap tests =====
 
-    fn test_covenant(operator_table: &OperatorTable) -> CovenantId {
-        CovenantId::from_operator_table(operator_table, INITIAL_BLOCK_HEIGHT).unwrap()
-    }
-
     /// Runs `drt` through [`try_register_deposit`] and returns the duties it emitted.
     fn register_drt(
         registry: &mut SMRegistry,
@@ -718,14 +706,7 @@ mod tests {
             status: BlockStatus::Buried,
         };
         let mut applicator = Applicator::new(registry, None);
-        process_deposit_graph_pass(
-            &mut applicator,
-            operator_table,
-            test_covenant(operator_table),
-            true,
-            &block_event,
-        )
-        .unwrap();
+        process_deposit_graph_pass(&mut applicator, operator_table, true, &block_event).unwrap();
         let _ = applicator.finish();
     }
 
@@ -1343,7 +1324,6 @@ mod tests {
     async fn deposit_registration_recovers_from_any_committed_batch_subset() {
         let bitcoin_client = unavailable_bitcoin_client();
         let table = test_membership_table();
-        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
         insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT + 1);
         confirm_all_stakes(&mut registry, &table);
@@ -1359,7 +1339,7 @@ mod tests {
             status: BlockStatus::Buried,
         };
         let mut applicator = Applicator::new(&mut registry, None);
-        process_deposit_graph_pass(&mut applicator, &table, covenant, true, &event).unwrap();
+        process_deposit_graph_pass(&mut applicator, &table, true, &event).unwrap();
         let BatchOutput { tracker, .. } = applicator.finish();
         let batches = tracker.into_batches();
         for deposit in 0..2 {
@@ -1436,10 +1416,9 @@ mod tests {
                         status: BlockStatus::Buried,
                     }
                 };
-                let batch =
-                    process_block(&bitcoin_client, &mut restored, &table, covenant, &replay)
-                        .await
-                        .unwrap();
+                let batch = process_block(&bitcoin_client, &mut restored, &table, &replay)
+                    .await
+                    .unwrap();
                 persister
                     .persist_batches(batch.tracker, &restored)
                     .await
@@ -1500,7 +1479,6 @@ mod tests {
     async fn block_final_stake_confirmation_admits_both_drts_without_replay_duplicates() {
         let bitcoin_client = unavailable_bitcoin_client();
         let table = test_membership_table();
-        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_populated_registry(0);
         insert_test_membership(&mut registry, INITIAL_BLOCK_HEIGHT);
         let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
@@ -1553,7 +1531,7 @@ mod tests {
         .unwrap();
         let db = Arc::new(client);
         let persister = Persister::new(db.clone());
-        let batch = process_block(&bitcoin_client, &mut registry, &table, covenant, &event)
+        let batch = process_block(&bitcoin_client, &mut registry, &table, &event)
             .await
             .unwrap();
         persister
@@ -1599,7 +1577,7 @@ mod tests {
             "restored stakes must keep the covenant ready"
         );
         let original = restored.get_deposit(&0).unwrap().clone();
-        let batch = process_block(&bitcoin_client, &mut restored, &table, covenant, &event)
+        let batch = process_block(&bitcoin_client, &mut restored, &table, &event)
             .await
             .unwrap();
         persister
@@ -1616,7 +1594,7 @@ mod tests {
             .unwrap();
         let ids = recovered.get_all_ids();
         let before = recovered.clone();
-        let batch = process_block(&bitcoin_client, &mut recovered, &table, covenant, &event)
+        let batch = process_block(&bitcoin_client, &mut recovered, &table, &event)
             .await
             .unwrap();
         persister
@@ -2019,7 +1997,6 @@ mod tests {
     #[test]
     fn registration_requires_membership_to_resolve_the_block_covenant() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        let covenant = CovenantId::from_operator_table(&table, INITIAL_BLOCK_HEIGHT).unwrap();
         let mut registry = test_empty_registry();
         confirm_all_stakes(&mut registry, &table);
         let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
@@ -2032,12 +2009,71 @@ mod tests {
         };
 
         let mut applicator = Applicator::new(&mut registry, None);
-        process_deposit_graph_pass(&mut applicator, &table, covenant, true, &event).unwrap();
+        process_deposit_graph_pass(&mut applicator, &table, true, &event).unwrap();
         applicator.finish();
         assert_eq!(
             registry.num_deposits(),
             0,
             "Without membership the block's covenant is unknown, so no request may be registered"
+        );
+    }
+
+    #[test]
+    fn a_ready_successor_admits_requests_in_its_exit_block() {
+        let exited = N_TEST_OPERATORS as OperatorIdx - 1;
+        let exit_height = INITIAL_BLOCK_HEIGHT + 1;
+        let mut membership = test_membership();
+        membership
+            .apply_block(
+                exit_height,
+                &[ConfirmedExit {
+                    operator_idx: exited,
+                    txid: generate_txid(),
+                    tx_index: 1,
+                    kind: ExitKind::Slash,
+                }],
+            )
+            .unwrap();
+        let successor = membership.covenant_at(exit_height).unwrap();
+        let successor_table = successor
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let mut registry = test_empty_registry();
+        registry.insert_operator_set(membership).unwrap();
+        for operator in successor_table.operator_idxs() {
+            insert_bound_stake(
+                &mut registry,
+                operator,
+                &successor_table,
+                successor.covenant.activation_height,
+            );
+        }
+        let request = DrtBuilder::aligned(&successor_table, &registry.cfg().deposit).build();
+        let mut block = generate_block_with_height(exit_height);
+        block.txdata.push(request.clone());
+        let event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+
+        let mut applicator = Applicator::new(&mut registry, None);
+        process_deposit_graph_pass(&mut applicator, &successor_table, true, &event).unwrap();
+        applicator.finish();
+
+        let deposit = registry
+            .get_deposit(&registry.cfg().deposit_index_offset)
+            .expect("a request for the ready successor must be admitted in its exit block");
+        assert_eq!(
+            deposit.context().deposit_request_outpoint().txid,
+            request.compute_txid(),
+            "The successor's request must receive the configured offset"
+        );
+        assert_eq!(
+            deposit.context().covenant(),
+            successor.covenant,
+            "The deposit must record the successor covenant"
         );
     }
 
@@ -2086,7 +2122,6 @@ mod tests {
             insert_deposit_with_graphs(&mut participant, idx);
         }
         let (mut joiner, joiner_table) = seeded_member(joiner_operator, history);
-        let covenant = test_membership().current_covenant();
 
         let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
         for _ in 0..2 {
@@ -2103,20 +2138,13 @@ mod tests {
             &bitcoin_client,
             &mut participant,
             &participant_table,
-            covenant,
             &event,
         )
         .await
         .unwrap();
-        process_block(
-            &bitcoin_client,
-            &mut joiner,
-            &joiner_table,
-            covenant,
-            &event,
-        )
-        .await
-        .unwrap();
+        process_block(&bitcoin_client, &mut joiner, &joiner_table, &event)
+            .await
+            .unwrap();
         let shared: Vec<_> = registered_mapping(&participant)
             .into_iter()
             .filter(|(_, idx, _)| *idx >= history)
@@ -2132,15 +2160,9 @@ mod tests {
             "A correctly seeded joiner must assign the participant's outpoint, index, and covenant"
         );
 
-        process_block(
-            &bitcoin_client,
-            &mut joiner,
-            &joiner_table,
-            covenant,
-            &event,
-        )
-        .await
-        .unwrap();
+        process_block(&bitcoin_client, &mut joiner, &joiner_table, &event)
+            .await
+            .unwrap();
         assert_eq!(
             registered_mapping(&joiner),
             shared,
@@ -2158,7 +2180,6 @@ mod tests {
             insert_deposit_with_graphs(&mut participant, idx);
         }
         let (mut joiner, joiner_table) = seeded_member(joiner_operator, history + 1);
-        let covenant = test_membership().current_covenant();
 
         let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
         block
@@ -2173,20 +2194,13 @@ mod tests {
             &bitcoin_client,
             &mut participant,
             &participant_table,
-            covenant,
             &event,
         )
         .await
         .unwrap();
-        process_block(
-            &bitcoin_client,
-            &mut joiner,
-            &joiner_table,
-            covenant,
-            &event,
-        )
-        .await
-        .unwrap();
+        process_block(&bitcoin_client, &mut joiner, &joiner_table, &event)
+            .await
+            .unwrap();
         assert_eq!(
             participant.get_deposit_ids().last(),
             Some(&history),
