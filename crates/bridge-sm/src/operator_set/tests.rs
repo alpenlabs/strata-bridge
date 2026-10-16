@@ -797,6 +797,97 @@ fn automatic_exit_changes_future_projection_and_retains_current_admin_height() {
     );
 }
 
+/// Returns the covenant whose stakes `output` requests.
+fn requested_covenant(output: &super::OperatorSetOutput) -> CovenantId {
+    let OperatorSetSignal::InitializeStake { stake_key, .. } = output
+        .signals
+        .first()
+        .expect("the preparation must request stakes");
+    stake_key.covenant
+}
+
+#[test]
+fn next_preparation_targets_the_earliest_effective_pending_change() {
+    let mut sm = OperatorSetSM::new(
+        10,
+        three_members(),
+        vec![
+            update(15, &[], &[]),
+            update(20, &[], &[1]),
+            update(30, &[], &[2]),
+        ],
+    )
+    .unwrap();
+    let before = sm.clone();
+    assert_eq!(
+        sm.prepare_next_covenant().unwrap(),
+        sm.prepare_covenant(20).unwrap(),
+        "Preparation must skip pending operations that leave membership unchanged"
+    );
+    assert_eq!(
+        sm, before,
+        "Preparing the next covenant must not alter membership, history, or the processing height"
+    );
+
+    for height in 11..=20 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    assert_eq!(
+        sm.prepare_next_covenant().unwrap(),
+        sm.prepare_covenant(30).unwrap(),
+        "After an activation, preparation must move on to the next pending change"
+    );
+
+    for height in 21..=30 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    let exhausted = sm.prepare_next_covenant().unwrap();
+    assert!(
+        exhausted.signals.is_empty() && !exhausted.did_mutate(),
+        "Without pending changes nothing must be prepared"
+    );
+}
+
+#[test]
+fn invalidated_targets_are_projections_that_never_became_current() {
+    let mut sm = OperatorSetSM::new(10, three_members(), vec![update(20, &[], &[1])]).unwrap();
+    let initial = sm.current_covenant();
+    let prepared = requested_covenant(&sm.prepare_covenant(20).unwrap());
+    assert!(
+        !sm.is_invalidated_target(prepared).unwrap(),
+        "The current projection must remain a valid target"
+    );
+
+    sm.apply_block(11, &[exit(2, 0)]).unwrap();
+    let revised = requested_covenant(&sm.prepare_covenant(20).unwrap());
+    assert_ne!(prepared, revised);
+    assert!(
+        sm.is_invalidated_target(prepared).unwrap(),
+        "An exit that changes the projection must invalidate the earlier target"
+    );
+    assert!(
+        !sm.is_invalidated_target(revised).unwrap(),
+        "The revised projection must be a valid target"
+    );
+    assert!(
+        !sm.is_invalidated_target(initial).unwrap(),
+        "A covenant that was current must never be reported as invalidated"
+    );
+
+    for height in 12..=20 {
+        sm.apply_block(height, &[]).unwrap();
+    }
+    assert_eq!(sm.current_covenant(), revised);
+    assert!(
+        !sm.is_invalidated_target(revised).unwrap(),
+        "The activated covenant must remain valid"
+    );
+    assert!(
+        sm.is_invalidated_target(prepared).unwrap(),
+        "A target superseded before its activation must stay invalidated"
+    );
+}
+
 #[test]
 fn serialization_preserves_initialization_intent_and_replay_does_not_emit_again() {
     let mut sm = OperatorSetSM::new(10, three_members(), vec![]).unwrap();

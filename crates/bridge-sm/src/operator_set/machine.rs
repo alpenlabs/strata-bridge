@@ -1,6 +1,7 @@
 //! State-machine events and covenant initialization intent.
 
 use std::{
+    collections::BTreeSet,
     convert::Infallible,
     fmt::{Display, Formatter, Result as FmtResult},
 };
@@ -149,6 +150,52 @@ impl OperatorSetSM {
         let covenant = CovenantId::from_operator_table(&table, activation_height)
             .map_err(|_| OperatorSetError::InvalidMembership)?;
         Ok(SMOutput::with_signals(initialization_signals(covenant, table)).mark_unchanged())
+    }
+
+    /// Prepares the earliest pending admin activation that changes membership.
+    ///
+    /// Returns no signals when no pending operation takes effect. See
+    /// [`Self::prepare_covenant`].
+    pub fn prepare_next_covenant(&self) -> Result<OperatorSetOutput, OperatorSetError> {
+        let heights: BTreeSet<_> = self
+            .pending_updates
+            .as_slice()
+            .iter()
+            .map(|update| update.activation_height)
+            .collect();
+        for height in heights {
+            let prepared = self.prepare_covenant(height)?;
+            if !prepared.signals.is_empty() {
+                return Ok(prepared);
+            }
+        }
+        Ok(SMOutput::new().mark_unchanged())
+    }
+
+    /// Reports whether stakes prepared for `covenant` can no longer back deposits.
+    ///
+    /// A future covenant is invalidated once the projection for its activation height differs.
+    /// Any other covenant is invalidated if no processed block finalized it.
+    pub fn is_invalidated_target(&self, covenant: CovenantId) -> Result<bool, OperatorSetError> {
+        if covenant.activation_height > self.last_block_height {
+            let projected = self.prepare_covenant(covenant.activation_height)?;
+            return Ok(!projected.signals.iter().any(
+                |OperatorSetSignal::InitializeStake { stake_key, .. }| {
+                    stake_key.covenant == covenant
+                },
+            ));
+        }
+        let processed_heights: BTreeSet<_> = self
+            .membership_history
+            .iter()
+            .map(|snapshot| snapshot.block_height)
+            .collect();
+        for height in processed_heights {
+            if self.covenant_at(height)?.covenant == covenant {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
