@@ -3,12 +3,16 @@
 //! Responsible for driving deposit progress by reacting to events and
 //! producing the required duties and signals.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{Amount, OutPoint, XOnlyPublicKey, relative};
+use musig2::PartialSignature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{n_of_n::NOfNConnector, prelude::DepositRequestConnector};
-use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{BitcoinBlockHeight, OperatorIdx},
+};
 use strata_bridge_tx_graph::transactions::prelude::{DepositData, DepositTx};
 
 use crate::{
@@ -117,6 +121,18 @@ impl StateMachine for DepositSM {
 /// duty and signal types. This ensures that the Deposit SM can only emit [`DepositDuty`]
 /// duties and [`DepositSignal`] signals.
 pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
+
+/// Returns whether enough payout partials have been collected for the assignee to finalize the
+/// cooperative payout.
+// HACK: (mukeshdroid) The stricter check would have been to assert that the partials except from
+// the assignee has been collected. The following check that asserts *any* n-1 partials are
+// collected is enough since the assignee should never send their partials for their own good.
+pub(crate) fn has_all_payout_partials(
+    operator_table_cardinality: usize,
+    payout_partials: &BTreeMap<OperatorIdx, PartialSignature>,
+) -> bool {
+    operator_table_cardinality - 1 == payout_partials.len()
+}
 
 impl DepositSM {
     /// Creates a new [`DepositSM`] using the provided configuration and deposit data.

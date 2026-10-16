@@ -15,7 +15,7 @@ use crate::{
             FulfillmentConfirmedEvent, PayoutConfirmedEvent, PayoutDescriptorReceivedEvent,
             PayoutNonceReceivedEvent, PayoutPartialReceivedEvent, WithdrawalAssignedEvent,
         },
-        machine::{DSMOutput, DepositSM},
+        machine::{DSMOutput, DepositSM, has_all_payout_partials},
         state::DepositState,
     },
     state_machine::{SMOutput, StateMutation},
@@ -526,13 +526,7 @@ impl DepositSM {
                     payout_partial.partial_signature,
                 );
 
-                // Check that *all* the partial signatures except from the assignee
-                // for the cooperative payout have been received.
-                // HACK: (mukeshdroid) The stricter check would have been to assert that the
-                // partials except from the assignee has been collected. The following check that
-                // asserts *any* n-1 partials are collected is enough since the assignee should
-                // never send their partials for their own good.
-                if operator_table_cardinality - 1 == payout_partial_signatures.len() {
+                if has_all_payout_partials(operator_table_cardinality, payout_partial_signatures) {
                     // Dispatch the duty to publish payout tx if the pov operator is the assignee.
                     if pov_operator_idx == assignee {
                         Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout {
