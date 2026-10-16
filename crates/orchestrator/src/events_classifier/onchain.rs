@@ -512,7 +512,7 @@ mod tests {
     use strata_bridge_sm::{
         deposit::{events::UserTakeBackEvent, state::DepositState},
         graph::duties::GraphDuty,
-        operator_set::{ConfirmedExit, ExitKind},
+        operator_set::{ConfirmedExit, ExitKind, MembershipUpdate, OperatorSetSM},
         stake::{context::StakeSMCtx, state::StakeState},
     };
     use strata_bridge_test_utils::{
@@ -1473,8 +1473,6 @@ mod tests {
         drop(guard);
     }
 
-    // TODO: <https://alpenlabs.atlassian.net/browse/STR-4398>
-    // Extend this single-covenant fixture to canonical ledger/admission integration.
     #[tokio::test]
     async fn block_final_stake_confirmation_admits_both_drts_without_replay_duplicates() {
         let bitcoin_client = unavailable_bitcoin_client();
@@ -2075,6 +2073,285 @@ mod tests {
             successor.covenant,
             "The deposit must record the successor covenant"
         );
+    }
+
+    /// Inserts `operator`'s signed stake in the covenant of `table` activated at
+    /// `activation_height` and returns the transaction that confirms it.
+    fn insert_signed_stake(
+        registry: &mut SMRegistry,
+        operator: OperatorIdx,
+        table: &OperatorTable,
+        activation_height: BitcoinBlockHeight,
+    ) -> Transaction {
+        let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
+        let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
+        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
+        let StakeState::Confirmed {
+            last_block_height,
+            mut stake_data,
+            mut summary,
+            ..
+        } = sm.state
+        else {
+            unreachable!("fixture stakes are confirmed");
+        };
+        stake_data.unstaking_image = sha256::Hash::hash(generate_txid().as_byte_array());
+        summary.stake = stake_tx.compute_txid();
+        let fields = StakeFunctor {
+            unstaking_intent: [()],
+            unstaking: [(), ()],
+        };
+        sm.state = StakeState::UnstakingSigned {
+            last_block_height,
+            stake_data,
+            summary,
+            agg_nonces: fields.map(|_| generate_agg_nonce()).boxed(),
+            signatures: fields.map(|_| generate_signature()).boxed(),
+        };
+        registry.insert_stake(sm).unwrap();
+        stake_tx
+    }
+
+    /// Returns each registered request outpoint with its index and recorded covenant.
+    fn admissions(registry: &SMRegistry) -> Vec<(OutPoint, DepositIdx, CovenantId)> {
+        registry
+            .deposits()
+            .map(|(&idx, sm)| {
+                (
+                    sm.context().deposit_request_outpoint(),
+                    idx,
+                    sm.context().covenant(),
+                )
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn activation_block_admits_requests_around_the_final_stake_across_restarts() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let activation = INITIAL_BLOCK_HEIGHT + 1;
+        let removed = N_TEST_OPERATORS as OperatorIdx - 1;
+        let membership = OperatorSetSM::new(
+            INITIAL_BLOCK_HEIGHT,
+            test_membership().registrations().clone(),
+            vec![MembershipUpdate {
+                activation_height: activation,
+                additions: BTreeSet::new(),
+                removals: BTreeSet::from([removed]),
+            }],
+        )
+        .unwrap();
+        let initial_table = membership
+            .current_operator_table()
+            .unwrap()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+        let mut projected = membership.clone();
+        projected.apply_block(activation, &[]).unwrap();
+        let successor = projected.covenant_at(activation).unwrap();
+        let successor_table = successor
+            .operator_table
+            .clone()
+            .with_pov(TEST_POV_IDX)
+            .unwrap();
+
+        let mut initial = test_empty_registry();
+        initial.insert_operator_set(membership).unwrap();
+        let historical_idx = 40;
+        let historical = insert_deposit_activated_at(&mut initial, historical_idx, 1);
+        let final_stake =
+            insert_signed_stake(&mut initial, TEST_POV_IDX, &successor_table, activation);
+        for operator in successor_table.operator_idxs() {
+            if operator != TEST_POV_IDX {
+                insert_bound_stake(&mut initial, operator, &successor_table, activation);
+            }
+        }
+        let cfg = initial.cfg().deposit.clone();
+        let before = DrtBuilder::aligned(&successor_table, &cfg).build();
+        let stale = DrtBuilder::aligned(&initial_table, &cfg).build();
+        let after = DrtBuilder::aligned(&successor_table, &cfg).build();
+        let mut block = generate_block_with_height(activation);
+        block
+            .txdata
+            .extend([before.clone(), final_stake, stale, after.clone()]);
+        let event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+        let offset = initial.cfg().deposit_index_offset;
+        let outpoint = |tx: &Transaction| OutPoint::new(tx.compute_txid(), DRT_OUTPUT_INDEX as u32);
+        let expected = vec![
+            (outpoint(&before), offset, successor.covenant),
+            (outpoint(&after), offset + 1, successor.covenant),
+            (OutPoint::default(), historical_idx, historical),
+        ];
+
+        let mut uninterrupted = initial.clone();
+        let batch = process_block(
+            &bitcoin_client,
+            &mut uninterrupted,
+            &successor_table,
+            &event,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            admissions(&uninterrupted),
+            expected,
+            "Requests on either side of the final stake must be admitted to the block-final \
+             covenant in order, the stale request rejected, and the historical index ignored"
+        );
+
+        // Production commits a prefix of these batches; recovery must converge from every one.
+        let batches = batch.tracker.into_batches();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-activation-admission-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+        for committed in 0..=batches.len() {
+            for id in initial.get_all_ids() {
+                persister
+                    .persist_batch(BTreeSet::from([id]), &initial)
+                    .await
+                    .unwrap();
+            }
+            for batch in &batches[..committed] {
+                persister
+                    .persist_batch(batch.clone(), &uninterrupted)
+                    .await
+                    .unwrap();
+            }
+
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            let start_height = restored.earliest_processed_block_height().unwrap();
+            for height in start_height..=activation {
+                let replay = if height == activation {
+                    event.clone()
+                } else {
+                    BlockEvent {
+                        block: generate_block_with_height(height),
+                        status: BlockStatus::Buried,
+                    }
+                };
+                let batch =
+                    process_block(&bitcoin_client, &mut restored, &successor_table, &replay)
+                        .await
+                        .unwrap();
+                persister
+                    .persist_batches(batch.tracker, &restored)
+                    .await
+                    .unwrap();
+            }
+
+            let recovered = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            assert_eq!(
+                admissions(&recovered),
+                expected,
+                "Recovery after {committed} of {} committed batches must admit the same \
+                 requests under the same indices",
+                batches.len()
+            );
+            for deposit in [offset, offset + 1] {
+                db.delete_deposit_cascade(deposit).await.unwrap();
+            }
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn index_collision_halts_block_processing_until_the_offset_is_raised() {
+        let bitcoin_client = unavailable_bitcoin_client();
+        let table = test_membership_table();
+        let mut initial = test_empty_registry();
+        insert_test_membership(&mut initial, INITIAL_BLOCK_HEIGHT);
+        confirm_all_stakes(&mut initial, &table);
+        let offset = initial.cfg().deposit_index_offset;
+        insert_deposit_activated_at(&mut initial, offset, 1);
+        let request = DrtBuilder::aligned(&table, &initial.cfg().deposit).build();
+        let mut block = generate_block_with_height(INITIAL_BLOCK_HEIGHT + 1);
+        block.txdata.push(request.clone());
+        let event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-index-collision-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let persister = Persister::new(Arc::new(client));
+        for id in initial.get_all_ids() {
+            persister
+                .persist_batch(BTreeSet::from([id]), &initial)
+                .await
+                .unwrap();
+        }
+
+        for attempt in ["first processing", "recovery with the same offset"] {
+            let mut restored = persister
+                .recover_registry(initial.cfg().clone())
+                .await
+                .unwrap();
+            let result = process_block(&bitcoin_client, &mut restored, &table, &event).await;
+            assert!(
+                matches!(
+                    result,
+                    Err(PipelineError::Process(ProcessError::DepositIndexCollision(
+                        _
+                    )))
+                ),
+                "{attempt} must halt on the collision instead of skipping the request"
+            );
+        }
+
+        let raised = offset + 100;
+        let mut restored = persister
+            .recover_registry(SMConfig {
+                deposit_index_offset: raised,
+                ..initial.cfg().clone()
+            })
+            .await
+            .unwrap();
+        let batch = process_block(&bitcoin_client, &mut restored, &table, &event)
+            .await
+            .unwrap();
+        persister
+            .persist_batches(batch.tracker, &restored)
+            .await
+            .unwrap();
+        assert_eq!(
+            restored
+                .get_deposit(&raised)
+                .map(|sm| sm.context().deposit_request_outpoint()),
+            Some(OutPoint::new(
+                request.compute_txid(),
+                DRT_OUTPUT_INDEX as u32
+            )),
+            "Recovery with a raised offset must admit the request under that offset"
+        );
+        drop(persister);
+        drop(guard);
     }
 
     /// Builds a covenant member that registers deposits from `offset` when it has none.
