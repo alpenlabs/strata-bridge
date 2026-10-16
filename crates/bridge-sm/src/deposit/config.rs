@@ -12,7 +12,8 @@ pub struct DepositSMCfg {
     /// The Bitcoin network (mainnet, testnet, regtest, etc.) used by the bridge.
     pub network: Network,
     /// The number of blocks after fulfillment confirmation after which the
-    /// cooperative payout path is considered to have failed.
+    /// cooperative payout path is considered to have failed, unless all the payout partials have
+    /// been collected by then.
     pub cooperative_payout_timeout_blocks: u64,
     /// The fixed deposit amount expected by the bridge protocol.
     pub deposit_amount: Amount,

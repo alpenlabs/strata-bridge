@@ -4,8 +4,6 @@ mod tests {
     use std::collections::BTreeMap;
 
     use bitcoin::{Txid, hashes::Hash};
-    use musig2::{AggNonce, PubNonce};
-    use strata_bridge_tx_graph::transactions::cooperative_payout::CooperativePayoutTx;
 
     use crate::{
         deposit::{
@@ -17,49 +15,6 @@ mod tests {
         },
         testing::transition::*,
     };
-
-    /// Helper to create test setup for payout partial tests.
-    /// Returns (state, signers, key_agg_ctx, agg_nonce, message, cooperative_payout_tx).
-    fn create_payout_partial_test_setup(
-        assignee: OperatorIdx,
-    ) -> (
-        DepositState,
-        Vec<TestMusigSigner>,
-        musig2::KeyAggContext,
-        AggNonce,
-        Message,
-        CooperativePayoutTx,
-    ) {
-        let signers = test_operator_signers();
-        let operator_desc = random_p2tr_desc();
-        let fulfillment_txid = generate_txid();
-
-        // Build cooperative payout tx and get signing info
-        let payout_tx = test_cooperative_payout_txn(operator_desc);
-        let (key_agg_ctx, message) = get_payout_signing_info(&payout_tx, &signers);
-
-        // Generate nonces (counter=0 for this signing round)
-        let agg_pubkey = key_agg_ctx.aggregated_pubkey();
-        let nonce_counter = 0u64;
-        let nonces: BTreeMap<OperatorIdx, PubNonce> = signers
-            .iter()
-            .map(|s| (s.operator_idx(), s.pubnonce(agg_pubkey, nonce_counter)))
-            .collect();
-        let agg_nonce = AggNonce::sum(nonces.values().cloned());
-
-        let state = DepositState::PayoutNoncesCollected {
-            last_block_height: INITIAL_BLOCK_HEIGHT,
-            assignee,
-            fulfillment_txid,
-            cooperative_payout_tx: payout_tx.clone(),
-            cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            payout_nonces: nonces,
-            payout_aggregated_nonce: agg_nonce.clone(),
-            payout_partial_signatures: BTreeMap::new(),
-        };
-
-        (state, signers, key_agg_ctx, agg_nonce, message, payout_tx)
-    }
 
     /// tests partial collection: first partial received, stays in PayoutNoncesCollected state
     #[test]

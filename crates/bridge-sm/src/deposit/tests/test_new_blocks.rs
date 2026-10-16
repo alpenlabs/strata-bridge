@@ -1,11 +1,29 @@
 //! Unit Tests for process_new_block
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use crate::{
         deposit::{errors::DSMError, events::NewBlockEvent, state::DepositState, tests::*},
         signals::{DepositSignal, DepositToGraph},
         testing::fixtures::*,
     };
+
+    fn payout_nonces_collected_state(signers: &[OperatorIdx]) -> DepositState {
+        DepositState::PayoutNoncesCollected {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
+            cooperative_payout_tx: test_cooperative_payout_txn(random_p2tr_desc()),
+            cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            payout_nonces: BTreeMap::new(),
+            payout_aggregated_nonce: generate_agg_nonce(),
+            payout_partial_signatures: signers
+                .iter()
+                .map(|&idx| (idx, generate_partial_signature()))
+                .collect(),
+        }
+    }
 
     #[test]
     fn test_new_block_updates_height_in_deposited() {
@@ -63,6 +81,52 @@ mod tests {
             output.signals[0],
             DepositSignal::ToGraph(DepositToGraph::CooperativePayoutFailed { .. })
         ));
+    }
+
+    #[test]
+    fn test_new_block_triggers_cooperative_timeout_with_missing_payout_partials() {
+        // Non-assignees are operators 0 and 1.
+        for signers in [&[0][..], &[0, TEST_ASSIGNEE]] {
+            let mut sm = create_sm(payout_nonces_collected_state(signers));
+            let output = sm
+                .process_new_block(NewBlockEvent {
+                    block_height: LATER_BLOCK_HEIGHT,
+                })
+                .expect("new block must be accepted");
+
+            assert!(matches!(
+                sm.state(),
+                DepositState::CooperativePathFailed {
+                    last_block_height: LATER_BLOCK_HEIGHT,
+                    assignee: TEST_ASSIGNEE,
+                    ..
+                }
+            ));
+            assert!(matches!(
+                output.signals.as_slice(),
+                [DepositSignal::ToGraph(
+                    DepositToGraph::CooperativePayoutFailed { .. }
+                )]
+            ));
+        }
+    }
+
+    #[test]
+    fn test_new_block_keeps_cooperative_path_after_deadline_with_all_payout_partials() {
+        let mut sm = create_sm(payout_nonces_collected_state(&[0, 1]));
+        let block_height = LATER_BLOCK_HEIGHT + 1;
+        let output = sm
+            .process_new_block(NewBlockEvent { block_height })
+            .expect("new block must be accepted");
+
+        assert!(matches!(
+            sm.state(),
+            DepositState::PayoutNoncesCollected {
+                last_block_height,
+                ..
+            } if *last_block_height == block_height
+        ));
+        assert!(output.signals.is_empty());
     }
 
     /// Tests that Assigned state reverts to Deposited when fulfillment deadline expires

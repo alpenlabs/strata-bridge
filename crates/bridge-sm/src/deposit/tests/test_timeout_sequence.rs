@@ -4,7 +4,9 @@ mod tests {
 
     use crate::{
         deposit::{
-            events::{DepositEvent, NewBlockEvent},
+            duties::DepositDuty,
+            errors::DSMError,
+            events::{DepositEvent, NewBlockEvent, RetryTickEvent},
             state::DepositState,
             tests::*,
         },
@@ -61,5 +63,76 @@ mod tests {
             )),
             "Should emit CooperativePayoutFailed signal"
         );
+    }
+
+    #[test]
+    fn test_cooperative_path_survives_deadline_once_all_payout_partials_collected() {
+        let (initial_state, partials) = payout_signing_round(TEST_POV_IDX);
+        let mut seq = EventSequence::new(create_sm(initial_state), get_state);
+
+        for partial in partials {
+            seq.process(test_deposit_sm_cfg(), partial);
+        }
+        seq.process(
+            test_deposit_sm_cfg(),
+            DepositEvent::NewBlock(NewBlockEvent {
+                block_height: LATER_BLOCK_HEIGHT,
+            }),
+        );
+        seq.process(
+            test_deposit_sm_cfg(),
+            DepositEvent::RetryTick(RetryTickEvent),
+        );
+
+        seq.assert_no_errors();
+        assert!(matches!(
+            seq.state(),
+            DepositState::PayoutNoncesCollected { .. }
+        ));
+        assert!(seq.all_signals().is_empty());
+        assert_eq!(
+            seq.all_duties()
+                .iter()
+                .filter(|duty| matches!(duty, DepositDuty::PublishPayout { .. }))
+                .count(),
+            2,
+            "final partial and retry tick should both emit PublishPayout"
+        );
+    }
+
+    #[test]
+    fn test_cooperative_timeout_rejects_payout_partial_received_after_deadline() {
+        let (initial_state, partials) = payout_signing_round(TEST_POV_IDX);
+        let [first_partial, last_partial] = partials.try_into().expect("two non-assignees");
+        let mut seq = EventSequence::new(create_sm(initial_state), get_state);
+
+        seq.process(test_deposit_sm_cfg(), first_partial);
+        seq.process(
+            test_deposit_sm_cfg(),
+            DepositEvent::NewBlock(NewBlockEvent {
+                block_height: LATER_BLOCK_HEIGHT,
+            }),
+        );
+        seq.process(test_deposit_sm_cfg(), last_partial);
+        seq.process(
+            test_deposit_sm_cfg(),
+            DepositEvent::RetryTick(RetryTickEvent),
+        );
+
+        assert!(matches!(
+            seq.state(),
+            DepositState::CooperativePathFailed { .. }
+        ));
+        assert!(matches!(
+            seq.all_errors().as_slice(),
+            [DSMError::Rejected { .. }]
+        ));
+        assert!(seq.all_duties().is_empty());
+        assert!(matches!(
+            seq.all_signals().as_slice(),
+            [DepositSignal::ToGraph(
+                DepositToGraph::CooperativePayoutFailed { .. }
+            )]
+        ));
     }
 }
