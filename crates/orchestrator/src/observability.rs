@@ -375,6 +375,7 @@ const fn process_error_class(error: &ProcessError) -> &'static str {
         ProcessError::InvariantViolation(_, _, _, _) => "invariant_violation",
         ProcessError::RegistryInsert(_) => "registry_insertion",
         ProcessError::OperatorSet(_) => "operator_membership",
+        ProcessError::DepositIndexCollision(_) => "deposit_index_collision",
     }
 }
 

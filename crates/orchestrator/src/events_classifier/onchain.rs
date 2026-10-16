@@ -44,7 +44,7 @@ use tracing::{Level, debug, info, warn};
 use super::{drt, exits::resolve_exit_observation};
 use crate::{
     applicator::Applicator,
-    errors::{PipelineError, ProcessError},
+    errors::{DepositIndexCollision, PipelineError, ProcessError},
     sm_registry::{RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
     stake_readiness::{CovenantStakes, ReadinessError},
@@ -333,6 +333,17 @@ fn try_register_deposit(
         }
         Err(err) => return Err(err.into()),
     };
+    // Registered requests were deduplicated above, so a held index belongs to another covenant
+    // whose range the configured offset overlaps.
+    if let Some(holder) = applicator.registry().get_deposit(&deposit_idx) {
+        return Err(ProcessError::DepositIndexCollision(Box::new(
+            DepositIndexCollision {
+                deposit_idx,
+                covenant,
+                holder: holder.context().covenant(),
+            },
+        )));
+    }
     let deposit_data = DepositData {
         deposit_idx,
         deposit_request_outpoint,
@@ -804,6 +815,65 @@ mod tests {
                  covenant's index {historical_idx}"
             );
         }
+    }
+
+    #[test]
+    fn index_held_by_another_covenant_halts_until_the_offset_is_raised() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_empty_registry();
+        confirm_all_stakes(&mut registry, &operator_table);
+        let offset = registry.cfg().deposit_index_offset;
+        let holder = insert_deposit_activated_at(&mut registry, offset, INITIAL_BLOCK_HEIGHT - 10);
+        let block_covenant = block_covenant_for(&operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        let mut applicator = Applicator::new(&mut registry, None);
+        let result = try_register_deposit(
+            &cfg,
+            &block_covenant,
+            operator_table.pov_idx(),
+            &mut applicator,
+            &drt,
+            TEST_HEIGHT,
+        );
+        let BatchOutput { tracker, .. } = applicator.finish();
+        let expected = DepositIndexCollision {
+            deposit_idx: offset,
+            covenant: block_covenant.covenant,
+            holder,
+        };
+        assert!(
+            matches!(
+                &result,
+                Err(ProcessError::DepositIndexCollision(collision)) if **collision == expected
+            ),
+            "A request allocated another covenant's index must halt with {expected:?}, got \
+             {result:?}"
+        );
+        assert!(
+            tracker.into_batches().is_empty(),
+            "A colliding request must not stage any state for persistence"
+        );
+        assert_eq!(
+            registry.num_deposits(),
+            1,
+            "A colliding request must leave the registry unchanged"
+        );
+
+        let raised = offset + 100;
+        registry.set_deposit_index_offset(raised);
+        register_drt(&mut registry, &operator_table, &cfg, &drt);
+        assert_eq!(
+            registry
+                .get_deposit(&raised)
+                .expect("the request must be admitted after the offset is raised")
+                .context()
+                .deposit_request_outpoint()
+                .txid,
+            drt.compute_txid(),
+            "The replayed request must receive the raised offset"
+        );
     }
 
     #[test]
