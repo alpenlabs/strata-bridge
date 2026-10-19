@@ -2494,7 +2494,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -3740,7 +3740,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -4269,7 +4269,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4380,7 +4380,7 @@ checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if 1.0.4",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6900,7 +6900,7 @@ name = "moho-recursive-proof"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0#caee71659e6df0793ff12bb69dc0b4e38ed5ac46"
 dependencies = [
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.0)",
  "ssz",
  "ssz_derive",
  "strata-merkle",
@@ -6917,7 +6917,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0#caee71659e6df0793ff12bb69dc0b4e38ed5ac46"
 dependencies = [
  "moho-runtime-interface",
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.0)",
  "ssz",
  "ssz_derive",
 ]
@@ -6927,7 +6927,7 @@ name = "moho-runtime-interface"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/moho?tag=v0.4.0#caee71659e6df0793ff12bb69dc0b4e38ed5ac46"
 dependencies = [
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.0)",
  "ssz",
  "strata-predicate",
 ]
@@ -6940,6 +6940,26 @@ dependencies = [
  "const-hex",
  "hex",
  "serde",
+ "sha2 0.11.0",
+ "ssz",
+ "ssz_codegen",
+ "ssz_derive",
+ "ssz_primitives",
+ "ssz_types",
+ "strata-merkle",
+ "strata-predicate",
+ "thiserror 2.0.18",
+ "tree_hash",
+ "tree_hash_derive",
+ "zkaleido",
+]
+
+[[package]]
+name = "moho-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/moho?tag=v0.4.1#6ed40ff33165d3a948db3bb8c8bfbe004a910b44"
+dependencies = [
+ "hex",
  "sha2 0.11.0",
  "ssz",
  "ssz_codegen",
@@ -8658,7 +8678,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9297,7 +9317,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9365,7 +9385,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9386,7 +9406,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9407,7 +9427,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -11414,7 +11434,7 @@ dependencies = [
  "bitcoin",
  "moho-runtime-impl",
  "moho-runtime-interface",
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.0)",
  "ssz",
  "ssz_derive",
  "strata-asm-common",
@@ -11614,7 +11634,7 @@ source = "git+https://github.com/alpenlabs/asm?tag=v0.5.0-rc.1#7ada090580ac12af9
 dependencies = [
  "bitcoin",
  "jsonrpsee",
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.0)",
  "strata-asm-bridge-types 0.1.0 (git+https://github.com/alpenlabs/asm?tag=v0.5.0-rc.1)",
  "strata-asm-checkpoint-types",
  "strata-asm-common",
@@ -11827,7 +11847,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "cfg-if 1.0.4",
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.1)",
  "secp256k1 0.29.1",
  "ssz",
  "ssz_derive",
@@ -12046,7 +12066,7 @@ dependencies = [
  "anyhow",
  "cfg-if 1.0.4",
  "moho-recursive-proof",
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.1)",
  "serde_json",
  "ssz",
  "ssz_derive",
@@ -12072,7 +12092,7 @@ dependencies = [
  "hex",
  "k256",
  "moho-recursive-proof",
- "moho-types",
+ "moho-types 0.1.0 (git+https://github.com/alpenlabs/moho?tag=v0.4.1)",
  "serde",
  "serde_json",
  "sp1-sdk",
@@ -12863,7 +12883,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
