@@ -335,6 +335,10 @@ const CASES: [TransitionCase; 14] = [
         transition: "CounterProofConfirmed",
         event: counterproof_confirmed_event,
         arm: |state| match state {
+            GraphState::CounterProofPosted {
+                counterproofs_and_confs,
+                ..
+            } if counterproofs_and_confs.contains_key(&TEST_NONPOV_IDX) => Arm::Duplicate,
             GraphState::Contested { .. }
             | GraphState::BridgeProofPosted { .. }
             | GraphState::CounterProofPosted { .. } => Arm::Accepts,
@@ -353,8 +357,13 @@ const CASES: [TransitionCase; 14] = [
     TransitionCase {
         transition: "CounterProofNackConfirmed",
         event: counterproof_nack_confirmed_event,
+        // A NACK answers a counterproof, so it needs that counterproof on record.
         arm: |state| match state {
-            GraphState::CounterProofPosted { .. } => Arm::Accepts,
+            GraphState::CounterProofPosted {
+                counterproofs_and_confs,
+                ..
+            } if counterproofs_and_confs.contains_key(&TEST_NONPOV_IDX) => Arm::Accepts,
+            GraphState::CounterProofPosted { .. } => Arm::Rejected,
             GraphState::AllNackd { .. } => Arm::Duplicate,
             _ => Arm::Invalid,
         },
