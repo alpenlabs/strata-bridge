@@ -37,6 +37,7 @@ mod tests {
     prop_terminal_states_reject!(
         DepositSM,
         create_sm,
+        get_state,
         test_deposit_sm_cfg(),
         arb_terminal_state(),
         // TODO: <https://alpenlabs.atlassian.net/browse/STR-2674>

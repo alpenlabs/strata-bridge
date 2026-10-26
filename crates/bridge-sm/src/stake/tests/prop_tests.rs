@@ -41,6 +41,7 @@ prop_no_silent_acceptance!(
 prop_terminal_states_reject!(
     StakeSM,
     create_state_machine,
+    get_state,
     TEST_CFG.clone(),
     any_terminal_state(),
     any_event()
