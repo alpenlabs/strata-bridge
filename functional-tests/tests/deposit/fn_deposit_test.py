@@ -75,10 +75,6 @@ class BridgeDepositTest(StrataTestBase):
         for drt_txid in drt_txids:
             self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
-        operator_log_offsets = snapshot_log_offsets(
-            [bridge_node.props["logfile"] for bridge_node in bridge_nodes]
-        )
-
         self.logger.info("Waiting for all DRTs to be recognized before stopping nodes")
         wait_until_drts_recognized(
             bridge_rpc,
@@ -90,6 +86,10 @@ class BridgeDepositTest(StrataTestBase):
         for i in range(num_operators):
             self.logger.info(f"Stopping operator node {i}")
             bridge_nodes[i].stop()
+
+        operator_log_offsets = snapshot_log_offsets(
+            [bridge_node.props["logfile"] for bridge_node in bridge_nodes]
+        )
 
         self.logger.info("Restarting all operator nodes")
         for i in range(num_operators):
