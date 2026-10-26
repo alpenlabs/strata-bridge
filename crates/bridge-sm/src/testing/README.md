@@ -35,6 +35,7 @@ Macros for testing invariant properties over arbitrary inputs:
 - `prop_deterministic!` - Verify deterministic behavior
 - `prop_no_silent_acceptance!` - Verify state changes or errors
 - `prop_terminal_states_reject!` - Verify terminal state behavior
+- `prop_terminal_states_ignore_ticks!` - Verify terminal states ignore ticks
 
 ## Test Helper Organization
 
@@ -212,14 +213,30 @@ prop_no_silent_acceptance!(
 
 ### `prop_terminal_states_reject!` - Terminal States Property
 
-Tests that terminal states reject all events with errors.
+Tests that terminal states reject all events with an error and are left unchanged.
 
 ```rust
 prop_terminal_states_reject!(
     MySM,
     create_sm,
+    get_state,
     arb_terminal_state(),
     any::<MyEvent>(),
+);
+```
+
+### `prop_terminal_states_ignore_ticks!` - Terminal States Ignore Ticks
+
+Tests that tick events leave terminal states untouched: the handler succeeds without mutating
+state and without emitting duties or signals.
+
+```rust
+prop_terminal_states_ignore_ticks!(
+    MySM,
+    create_sm,
+    get_state,
+    arb_terminal_state(),
+    arb_tick_events(),
 );
 ```
 
