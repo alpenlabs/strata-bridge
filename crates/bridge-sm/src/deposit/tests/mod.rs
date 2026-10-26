@@ -22,6 +22,7 @@ use musig2::{AggNonce, KeyAggContext, PubNonce};
 use proptest::prelude::*;
 use secp256k1::{Message, SecretKey};
 use strata_bridge_connectors::n_of_n::NOfNConnector;
+use strata_bridge_p2p_types::NagRequestPayload;
 use strata_bridge_primitives::{
     covenant::CovenantId,
     key_agg::create_agg_ctx,
@@ -51,11 +52,11 @@ use crate::{
         duties::DepositDuty,
         errors::DSMError,
         events::{
-            DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NagTickEvent,
-            NewBlockEvent, NonceReceivedEvent, PayoutConfirmedEvent, PayoutNonceReceivedEvent,
-            PayoutPartialReceivedEvent, RetryTickEvent, SafeHarbourAbortEvent,
-            SweepNonceReceivedEvent, SweepPartialReceivedEvent, SweepRequestedEvent,
-            UserTakeBackEvent, WithdrawalAssignedEvent,
+            DepositConfirmedEvent, DepositEvent, FulfillmentConfirmedEvent, NagReceivedEvent,
+            NagTickEvent, NewBlockEvent, NonceReceivedEvent, PayoutConfirmedEvent,
+            PayoutNonceReceivedEvent, PayoutPartialReceivedEvent, RetryTickEvent,
+            SafeHarbourAbortEvent, SweepNonceReceivedEvent, SweepPartialReceivedEvent,
+            SweepRequestedEvent, UserTakeBackEvent, WithdrawalAssignedEvent,
         },
         machine::DepositSM,
         state::DepositState,
@@ -632,13 +633,40 @@ pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
             assignee: None,
         }),
         Just(DepositState::Aborted),
+        Just(DepositState::Skipped),
     ]
 }
 
-/// Strategy for generating only events which have been handled in STFs.
-// TODO: <https://alpenlabs.atlassian.net/browse/STR-2673>
-// Remove this once all STFs have been implemented.
-pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
+/// Strategy for generating the tick events, which are handled rather than transitioned on.
+///
+/// Terminal states ignore these (see `prop_terminal_states_ignore_ticks!`), so they are kept
+/// apart from [`arb_stf_events`].
+pub(super) fn arb_tick_events() -> impl Strategy<Value = DepositEvent> {
+    prop_oneof![
+        Just(DepositEvent::NagTick(NagTickEvent)),
+        Just(DepositEvent::RetryTick(RetryTickEvent)),
+    ]
+}
+
+/// Strategy for generating incoming nags.
+///
+/// Also handled rather than transitioned on, but rejected outside the states that can answer
+/// them, so they belong with the rejecting events rather than the ticks.
+pub(super) fn arb_nag_received_events() -> impl Strategy<Value = DepositEvent> {
+    (0..N_TEST_OPERATORS as u32).prop_map(|idx| {
+        DepositEvent::NagReceived(NagReceivedEvent {
+            payload: NagRequestPayload::DepositNonce {
+                deposit_idx: TEST_DEPOSIT_IDX,
+            },
+            sender_operator_idx: idx,
+        })
+    })
+}
+
+/// Strategy for generating the events that drive state transitions.
+///
+/// Ticks are covered separately by [`arb_tick_events`].
+pub(super) fn arb_stf_events() -> impl Strategy<Value = DepositEvent> {
     let outpoint = OutPoint::default();
     let num_operators = N_TEST_OPERATORS as u32;
     let operator_idx = 0..num_operators;
