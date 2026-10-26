@@ -54,17 +54,18 @@ macro_rules! prop_deterministic {
 /// Property: Terminal states should reject all events.
 ///
 /// Use this macro to test that your terminal states properly reject
-/// all events with appropriate errors.
+/// all events with an error and stay in the terminal state.
 ///
 /// # Arguments
 /// * `$sm_type` - The state machine type
 /// * `$create_fn` - Function to create SM from state: `Fn(State) -> SM`
+/// * `$get_state_fn` - Function to get state from SM: `Fn(&SM) -> &State`
 /// * `$config` - Configuration to pass to `process_event`
 /// * `$terminal_states` - Proptest strategy for generating terminal states
 /// * `$event_strategy` - Proptest strategy for generating events
 #[macro_export]
 macro_rules! prop_terminal_states_reject {
-    ($sm_type:ty, $create_fn:expr, $config:expr, $terminal_states:expr, $event_strategy:expr) => {
+    ($sm_type:ty, $create_fn:expr, $get_state_fn:expr, $config:expr, $terminal_states:expr, $event_strategy:expr) => {
         proptest::proptest! {
             #[test]
             fn terminal_states_reject_all_events(
@@ -73,15 +74,57 @@ macro_rules! prop_terminal_states_reject {
             ) {
                 use $crate::state_machine::StateMachine;
 
-                let mut sm = $create_fn(terminal_state);
+                let mut sm = $create_fn(terminal_state.clone());
                 let result = sm.process_event($config, event);
 
-                proptest::prop_assert!(result.is_err(), "Terminal state should reject event");
                 proptest::prop_assert!(
                     result.is_err(),
                     "Terminal states should return error, got: {:?}",
                     result
                 );
+                proptest::prop_assert_eq!($get_state_fn(&sm), &terminal_state);
+            }
+        }
+    };
+}
+
+/// Property: Terminal states should ignore ticks.
+///
+/// Tick events are handlers rather than transitions: a terminal state must accept them
+/// without mutating state and without emitting any duty or signal.
+///
+/// # Arguments
+/// * `$sm_type` - The state machine type
+/// * `$create_fn` - Function to create SM from state: `Fn(State) -> SM`
+/// * `$get_state_fn` - Function to get state from SM: `Fn(&SM) -> &State`
+/// * `$config` - Configuration to pass to `process_event`
+/// * `$terminal_states` - Proptest strategy for generating terminal states
+/// * `$tick_strategy` - Proptest strategy for generating tick events
+#[macro_export]
+macro_rules! prop_terminal_states_ignore_ticks {
+    ($sm_type:ty, $create_fn:expr, $get_state_fn:expr, $config:expr, $terminal_states:expr, $tick_strategy:expr) => {
+        proptest::proptest! {
+            #[test]
+            fn terminal_states_ignore_ticks(
+                terminal_state in $terminal_states,
+                tick in $tick_strategy,
+            ) {
+                use $crate::state_machine::StateMachine;
+
+                let mut sm = $create_fn(terminal_state.clone());
+                let result = sm.process_event($config, tick);
+
+                match result {
+                    Ok(output) => {
+                        proptest::prop_assert!(!output.did_mutate(), "Tick must not mutate a terminal state");
+                        proptest::prop_assert!(output.duties.is_empty(), "Tick emitted duties: {:?}", output.duties);
+                        proptest::prop_assert!(output.signals.is_empty(), "Tick emitted signals: {:?}", output.signals);
+                        proptest::prop_assert_eq!($get_state_fn(&sm), &terminal_state);
+                    }
+                    Err(err) => {
+                        proptest::prop_assert!(false, "Tick should be ignored in a terminal state, got: {:?}", err);
+                    }
+                }
             }
         }
     };
