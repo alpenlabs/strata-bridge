@@ -65,29 +65,44 @@ impl Arbitrary for StakeState {
 
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         let last_block_height = 0u64..1_000u64;
+        // The collecting states are generated both complete and still waiting on one operator,
+        // so the collecting branch of the nonce and partial handlers is reached.
+        let missing_operator = proptest::option::of(0..TEST_N_OPERATORS as u32);
 
         prop_oneof![
             last_block_height
                 .clone()
                 .prop_map(|last_block_height| StakeState::Created { last_block_height }),
-            last_block_height.clone().prop_map(|last_block_height| {
-                StakeState::StakeGraphGenerated {
-                    last_block_height,
-                    stake_data: TEST_STAKE_DATA.clone(),
-                    summary: *TEST_GRAPH_SUMMARY,
-                    pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+            (last_block_height.clone(), missing_operator.clone()).prop_map(
+                |(last_block_height, missing_operator)| {
+                    let mut pub_nonces = TEST_PUB_NONCES_MAP.clone();
+                    if let Some(idx) = missing_operator {
+                        pub_nonces.remove(&idx);
+                    }
+                    StakeState::StakeGraphGenerated {
+                        last_block_height,
+                        stake_data: TEST_STAKE_DATA.clone(),
+                        summary: *TEST_GRAPH_SUMMARY,
+                        pub_nonces,
+                    }
                 }
-            }),
-            last_block_height.clone().prop_map(|last_block_height| {
-                StakeState::UnstakingNoncesCollected {
-                    last_block_height,
-                    stake_data: TEST_STAKE_DATA.clone(),
-                    summary: *TEST_GRAPH_SUMMARY,
-                    pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-                    agg_nonces: TEST_AGG_NONCES.clone().boxed(),
-                    partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
+            ),
+            (last_block_height.clone(), missing_operator).prop_map(
+                |(last_block_height, missing_operator)| {
+                    let mut partial_signatures = TEST_PARTIAL_SIGS_MAP.clone();
+                    if let Some(idx) = missing_operator {
+                        partial_signatures.remove(&idx);
+                    }
+                    StakeState::UnstakingNoncesCollected {
+                        last_block_height,
+                        stake_data: TEST_STAKE_DATA.clone(),
+                        summary: *TEST_GRAPH_SUMMARY,
+                        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+                        agg_nonces: TEST_AGG_NONCES.clone().boxed(),
+                        partial_signatures,
+                    }
                 }
-            }),
+            ),
             last_block_height
                 .clone()
                 .prop_map(|last_block_height| StakeState::UnstakingSigned {
