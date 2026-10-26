@@ -1,5 +1,6 @@
 import flexitest
 
+from constants import CLAIM_CONTEST_VOUT, DT_DEPOSIT_VOUT
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -18,6 +19,7 @@ from utils.utils import (
     wait_for_tx_confirmation,
     wait_until,
 )
+from utils.withdrawal import assert_contest_shape
 
 
 @flexitest.register
@@ -31,7 +33,7 @@ class FaultyClaimContestedTest(StrataTestBase):
     1. Complete a deposit
     2. Post a faulty claim via dev-cli from operator-0 (no assignment)
     3. Wait for a watchtower to contest by confirming the claim tx's
-       contest connector (vout 0) is spent on bitcoin
+       contest connector is spent by a contest tx on bitcoin
     4. Post a mock checkpoint explicitly assigning the withdrawal to
        operator-1, then shut operator-1 down so it cannot perform its
        fulfillment
@@ -62,6 +64,7 @@ class FaultyClaimContestedTest(StrataTestBase):
         asm_rpc = ctx.get_service("asm_rpc").create_rpc()
 
         num_operators = len(bridge_nodes)
+        num_watchtowers = num_operators - 1
         operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
         bitcoind_props = bitcoind_service.props
@@ -79,7 +82,8 @@ class FaultyClaimContestedTest(StrataTestBase):
 
         deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
         assert deposit_info is not None, "Deposit did not complete"
-        self.logger.info("Deposit completed")
+        deposit_txid = deposit_info.get("status").get("deposit_txid")
+        self.logger.info(f"Deposit completed: {deposit_txid}")
 
         # 2. Post a faulty claim via dev-cli (no assignment) from operator-0
         op0_idx = 0
@@ -102,9 +106,15 @@ class FaultyClaimContestedTest(StrataTestBase):
         )
         self.logger.info(f"Faulty claim tx {claim_txid} confirmed in block {claim_block_hash}")
 
-        # 3. Wait for a watchtower to contest by spending the claim's contest connector (vout 0)
-        wait_until_utxo_spent(bitcoin_rpc, claim_txid, vout=0, timeout=300)
-        self.logger.info("Claim contest connector (vout 0) spent — watchtower contested op-0 claim")
+        # 3. Wait for a watchtower to contest by spending the claim's contest connector.
+        #    The claim's uncontested payout spends the same output once `contest_timelock`
+        #    elapses, so check the spender is a contest and the deposit is still locked.
+        wait_until_utxo_spent(bitcoin_rpc, claim_txid, vout=CLAIM_CONTEST_VOUT, timeout=300)
+        contest_txid = assert_contest_shape(bitcoin_rpc, claim_txid, num_watchtowers)
+        self.logger.info(f"Watchtower contested op-0 claim with {contest_txid}")
+        assert bitcoin_rpc.proxy.gettxout(deposit_txid, DT_DEPOSIT_VOUT) is not None, (
+            f"deposit {deposit_txid}:{DT_DEPOSIT_VOUT} was spent after the op-0 claim was contested"
+        )
 
         # 4. Post a mock checkpoint explicitly assigning the withdrawal to
         #    operator-1, then shut operator-1 down so it cannot fulfill
@@ -163,10 +173,8 @@ class FaultyClaimContestedTest(StrataTestBase):
         self.logger.info(f"Faulty claim tx {claim_txid_2} confirmed in block {claim_block_hash_2}")
 
         # 7. Wait for a watchtower to contest the second claim
-        wait_until_utxo_spent(bitcoin_rpc, claim_txid_2, vout=0, timeout=300)
-        self.logger.info(
-            f"Second claim contest connector (vout 0) spent "
-            f"— watchtower contested op-{target_idx} claim"
-        )
+        wait_until_utxo_spent(bitcoin_rpc, claim_txid_2, vout=CLAIM_CONTEST_VOUT, timeout=300)
+        contest_txid_2 = assert_contest_shape(bitcoin_rpc, claim_txid_2, num_watchtowers)
+        self.logger.info(f"Watchtower contested op-{target_idx} claim with {contest_txid_2}")
 
         return True

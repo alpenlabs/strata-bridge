@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 
 from constants import (
+    CLAIM_CONTEST_VOUT,
     CLAIM_PAYOUT_VOUT,
     CONTEST_PAYOUT_VOUT,
     CONTEST_SLASH_VOUT,
@@ -259,3 +260,27 @@ def assert_contested_payout_shape(
     )
 
     logging.info(f"Contested payout {contested_payout_txid} has the expected 4-input shape")
+
+
+def assert_contest_shape(bitcoin_rpc, claim_txid: str, num_watchtowers: int) -> str:
+    """Assert the tx spending the claim contest output is a `contest` and return its txid.
+
+    A `contest` spends only the claim contest output and carries the proof, payout and
+    slash outputs, one counterproof output per watchtower, and the CPFP anchor. The other
+    spender of that output, an `uncontested_payout`, takes the claim contest and payout
+    outputs together and has a different output count.
+    """
+    contest_txid, inputs = _spender_inputs(bitcoin_rpc, claim_txid, CLAIM_CONTEST_VOUT)
+    assert inputs == [(claim_txid, CLAIM_CONTEST_VOUT)], (
+        f"contest candidate {contest_txid} must spend exactly {claim_txid}:{CLAIM_CONTEST_VOUT}, "
+        f"got {inputs}"
+    )
+    n_out = len(bitcoin_rpc.proxy.getrawtransaction(contest_txid, True)["vout"])
+    expected_out = CONTEST_WATCHTOWER_0_VOUT + num_watchtowers + 1
+    assert n_out == expected_out, (
+        f"contest candidate {contest_txid} must have {expected_out} outputs "
+        f"for {num_watchtowers} watchtowers, got {n_out}"
+    )
+
+    logging.info(f"Contest {contest_txid} spends claim:{CLAIM_CONTEST_VOUT} with {n_out} outputs")
+    return contest_txid
