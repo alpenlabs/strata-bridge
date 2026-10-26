@@ -59,7 +59,7 @@ def wait_until_deposit_status(
     deposit_id: int,
     target_status: type[RpcDepositStatus],
     timeout=300,
-) -> RpcDepositInfo | None:
+) -> RpcDepositInfo:
     """Wait until deposit reaches the target status.
 
     Args:
@@ -68,7 +68,7 @@ def wait_until_deposit_status(
         target_status: Status to wait for
         timeout: Maximum wait time in seconds
     """
-    result = {"deposit_info": None}
+    result: dict[str, RpcDepositInfo | None] = {"deposit_info": None}
 
     def check_deposit_status():
         result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
@@ -82,7 +82,9 @@ def wait_until_deposit_status(
         step=10,
         error_msg=f"Timeout after {timeout} seconds waiting for deposit status '{target_status}'",
     )
-    return result["deposit_info"]
+    deposit_info = result["deposit_info"]
+    assert deposit_info is not None
+    return deposit_info
 
 
 def wait_until_drts_recognized(

@@ -100,7 +100,6 @@ class SP1BridgeProofTest(StrataTestBase):
         deposit_info = wait_until_deposit_status(
             bridge_rpc, deposit_id, RpcDepositStatusComplete, timeout=7200
         )
-        assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
         deposit_txid = deposit_info.get("status").get("deposit_txid")
         self.logger.info(f"Deposit txid: {deposit_txid}")

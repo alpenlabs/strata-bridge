@@ -72,7 +72,6 @@ class SafeHarbourSweepVsPayoutRaceTest(StrataTestBase):
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
-        assert deposit_info is not None, "Deposit did not complete"
         deposit_txid = deposit_info.get("status").get("deposit_txid")
 
         recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())

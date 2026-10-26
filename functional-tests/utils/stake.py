@@ -126,9 +126,6 @@ def wait_until_operator_slashed(
         if stake.state is not RpcStakeStateLabel.SLASHED:
             return False
 
-        assert stake.slash_txid is not None, (
-            f"operator {operator_idx} reported `slashed` without a slash_txid"
-        )
         result["stake"] = stake
         return True
 
@@ -143,6 +140,9 @@ def wait_until_operator_slashed(
 
     stake = result["stake"]
     assert stake is not None
+    assert stake.slash_txid is not None, (
+        f"operator {operator_idx} reported `slashed` without a slash_txid"
+    )
     return stake
 
 

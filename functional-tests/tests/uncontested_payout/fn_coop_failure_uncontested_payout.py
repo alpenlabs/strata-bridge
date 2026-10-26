@@ -58,7 +58,6 @@ class CoopFailureUncontestedPayoutTest(StrataTestBase):
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 
         deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
-        assert deposit_info is not None, "Deposit did not complete"
         deposit_txid = deposit_info.get("status").get("deposit_txid")
         self.logger.info(f"Deposit completed, txid: {deposit_txid}")
 

@@ -63,8 +63,7 @@ class UnstakingBurnTest(StrataTestBase):
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 
-        deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
-        assert deposit_info is not None, "Deposit did not complete"
+        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
         self.logger.info("Deposit completed")
 
         recent_block_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())

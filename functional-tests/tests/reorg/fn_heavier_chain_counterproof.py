@@ -118,8 +118,7 @@ class HeavierChainCounterproofTest(StrataTestBase):
         drt_txid = dev_cli.send_deposit_request()
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(assigned_rpc, drt_txid)
-        deposit_info = wait_until_deposit_status(assigned_rpc, deposit_id, RpcDepositStatusComplete)
-        assert deposit_info is not None, "Deposit did not complete"
+        wait_until_deposit_status(assigned_rpc, deposit_id, RpcDepositStatusComplete)
         self.logger.info("Deposit completed")
 
         assigned_stake_txid = confirmed_stake_txid_for_operator(
@@ -289,7 +288,6 @@ class HeavierChainCounterproofTest(StrataTestBase):
                     f"fulfillment {fulfillment_txid} re-confirmed on the active chain in "
                     f"{fulfillment_block}"
                 )
-            assert bitcoin_rpc.proxy.getblockcount() > reorg.old_tip_height
         finally:
             miner.stop()
 

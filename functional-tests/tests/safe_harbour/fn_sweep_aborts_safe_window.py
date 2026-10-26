@@ -20,7 +20,7 @@ import flexitest
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
-from rpc.types import RpcDepositStatusFailed
+from rpc.types import RpcDepositStatusComplete, RpcDepositStatusFailed
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
@@ -66,6 +66,8 @@ class SafeHarbourAbortsSafeWindowTest(StrataTestBase):
         bridge_nodes[held_down].start()
         restarted_rpc = bridge_nodes[held_down].create_rpc()
 
+        completed: dict[str, dict | None] = {"deposit_info": None}
+
         def restarted_converged():
             try:
                 deposit_indices = restarted_rpc.stratabridge_depositIndices()
@@ -80,9 +82,9 @@ class SafeHarbourAbortsSafeWindowTest(StrataTestBase):
             deposit_info = restarted_rpc.stratabridge_depositInfo(deposit_id)
             self.logger.info(f"operator {held_down} deposit info: {deposit_info}")
             status = deposit_info.get("status", {}).get("status")
-            assert status != "complete", (
-                f"operator {held_down} completed a deposit the others aborted"
-            )
+            if status == RpcDepositStatusComplete.status:
+                completed["deposit_info"] = deposit_info
+                return True
             return status == RpcDepositStatusFailed.status
 
         wait_until(
@@ -90,6 +92,11 @@ class SafeHarbourAbortsSafeWindowTest(StrataTestBase):
             timeout=180,
             step=2,
             error_msg=f"operator {held_down} did not refuse or abort the deposit after restart",
+        )
+
+        assert completed["deposit_info"] is None, (
+            f"operator {held_down} completed a deposit the others aborted: "
+            f"{completed['deposit_info']}"
         )
 
         return True
