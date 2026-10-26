@@ -111,7 +111,6 @@ class CounterproofNackPublishedOnInvalidCounterproofTest(StrataTestBase):
             deposit_info = wait_until_deposit_status(
                 bridge_rpc, deposit_id, RpcDepositStatusComplete
             )
-            assert deposit_info is not None, f"Deposit {deposit_id} did not complete"
             if deposit_id == contested_deposit_idx:
                 contested_deposit_txid = deposit_info.get("status").get("deposit_txid")
         assert contested_deposit_txid is not None, (

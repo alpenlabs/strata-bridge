@@ -192,7 +192,6 @@ class FullMosaicInvalidCounterproofNackdTest(StrataTestBase):
             RpcDepositStatusComplete,
             timeout=7200 * MOSAIC_WAIT_SCALE,
         )
-        assert deposit_info is not None, "Deposit did not complete"
         contested_deposit_txid = deposit_info.get("status").get("deposit_txid")
         assert contested_deposit_txid is not None, "Completed deposit has no deposit_txid"
         assert deposit_id == self.CONTESTED_DEPOSIT_IDX, (

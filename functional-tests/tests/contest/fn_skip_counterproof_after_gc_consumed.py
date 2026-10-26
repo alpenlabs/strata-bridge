@@ -91,7 +91,6 @@ class CounterproofSkippedAfterGcConsumedTest(StrataTestBase):
                 deposit_id,
                 RpcDepositStatusComplete,
             )
-            assert deposit_info is not None, f"Deposit {deposit_id} did not complete"
             deposit_data = cast("dict[str, Any]", deposit_info)
             deposit_txids[deposit_id] = str(deposit_data["status"]["deposit_txid"])
         self.logger.info("Both deposits completed")

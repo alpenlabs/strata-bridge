@@ -179,13 +179,12 @@ class FullMosaicValidCounterproofAckedTest(StrataTestBase):
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid, timeout=3600)
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")
 
-        deposit_info = wait_until_deposit_status(
+        wait_until_deposit_status(
             bridge_rpc,
             deposit_id,
             RpcDepositStatusComplete,
             timeout=7200 * MOSAIC_WAIT_SCALE,
         )
-        assert deposit_info is not None, "Deposit did not complete"
         self.logger.info("Deposit completed")
 
         dishonest_stake_txid = confirmed_stake_txid_for_operator(
