@@ -28,6 +28,7 @@ from utils.dev_cli import DevCli
 from utils.safe_harbour import (
     activate_safe_harbour,
     assert_sweep_tx,
+    p2tr_descriptor_script_hex,
     safe_harbour_script_hex,
     wait_until_deposit_swept,
 )
@@ -114,6 +115,17 @@ class SafeHarbourSweepVsPayoutRaceTest(StrataTestBase):
             )
         else:
             self.logger.info(f"Cooperative payout won the race: {spender_txid}")
+            assert inputs == [(deposit_txid, DT_DEPOSIT_VOUT)], (
+                f"cooperative payout {spender_txid} must spend exactly the deposit outpoint "
+                f"{deposit_txid}:{DT_DEPOSIT_VOUT}; inputs: {inputs}"
+            )
+            assignee_script = p2tr_descriptor_script_hex(
+                read_operator_key(ASSIGNEE).GENERAL_WALLET_DESCRIPTOR
+            )
+            assert payout_script == assignee_script, (
+                f"cooperative payout {spender_txid} does not pay the assignee's payout "
+                f"descriptor: {spender_tx['vout'][0]['scriptPubKey']}"
+            )
 
         # --- Every operator converges and stays up ---
         def all_operators_converged():
