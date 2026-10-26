@@ -220,8 +220,13 @@ class HeavierChainCounterproofTest(StrataTestBase):
                 f"{name} tx {txid} descends from the fulfillment and was excluded from "
                 f"fork B; the game txs must not spend fulfillment change"
             )
-            assert "blockhash" in bitcoin_rpc.proxy.getrawtransaction(txid, True), (
-                f"{name} tx {txid} did not re-confirm on fork B"
+            # With -txindex an orphaned tx still resolves to its stale fork-A block, so require
+            # positive confirmations: 0 means off the active chain, absent means mempool-only.
+            tx_info = bitcoin_rpc.proxy.getrawtransaction(txid, True)
+            assert tx_info.get("confirmations", 0) > 0, (
+                f"{name} tx {txid} did not re-confirm on fork B "
+                f"(blockhash={tx_info.get('blockhash')}, "
+                f"confirmations={tx_info.get('confirmations')})"
             )
         self.logger.info("Claim, contest, and bridge proof all re-confirmed on fork B")
 
