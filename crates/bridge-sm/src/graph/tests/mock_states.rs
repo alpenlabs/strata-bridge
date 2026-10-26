@@ -21,9 +21,9 @@ use zkaleido::ProofReceipt;
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm,
-    dummy_proof_receipt, test_completed_signatures, test_deposit_params, test_graph_data,
-    test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_recipient_desc,
+    N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, build_test_graph_summary,
+    create_nonpov_sm, dummy_proof_receipt, test_completed_signatures, test_deposit_params,
+    test_graph_data, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_recipient_desc,
     utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{
@@ -579,6 +579,11 @@ pub(super) fn all_state_variants() -> Vec<GraphState> {
     states.push(bridge_proof_timedout_state());
     states.push(counter_proof_posted_state());
     states.push(counter_proof_posted_without_refuted_proof_state());
+    states.push(counter_proof_posted_state_with(
+        None,
+        &[TEST_NONPOV_IDX],
+        &[],
+    ));
     states.push(all_nackd_state());
     states.push(acked_state());
     states.extend(terminal_states());
