@@ -21,10 +21,18 @@ def sweep_payout_value_sats(deposit_amount: int, sweep_fee_rate: int) -> int:
     return deposit_amount - sweep_fee_rate * SWEEP_VSIZE - SWEEP_ANCHOR_VALUE_SATS
 
 
-def safe_harbour_script_hex() -> str:
-    """P2TR scriptPubKey hex of the frozen safe-harbour address (OP_1 <x-only key>)."""
+def p2tr_descriptor_script_hex(descriptor: str) -> str:
+    """P2TR scriptPubKey hex (OP_1 <x-only key>) of a BOSD descriptor."""
     # The BOSD descriptor hex is a type tag (04 = P2TR) followed by the 32-byte x-only key.
-    return "5120" + DEFAULT_SAFE_HARBOUR_ADDRESS[2:]
+    assert descriptor[:2] == "04" and len(descriptor) == 66, (
+        f"expected a P2TR BOSD descriptor, got {descriptor}"
+    )
+    return "5120" + descriptor[2:]
+
+
+def safe_harbour_script_hex() -> str:
+    """P2TR scriptPubKey hex of the frozen safe-harbour address."""
+    return p2tr_descriptor_script_hex(DEFAULT_SAFE_HARBOUR_ADDRESS)
 
 
 def activate_safe_harbour(ctx, bridge_rpcs, timeout=180) -> str:
