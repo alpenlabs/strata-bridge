@@ -16,6 +16,7 @@ from utils.network import wait_until_p2p_connected
 from utils.utils import (
     read_operator_key,
     snapshot_log_offsets,
+    wait_until,
     wait_until_bridge_ready,
     wait_until_logs_match,
 )
@@ -62,12 +63,35 @@ class BridgeDepositTest(StrataTestBase):
 
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
 
+        wait_until(
+            lambda: bridge_rpc.stratabridge_currentCovenant()["admission"]["status"] == "ready",
+            error_msg="A fully staked network must admit deposits",
+        )
+        current = bridge_rpc.stratabridge_currentCovenant()
+        assert current["members"] == list(range(num_operators)), (
+            f"Every operator must be a member of the current covenant: {current}"
+        )
+
         drt_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
         wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+
+        def reports_current_covenant_past_deposit(rpc) -> bool:
+            reported = rpc.stratabridge_currentCovenant()
+            return (reported["covenant"], reported["members"], reported["admission"]) == (
+                current["covenant"],
+                current["members"],
+                current["admission"],
+            ) and reported["processed_height"] > current["processed_height"]
+
+        for idx, rpc in enumerate(bridge_rpcs):
+            wait_until(
+                lambda rpc=rpc: reports_current_covenant_past_deposit(rpc),
+                error_msg=f"Operator {idx} must report the same ready covenant past the deposit",
+            )
 
         self.logger.info(f"Broadcasting {CONCURRENT_DRT_COUNT} DRTs before restarting all nodes")
         drt_txids = [

@@ -79,6 +79,19 @@ class SafeHarbourSweepUnassignedTest(StrataTestBase):
         # --- Activate the safe harbour, then request one more deposit ---
         activate_safe_harbour(ctx, bridge_rpcs)
 
+        wait_until(
+            lambda: (
+                bridge_rpc.stratabridge_currentCovenant()["admission"]["status"] == "safe_harbour"
+            ),
+            error_msg="The current covenant must report that safe harbour closed admission",
+        )
+        try:
+            dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
+        except RuntimeError as e:
+            assert "safe harbour is active" in str(e), f"dev-cli must cite safe harbour: {e}"
+        else:
+            raise AssertionError("dev-cli must refuse to build a request after safe harbour")
+
         # dev-cli refuses to build a request once safe harbour closes admission, so send the
         # request the nodes must reject without that check.
         post_drt_txid = dev_cli.send_deposit_request(unchecked=True)
