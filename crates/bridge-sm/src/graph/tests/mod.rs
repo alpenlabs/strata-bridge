@@ -12,6 +12,7 @@ mod notify_new_block;
 mod post_processor;
 mod process_payout;
 mod process_payout_connector_spent;
+mod prop_tests;
 mod tx_classifier;
 
 use std::{
