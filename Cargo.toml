@@ -247,8 +247,8 @@ serde_json = { version = "1.0", default-features = false, features = [
 serial_test = "3.4.0"
 sha2 = "0.10"
 sled = "0.34.7"
-sp1-sdk = "6.8.1"
-sp1-verifier = "6.8.1"
+sp1-sdk = "6.10.0"
+sp1-verifier = "6.10.0"
 tempfile = "3.23.0"
 
 # TODO: <https://alpenlabs.atlassian.net/browse/STR-2660>
