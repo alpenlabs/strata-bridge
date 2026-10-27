@@ -6,7 +6,7 @@ use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 
 use crate::types::{
-    RpcAggregateSignatures, RpcBridgeDutyStatus, RpcDepositInfo, RpcGraphData,
+    RpcAggregateSignatures, RpcBridgeDutyStatus, RpcCurrentCovenant, RpcDepositInfo, RpcGraphData,
     RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo, RpcReimbursementStatus,
     RpcStakeAggregateSignatures, RpcStakeData, RpcWithdrawalStatus,
 };
@@ -92,6 +92,11 @@ pub trait StrataBridgeMonitoringApi {
     /// `None` if this node has not observed a safe-harbour activation.
     #[method(name = "safeHarbourAddress")]
     async fn get_safe_harbour_address(&self) -> RpcResult<Option<SafeHarborAddress>>;
+
+    /// Get the covenant that is current after the last processed block and whether it admits
+    /// deposits, or `None` before membership is initialized.
+    #[method(name = "currentCovenant")]
+    async fn get_current_covenant(&self) -> RpcResult<Option<RpcCurrentCovenant>>;
 }
 
 /// RPCs required for data availability.
