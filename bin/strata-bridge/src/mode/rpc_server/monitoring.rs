@@ -2,11 +2,16 @@
 
 use bitcoin::{PublicKey, Txid};
 use secp256k1::schnorr;
-use strata_bridge_orchestrator::sm_registry::SMRegistry;
+use strata_bridge_orchestrator::{
+    current_covenant::{Admission, CurrentCovenant},
+    sm_registry::SMRegistry,
+    stake_readiness::StakeShortfall,
+};
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_rpc::types::{
-    RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimPhase, RpcGraphData,
-    RpcReimbursementStatus, RpcStakeState, RpcWithdrawalStatus,
+    RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimPhase,
+    RpcCovenantAdmission, RpcCurrentCovenant, RpcGraphData, RpcMemberShortfall,
+    RpcReimbursementStatus, RpcStakeShortfall, RpcStakeState, RpcWithdrawalStatus,
 };
 use strata_bridge_sm::{
     deposit::state::DepositState,
@@ -30,6 +35,52 @@ pub(super) const fn stake_state_to_rpc(state: &StakeState) -> RpcStakeState {
         StakeState::Slashed { slash_txid, .. } => RpcStakeState::Slashed {
             slash_txid: *slash_txid,
         },
+    }
+}
+
+pub(super) fn current_covenant_response(current: CurrentCovenant) -> RpcCurrentCovenant {
+    let CurrentCovenant {
+        processed_height,
+        block_covenant,
+        admission,
+    } = current;
+    let admission = match admission {
+        Admission::Ready => RpcCovenantAdmission::Ready {
+            aggregate_pubkey: block_covenant.covenant.aggregate_pubkey,
+        },
+        Admission::SafeHarbour => RpcCovenantAdmission::SafeHarbour,
+        Admission::DepositCapReached => RpcCovenantAdmission::DepositCapReached,
+        Admission::Unready(shortfalls) => RpcCovenantAdmission::Unready {
+            shortfalls: shortfalls
+                .into_iter()
+                .map(|(operator_idx, shortfall)| RpcMemberShortfall {
+                    operator_idx,
+                    reason: stake_shortfall_to_rpc(shortfall),
+                })
+                .collect(),
+        },
+        Admission::Unsettled(operators) => RpcCovenantAdmission::Unsettled {
+            operators: operators.into_iter().collect(),
+        },
+    };
+    RpcCurrentCovenant {
+        processed_height,
+        covenant: block_covenant.covenant,
+        members: block_covenant
+            .operator_table
+            .operator_idxs()
+            .into_iter()
+            .collect(),
+        admission,
+    }
+}
+
+const fn stake_shortfall_to_rpc(shortfall: StakeShortfall) -> RpcStakeShortfall {
+    match shortfall {
+        StakeShortfall::Missing => RpcStakeShortfall::Missing,
+        StakeShortfall::Unconfirmed => RpcStakeShortfall::Unconfirmed,
+        StakeShortfall::Exited => RpcStakeShortfall::Exited,
+        StakeShortfall::MembershipMismatch => RpcStakeShortfall::MembershipMismatch,
     }
 }
 

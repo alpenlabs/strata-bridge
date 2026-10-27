@@ -26,9 +26,10 @@ use strata_bridge_rpc::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
     },
     types::{
-        RpcAggregateSignatures, RpcBridgeDutyStatus, RpcDepositInfo, RpcDepositStatus,
-        RpcGraphData, RpcOperatorStakeInfo, RpcOperatorStatus, RpcPendingWithdrawalInfo,
-        RpcReimbursementStatus, RpcStakeAggregateSignatures, RpcStakeData, RpcWithdrawalStatus,
+        RpcAggregateSignatures, RpcBridgeDutyStatus, RpcCurrentCovenant, RpcDepositInfo,
+        RpcDepositStatus, RpcGraphData, RpcOperatorStakeInfo, RpcOperatorStatus,
+        RpcPendingWithdrawalInfo, RpcReimbursementStatus, RpcStakeAggregateSignatures,
+        RpcStakeData, RpcWithdrawalStatus,
     },
 };
 use strata_bridge_sm::deposit::state::DepositState;
@@ -43,8 +44,9 @@ use tracing::{debug, info, warn};
 
 use super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    bridge_duties_for_operator_pk, get_pending_assigned_operator, get_reimbursement_operator,
-    graph_data_response, reimbursement_status, stake_state_to_rpc, withdrawal_status,
+    bridge_duties_for_operator_pk, current_covenant_response, get_pending_assigned_operator,
+    get_reimbursement_operator, graph_data_response, reimbursement_status, stake_state_to_rpc,
+    withdrawal_status,
 };
 use crate::{
     config::{Config, RpcConfig},
@@ -507,6 +509,22 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .await
             .safe_harbour_address()
             .cloned())
+    }
+
+    async fn get_current_covenant(&self) -> RpcResult<Option<RpcCurrentCovenant>> {
+        let current = self
+            .cached_registry
+            .read()
+            .await
+            .current_covenant()
+            .map_err(|err| {
+                rpc_error(
+                    ErrorCode::InternalError,
+                    "failed to derive the current covenant",
+                    err.to_string(),
+                )
+            })?;
+        Ok(current.map(current_covenant_response))
     }
 }
 

@@ -1,11 +1,11 @@
 //! Types for the RPC server.
 
-use bitcoin::Txid;
+use bitcoin::{Txid, XOnlyPublicKey};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
     covenant::CovenantId,
-    types::{DepositIdx, GraphIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{graph::context::GraphSMCtx, stake::context::StakeSMCtx};
 use strata_bridge_tx_graph::{
@@ -294,4 +294,85 @@ pub struct RpcOperatorStakeInfo {
     /// Current stake state.
     #[serde(flatten)]
     pub state: RpcStakeState,
+}
+
+/// The covenant that is current after the node's last processed block and whether it admits
+/// deposits.
+///
+/// Deposits lock to [`CovenantId::aggregate_pubkey`]. A deposit request is also spendable by
+/// that key, but its address commits to the depositor's recovery key, so callers derive it
+/// themselves. A ready covenant does not guarantee that a request is still admitted when it is
+/// later included in a block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RpcCurrentCovenant {
+    /// The last Bitcoin block reflected by this answer.
+    pub processed_height: BitcoinBlockHeight,
+
+    /// The covenant after that block.
+    pub covenant: CovenantId,
+
+    /// The covenant's members in ascending operator-index order.
+    pub members: Vec<OperatorIdx>,
+
+    /// Whether a deposit request addressed to the covenant would be admitted.
+    pub admission: RpcCovenantAdmission,
+}
+
+/// Whether the current covenant admits new deposits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RpcCovenantAdmission {
+    /// Every member holds a usable stake for the covenant.
+    Ready {
+        /// The covenant's aggregate key, which deposits lock to.
+        aggregate_pubkey: XOnlyPublicKey,
+    },
+
+    /// Safe harbour is active, so no new deposits are admitted.
+    SafeHarbour,
+
+    /// The node's deposit cap is full, so it would register a new request without taking part in
+    /// its deposit.
+    DepositCapReached,
+
+    /// Some members lack a usable stake for the covenant.
+    Unready {
+        /// Each member without a usable stake, in ascending operator-index order.
+        shortfalls: Vec<RpcMemberShortfall>,
+    },
+
+    /// Some members' usable stakes were read at a different block than the membership.
+    ///
+    /// The node's view is still settling; ask again later.
+    Unsettled {
+        /// The members whose stakes are out of step, in ascending operator-index order.
+        operators: Vec<OperatorIdx>,
+    },
+}
+
+/// A member without a usable stake for the current covenant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RpcMemberShortfall {
+    /// The member.
+    pub operator_idx: OperatorIdx,
+
+    /// Why the member's stake cannot back new deposits.
+    pub reason: RpcStakeShortfall,
+}
+
+/// Why a member's stake cannot back new deposits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpcStakeShortfall {
+    /// No stake exists for the member in this covenant.
+    Missing,
+
+    /// The stake transaction has not confirmed yet.
+    Unconfirmed,
+
+    /// The member has started unstaking, has unstaked, or has been slashed.
+    Exited,
+
+    /// The stake was set up for a different membership than the covenant's.
+    MembershipMismatch,
 }
