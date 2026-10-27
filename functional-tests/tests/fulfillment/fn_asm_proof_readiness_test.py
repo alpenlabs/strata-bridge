@@ -10,7 +10,7 @@ from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.asm_types import AsmWorkerStatus, AssignmentEntry
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_drts_recognized,
@@ -83,7 +83,10 @@ class AsmProofReadinessTest(StrataTestBase):
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
 
         # --- Two deposits ---
-        drt_txids = [dev_cli.send_deposit_request() for _ in range(NUM_FULFILLMENTS)]
+        drt_txids = [
+            dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
+            for _ in range(NUM_FULFILLMENTS)
+        ]
         for i, drt_txid in enumerate(drt_txids):
             self.logger.info(f"Broadcasted DRT[{i}]: {drt_txid}")
 

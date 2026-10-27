@@ -23,7 +23,7 @@ from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drts_recognized
 from utils.dev_cli import DevCli
 from utils.safe_harbour import (
@@ -60,7 +60,10 @@ class SafeHarbourSweepUnassignedTest(StrataTestBase):
         dev_cli = DevCli(bitcoind_service.props, operator_key_infos)
 
         # --- N unassigned deposits ---
-        drt_txids = [dev_cli.send_deposit_request() for _ in range(DEPOSIT_COUNT)]
+        drt_txids = [
+            dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
+            for _ in range(DEPOSIT_COUNT)
+        ]
         for drt_txid in drt_txids:
             self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
@@ -76,7 +79,9 @@ class SafeHarbourSweepUnassignedTest(StrataTestBase):
         # --- Activate the safe harbour, then request one more deposit ---
         activate_safe_harbour(ctx, bridge_rpcs)
 
-        post_drt_txid = dev_cli.send_deposit_request()
+        # dev-cli refuses to build a request once safe harbour closes admission, so send the
+        # request the nodes must reject without that check.
+        post_drt_txid = dev_cli.send_deposit_request(unchecked=True)
         self.logger.info(f"Broadcasted post-activation DRT: {post_drt_txid}")
 
         # --- One sweep tx per deposit, paying the frozen address ---

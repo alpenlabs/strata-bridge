@@ -19,7 +19,7 @@ async fn main() -> Result<(), Error> {
 
     let cli = cli::Cli::parse();
     let result = match cli.command {
-        cli::Commands::BridgeIn(args) => bridge_in::handle_bridge_in(args),
+        cli::Commands::BridgeIn(args) => bridge_in::handle_bridge_in(args).await,
         cli::Commands::DeriveKeys(args) => derive_keys::handle_derive_keys(args),
         cli::Commands::CreateAndPublishMockCheckpoint(args) => {
             checkpoint::handle_create_and_publish_mock_checkpoint(args).await

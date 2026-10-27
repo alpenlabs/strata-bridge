@@ -22,7 +22,7 @@ from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
 from utils.safe_harbour import (
@@ -68,7 +68,7 @@ class SafeHarbourSweepVsPayoutRaceTest(StrataTestBase):
         dev_cli = DevCli(bitcoind_service.props, operator_key_infos)
 
         # --- One completed deposit, assigned and fulfilled ---
-        drt_txid = dev_cli.send_deposit_request()
+        drt_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         deposit_info = wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)

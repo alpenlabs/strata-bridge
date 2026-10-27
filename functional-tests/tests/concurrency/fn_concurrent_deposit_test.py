@@ -4,7 +4,7 @@ from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drts_recognized
 from utils.dev_cli import DevCli
 from utils.utils import read_operator_key
@@ -73,7 +73,10 @@ class ConcurrentDepositTest(StrataTestBase):
 
         # Send multiple DRTs simultaneously
         self.logger.info(f"Broadcasting {CONCURRENT_DRT_COUNT} DRTs")
-        drt_txids = [dev_cli.send_deposit_request() for _ in range(CONCURRENT_DRT_COUNT)]
+        drt_txids = [
+            dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
+            for _ in range(CONCURRENT_DRT_COUNT)
+        ]
 
         for i, drt_txid in enumerate(drt_txids):
             self.logger.info(f"Broadcasted DRT {i + 1}: {drt_txid}")

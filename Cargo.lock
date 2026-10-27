@@ -3899,6 +3899,7 @@ dependencies = [
 name = "dev-cli"
 version = "0.2.0"
 dependencies = [
+ "algebra",
  "alloy",
  "anyhow",
  "bitcoin",
@@ -3909,8 +3910,6 @@ dependencies = [
  "jsonrpsee",
  "k256",
  "libp2p-identity",
- "miniscript 13.1.0",
- "musig2",
  "rand 0.8.8",
  "reqwest 0.12.28",
  "secp256k1 0.29.1",

@@ -14,7 +14,7 @@ from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
 from utils.bitcoin import generate_blocks_excluding, reorg_excluding
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_drt_recognized,
@@ -115,7 +115,7 @@ class HeavierChainCounterproofTest(StrataTestBase):
         assigned_rpc = bridge_rpcs[assigned_idx]
         watchtower_idxs = [i for i in range(num_operators) if i != assigned_idx]
 
-        drt_txid = dev_cli.send_deposit_request()
+        drt_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(assigned_rpc, drt_txid)
         wait_until_deposit_status(assigned_rpc, deposit_id, RpcDepositStatusComplete)

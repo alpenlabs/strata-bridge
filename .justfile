@@ -389,12 +389,13 @@ checkpoint genesis-l1-height="101" num-withdrawals="1" ol-start-slot="0" ol-end-
 
 # Run bridge-in
 [group('bridge')]
-bridge-in:
+bridge-in bridge-node-url="http://localhost:15678":
     RUST_LOG=info \
     cargo r \
         --bin dev-cli \
         -- \
         bridge-in \
+        --bridge-node-url {{ bridge-node-url }} \
         --btc-url http://localhost:18443/wallet/default \
         --btc-user user \
         --btc-pass password \
