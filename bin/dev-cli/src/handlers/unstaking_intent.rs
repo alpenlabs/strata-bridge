@@ -4,7 +4,10 @@ use bitcoincore_rpc::RpcApi;
 use strata_bridge_common::params::Params;
 use strata_bridge_connectors::prelude::UnstakingIntentWitness;
 use strata_bridge_key_deriv::PreimageIkm;
-use strata_bridge_rpc::traits::{StrataBridgeControlApiClient, StrataBridgeDaApiClient};
+use strata_bridge_primitives::covenant::StakeKey;
+use strata_bridge_rpc::traits::{
+    StrataBridgeControlApiClient, StrataBridgeDaApiClient, StrataBridgeMonitoringApiClient,
+};
 use strata_bridge_tx_graph::{
     musig_functor::StakeFunctor,
     stake_graph::{StakeData, StakeGraph},
@@ -45,15 +48,25 @@ pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> a
         );
     }
 
-    info!(operator_idx = args.operator_idx, "posting unstaking intent");
+    let current = bridge_rpc_client
+        .get_current_covenant()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to fetch the current covenant: {}", e))?
+        .ok_or_else(|| anyhow::anyhow!("bridge node has no current covenant"))?;
+    let stake_key = StakeKey {
+        covenant: current.covenant,
+        operator: args.operator_idx,
+    };
+
+    info!(%stake_key, "posting unstaking intent");
 
     let stake_data = bridge_rpc_client
-        .get_stake_data(args.operator_idx)
+        .get_stake_data(stake_key)
         .await
         .map_err(|e| anyhow::anyhow!("failed to fetch stake data: {}", e))?;
     let stake_data = match stake_data {
         Some(data) => data,
-        None => bail!("no stake data found for operator {}", args.operator_idx),
+        None => bail!("no stake data found for stake {}", stake_key),
     };
     if stake_data.context.operator_idx() != args.operator_idx {
         bail!(
@@ -65,14 +78,14 @@ pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> a
     info!(operator_idx = args.operator_idx, "fetched stake data");
 
     let agg_sigs = bridge_rpc_client
-        .get_stake_aggregate_signatures(args.operator_idx)
+        .get_stake_aggregate_signatures(stake_key)
         .await
         .map_err(|e| anyhow::anyhow!("failed to fetch stake aggregate signatures: {}", e))?;
     let agg_sigs = match agg_sigs {
         Some(sigs) => sigs,
         None => bail!(
-            "no aggregate stake signatures found for operator {}",
-            args.operator_idx
+            "no aggregate stake signatures found for stake {}",
+            stake_key
         ),
     };
     if agg_sigs.operator_idx != args.operator_idx {

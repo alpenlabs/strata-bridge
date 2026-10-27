@@ -20,7 +20,10 @@ use strata_bridge_orchestrator::{
     persister::Persister,
     sm_registry::{SMConfig, SMRegistry},
 };
-use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+use strata_bridge_primitives::{
+    covenant::StakeKey,
+    types::{DepositIdx, GraphIdx},
+};
 use strata_bridge_rpc::{
     traits::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
@@ -550,26 +553,24 @@ impl StrataBridgeDaApiServer for BridgeRpc {
             .and_then(|gsm| aggregate_signatures_response(graph_idx, gsm.state())))
     }
 
-    async fn get_stake_data(&self, operator_idx: OperatorIdx) -> RpcResult<Option<RpcStakeData>> {
+    async fn get_stake_data(&self, stake_key: StakeKey) -> RpcResult<Option<RpcStakeData>> {
         let cached_registry = self.cached_registry.read().await;
         let stake_cfg = cached_registry.cfg().stake.clone();
 
         Ok(cached_registry
-            .resolve_legacy_stake_key(operator_idx)
-            .and_then(|key| cached_registry.get_stake(&key))
+            .get_stake(&stake_key)
             .and_then(|ssm| stake_data_response(ssm.context(), ssm.state(), &stake_cfg)))
     }
 
     async fn get_stake_aggregate_signatures(
         &self,
-        operator_idx: OperatorIdx,
+        stake_key: StakeKey,
     ) -> RpcResult<Option<RpcStakeAggregateSignatures>> {
         let cached_registry = self.cached_registry.read().await;
 
         Ok(cached_registry
-            .resolve_legacy_stake_key(operator_idx)
-            .and_then(|key| cached_registry.get_stake(&key))
-            .and_then(|ssm| stake_aggregate_signatures_response(operator_idx, ssm.state())))
+            .get_stake(&stake_key)
+            .and_then(|ssm| stake_aggregate_signatures_response(stake_key.operator, ssm.state())))
     }
 }
 
