@@ -35,6 +35,7 @@ use thiserror::Error;
 use tracing::{debug, error, info, info_span};
 
 use crate::{
+    current_covenant::{self, CurrentCovenant, CurrentCovenantError},
     errors::{ProcessError, ProcessOutput},
     observability,
     sm_types::{OperatorKey, SMEvent, SMId, UnifiedDuty},
@@ -525,6 +526,24 @@ impl SMRegistry {
         block_covenant: &BlockCovenant,
     ) -> Result<CovenantStakes, ReadinessError> {
         stake_readiness::assess(block_covenant, &self.stakes)
+    }
+
+    /// Reports the covenant that is current after the last processed block and whether it admits
+    /// deposits.
+    ///
+    /// Returns `None` before membership is initialized.
+    pub fn current_covenant(&self) -> Result<Option<CurrentCovenant>, CurrentCovenantError> {
+        self.operator_set
+            .as_ref()
+            .map(|membership| {
+                current_covenant::assess(
+                    membership,
+                    &self.stakes,
+                    self.safe_harbour_active(),
+                    self.deposit_cap_reached(),
+                )
+            })
+            .transpose()
     }
 
     /// Looks up the state machine identified by `id` and resolves the operator index using the
