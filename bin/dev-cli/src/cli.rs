@@ -208,7 +208,10 @@ pub(crate) struct BridgeProofArgs {
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Post an unstaking intent transaction", version)]
 pub(crate) struct UnstakingIntentArgs {
-    #[arg(long, help = "operator index of the stake graph")]
+    #[arg(
+        long,
+        help = "operator index of the stake graph in the bridge node's current covenant"
+    )]
     pub(crate) operator_idx: u32,
 
     #[arg(long, help = "url of the bridge node RPC")]

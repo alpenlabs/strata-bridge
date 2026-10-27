@@ -324,18 +324,6 @@ impl SMRegistry {
         self.graphs.get(graph_idx)
     }
 
-    /// Resolves an operator-only lookup only when the operator has exactly one stake instance.
-    /// Ambiguous lookups are rejected.
-    ///
-    /// Temporary compatibility shim for operator-only RPCs. Replace these lookups with explicit
-    /// [`StakeKey`] lookups once RPCs ([STR-3625](https://alpenlabs.atlassian.net/browse/STR-3625))
-    /// adopt covenant-qualified identities.
-    pub fn resolve_legacy_stake_key(&self, operator: OperatorIdx) -> Option<StakeKey> {
-        let mut candidates = self.stakes.keys().filter(|key| key.operator == operator);
-        let key = *candidates.next()?;
-        candidates.next().is_none().then_some(key)
-    }
-
     /// Resolves a validated observation's source stake output without interpreting exit rules.
     /// Missing or ambiguous sources do not resolve to a local instance.
     pub fn resolve_stake_outpoint(&self, source: &OutPoint) -> Option<StakeKey> {
@@ -2238,12 +2226,7 @@ mod covenant_tests {
         );
         let mut registry = test_empty_registry();
         registry.insert_stake(first.clone()).unwrap();
-        assert_eq!(
-            registry.resolve_legacy_stake_key(TEST_POV_IDX),
-            Some(first_key)
-        );
         registry.insert_stake(second.clone()).unwrap();
-        assert_eq!(registry.resolve_legacy_stake_key(TEST_POV_IDX), None);
         assert!(
             matches!(registry.insert_stake(first), Err(RegistryInsertError::StakeAlreadyExists(k)) if k == first_key)
         );
