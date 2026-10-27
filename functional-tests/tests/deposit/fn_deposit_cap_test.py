@@ -6,7 +6,7 @@ from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete, RpcDepositStatusFailed
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_deposit_utxo_spent,
@@ -59,7 +59,10 @@ class BridgeDepositCapTest(StrataTestBase):
         dev_cli = DevCli(bitcoind_service.props, operator_key_infos)
 
         self.logger.info(f"Broadcasting {DEPOSIT_CAP} DRTs to fill the cap")
-        admitted_txids = [dev_cli.send_deposit_request() for _ in range(DEPOSIT_CAP)]
+        admitted_txids = [
+            dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
+            for _ in range(DEPOSIT_CAP)
+        ]
         admitted_ids = wait_until_drts_recognized(bridge_rpc, admitted_txids, timeout=180)
         deposit_txids = {}
         for deposit_id in admitted_ids:
@@ -68,7 +71,9 @@ class BridgeDepositCapTest(StrataTestBase):
             deposit_txids[deposit_id] = info.get("status").get("deposit_txid")
         self.logger.info(f"Deposits {admitted_ids} completed; the cap is full")
 
-        surplus_txid = dev_cli.send_deposit_request()
+        # A node whose cap is full refuses to vouch for its covenant, so the surplus DRT is built
+        # without asking it.
+        surplus_txid = dev_cli.send_deposit_request(unchecked=True)
         for idx, rpc in enumerate(bridge_rpcs):
             surplus_id = wait_until_drt_recognized(rpc, surplus_txid, timeout=180)
             assert surplus_id == DEPOSIT_CAP, f"operator {idx} gave the surplus DRT {surplus_id}"
@@ -100,7 +105,7 @@ class BridgeDepositCapTest(StrataTestBase):
             )
         self.logger.info(f"Deposit {withdrawn_id} withdrawn on every operator; the slot is free")
 
-        next_txid = dev_cli.send_deposit_request()
+        next_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         next_id = wait_until_drt_recognized(bridge_rpc, next_txid)
         assert next_id == DEPOSIT_CAP + 1, f"expected the next index, got {next_id}"
         wait_until_deposit_status(bridge_rpc, next_id, RpcDepositStatusComplete)

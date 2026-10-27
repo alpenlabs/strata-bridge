@@ -343,8 +343,18 @@ This uses:
 - `target/debug/dev-cli`
 - `bin/dev-cli/params.toml`
 - `http://localhost:18443/wallet/default`
+- `http://localhost:15678`, the RPC of `bridge-1`
 
-**Important:** Ensure that the MuSig2 keys in `bin/dev-cli/params.toml` match those used in the Docker bridge params.
+`dev-cli` asks that bridge node for its current covenant and refuses to send the request unless the
+covenant is ready to admit deposits. The request is built for that covenant's aggregate key. To ask
+another node, pass its RPC, for example `just bridge-in http://localhost:25678`.
+
+To skip that check, run `dev-cli bridge-in` with `--unchecked` instead of `--bridge-node-url`. The
+request is then built for the aggregate key of every operator in `bin/dev-cli/params.toml`, so those
+keys must match the Docker bridge params.
+
+**Important:** Ensure that the network, magic bytes, deposit amount and recovery delay in
+`bin/dev-cli/params.toml` match those used in the Docker bridge params.
 
 ### Deposit cap
 

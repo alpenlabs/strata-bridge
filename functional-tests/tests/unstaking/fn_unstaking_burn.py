@@ -6,7 +6,7 @@ from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_drt_recognized,
@@ -58,7 +58,7 @@ class UnstakingBurnTest(StrataTestBase):
             bridge_protocol_params=self.bridge_protocol_params,
         )
 
-        drt_txid = dev_cli.send_deposit_request()
+        drt_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         self.logger.info(f"DRT recognized, deposit_id: {deposit_id}")

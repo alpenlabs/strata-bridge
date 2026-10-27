@@ -26,7 +26,7 @@ import flexitest
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from rpc.types import RpcDepositStatusComplete, RpcDepositStatusInProgress
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
 from utils.utils import read_operator_key
@@ -54,7 +54,7 @@ class DepositTolerantOfS2RestartTest(StrataTestBase):
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
 
         # --- Submit DRT and wait for the signing phase to begin ---
-        drt_txid = dev_cli.send_deposit_request()
+        drt_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self.logger.info(f"Broadcasted DRT: {drt_txid}")
         deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
         wait_until_deposit_status(

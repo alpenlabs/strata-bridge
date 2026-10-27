@@ -5,6 +5,11 @@ from utils.network import wait_until_p2p_connected
 from utils.stake import wait_until_all_operators_staked
 
 
+def bridge_rpc_url(bridge_node) -> str:
+    """Return the RPC URL of a bridge node service."""
+    return f"http://127.0.0.1:{bridge_node.props['rpc_port']}"
+
+
 def get_bridge_nodes_and_rpcs(ctx, num_operators=BRIDGE_NETWORK_SIZE, stake_timeout=300):
     """Get bridge nodes and their RPC clients for the network."""
     bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]

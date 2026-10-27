@@ -8,7 +8,7 @@ from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
     wait_until_drts_recognized,
@@ -77,7 +77,9 @@ class CounterproofSkippedAfterGcConsumedTest(StrataTestBase):
             bridge_protocol_params=self.bridge_protocol_params,
         )
 
-        drt_txids = [dev_cli.send_deposit_request() for _ in range(2)]
+        drt_txids = [
+            dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0])) for _ in range(2)
+        ]
         for idx, drt_txid in enumerate(drt_txids):
             self.logger.info(f"Broadcasted DRT[{idx}]: {drt_txid}")
 

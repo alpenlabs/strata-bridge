@@ -6,7 +6,7 @@ from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
 from utils.network import wait_until_p2p_connected
@@ -43,7 +43,7 @@ class DepositIndexOffsetTest(StrataTestBase):
         operator_key_infos = [read_operator_key(i) for i in range(len(bridge_nodes))]
         dev_cli = DevCli(bitcoind_props, operator_key_infos)
 
-        first_drt = dev_cli.send_deposit_request()
+        first_drt = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self._assert_all_nodes_index(bridge_rpcs, first_drt, DEPOSIT_INDEX_OFFSET)
         for bridge_rpc in bridge_rpcs:
             wait_until_deposit_status(bridge_rpc, DEPOSIT_INDEX_OFFSET, RpcDepositStatusComplete)
@@ -60,7 +60,7 @@ class DepositIndexOffsetTest(StrataTestBase):
             "a restart must preserve the persisted deposit index"
         )
 
-        second_drt = dev_cli.send_deposit_request()
+        second_drt = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         self._assert_all_nodes_index(bridge_rpcs, second_drt, DEPOSIT_INDEX_OFFSET + 1)
         for bridge_rpc in bridge_rpcs:
             wait_until_deposit_status(

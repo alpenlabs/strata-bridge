@@ -59,13 +59,39 @@ pub(crate) struct DeriveKeysArgs {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(about = "Send the deposit request on bitcoin", version)]
+#[command(
+    about = "Send the deposit request on bitcoin",
+    long_about = "Send the deposit request on bitcoin for the covenant that a bridge node reports \
+                  as current and ready to admit deposits. The covenant's aggregate key can spend \
+                  the request into a deposit.\n\n\
+                  If no deposit transaction spends the request, the depositor reclaims the funds \
+                  through its recovery path after the params' recovery delay, using the recovery \
+                  key this command logs. This command cannot stop the request from being \
+                  broadcast again later, and a ready covenant does not guarantee that the request \
+                  is admitted once it is included in a block.",
+    version
+)]
 pub(crate) struct BridgeInArgs {
     #[arg(long, help = "execution environment address to mint funds to")]
     pub(crate) ee_address: String,
 
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
+
+    #[arg(
+        long,
+        required_unless_present = "unchecked",
+        help = "url of the bridge node RPC whose current, ready covenant the request is for"
+    )]
+    pub(crate) bridge_node_url: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with = "bridge_node_url",
+        help = "build the request for the aggregate key of every operator in the params file \
+                without asking a bridge node whether that covenant is current and ready"
+    )]
+    pub(crate) unchecked: bool,
 
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,

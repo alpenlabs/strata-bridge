@@ -9,7 +9,7 @@ from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
-from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drts_recognized
 from utils.dev_cli import DevCli
 from utils.utils import read_operator_key, wait_until
@@ -54,7 +54,9 @@ class BatchedDepositTestDisabled(StrataTestBase):
         live_env.stop_miner()
         self._wait_until_mempool_empty(bitcoin_rpc)
 
-        warmup_drt_txid = self._send_deposit_request(dev_cli, bitcoin_rpc)
+        warmup_drt_txid = self._send_deposit_request(
+            dev_cli, bitcoin_rpc, bridge_rpc_url(bridge_nodes[0])
+        )
         self.logger.info(f"Broadcasted warm-up DRT: {warmup_drt_txid}")
         self._mine_drt_batch(bitcoin_rpc, miner_addr, [warmup_drt_txid])
 
@@ -88,7 +90,8 @@ class BatchedDepositTestDisabled(StrataTestBase):
         # by broadcasting multiple DRTs in quick succession before mining them in a batch block.
         self.logger.info(f"Broadcasting {BATCHED_DRT_COUNT} DRTs before mining a batch block")
         drt_txids = [
-            self._send_deposit_request(dev_cli, bitcoin_rpc) for _ in range(BATCHED_DRT_COUNT)
+            self._send_deposit_request(dev_cli, bitcoin_rpc, bridge_rpc_url(bridge_nodes[0]))
+            for _ in range(BATCHED_DRT_COUNT)
         ]
         for drt_txid in drt_txids:
             self.logger.info(f"Broadcasted DRT: {drt_txid}")
@@ -171,10 +174,10 @@ class BatchedDepositTestDisabled(StrataTestBase):
                 f"Found {abort_log_count} DepositAborted messages in bridge operator logs"
             )
 
-    def _send_deposit_request(self, dev_cli: DevCli, bitcoin_rpc) -> str:
+    def _send_deposit_request(self, dev_cli: DevCli, bitcoin_rpc, bridge_node_url: str) -> str:
         mempool_before = set(bitcoin_rpc.proxy.getrawmempool())
         try:
-            return dev_cli.send_deposit_request()
+            return dev_cli.send_deposit_request(bridge_node_url)
         except IndexError:
             pass
 

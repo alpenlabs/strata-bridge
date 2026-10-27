@@ -89,12 +89,28 @@ class DevCli:
                 error_msg += f"Stderr: {e.stderr}\n"
             raise RuntimeError(error_msg) from e
 
-    def send_deposit_request(self) -> str:
+    def send_deposit_request(
+        self, bridge_node_url: str | None = None, unchecked: bool = False
+    ) -> str:
+        """Broadcast a DRT and return its txid.
+
+        The DRT is built for the covenant that the bridge node at `bridge_node_url` reports as
+        current and ready, or, when `unchecked`, for the aggregate key of every operator in the
+        params file without asking a bridge node. Exactly one of the two must be given.
+        """
+        if unchecked:
+            assert bridge_node_url is None, "pass either a bridge node or unchecked"
+            target = ["--unchecked"]
+        else:
+            assert bridge_node_url is not None, "a bridge node or unchecked is required"
+            target = ["--bridge-node-url", bridge_node_url]
+
         rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
         wallet = self.bitcoind_props.get("walletname", "testwallet")
 
         args = [
             "bridge-in",
+            *target,
             "--btc-url",
             f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
             "--btc-user",
