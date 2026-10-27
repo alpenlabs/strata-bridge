@@ -10,19 +10,19 @@ inputs:
   version:
     description: "SP1 release tag to install; keep in sync with `sp1-sdk` / `sp1-verifier` in the workspace `Cargo.toml`"
     required: false
-    default: "v6.8.1"
+    default: "v6.10.0"
   cargo-prove-sha256:
     description: "SHA-256 of `cargo_prove_<version>_linux_amd64.tar.gz` from the succinctlabs/sp1 release"
     required: false
-    default: "0c120463d00d2aaebbacdbae4b965ac7b12b88f6ae87411b1e388ff32e6782a7"
+    default: "10394a834a0ab325b3736a74d0b7087274f2c6a66e2b38f96ecf3e9ecdf9e7b5"
   toolchain-tag:
     description: "succinctlabs/rust release tag that `cargo prove install-toolchain` fetches for `version`"
     required: false
-    default: "succinct-1.96.0-64bit-v2"
+    default: "succinct-1.96.0-64bit-v3"
   toolchain-sha256:
     description: "SHA-256 of `rust-toolchain-x86_64-unknown-linux-gnu.tar.gz` from that succinctlabs/rust release"
     required: false
-    default: "ff3afc3a6f22af93d162652972f254fcecf443ca4b2de18897312f19997fb94b"
+    default: "23905647c8ba007bed72e9207ceada06d08023f4dca73c87a122acbe7468ce07"
 
 runs:
   using: composite

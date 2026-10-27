@@ -4,9 +4,6 @@ ignore = [
   # Waiting on arkworks-rs/groth16#90.
   "RUSTSEC-2025-0055",
 
-  # lru 0.12.5 pulled by sp1-prover. Blocked on sp1 upstream.
-  "RUSTSEC-2026-0002",
-
   # rustls-webpki 0.101.7 pulled by bitreq (via bitcoind-async-client).
   # bitreq still depends on rustls 0.21 which requires 0.101.x; fix needs >=0.103.13.
   # Low risk: only used for bitcoind RPC connections to known/trusted endpoints.
@@ -54,10 +51,30 @@ ignore = [
   "RUSTSEC-2026-0194",
   "RUSTSEC-2026-0195",
 
-  # ruzstd 0.8.3 pulled by object 0.37.3 (via sp1-core-executor).
-  # object 0.37 requires ruzstd ^0.8; fix needs >=0.9.1, which only object >=0.40 accepts.
-  # Low risk: sp1 only reads symbols from our own guest ELFs, never untrusted zstd input.
-  # Every published sp1-core-executor (through 6.9.0) still pins object ^0.37.3.
-  # Blocked on sp1 upstream.
-  "RUSTSEC-2026-0344",
+  # zstd 0.13.3 / zstd-safe 7.3.0 via SP1's optional network feature.
+  # Fixed in zstd >=0.14.3 / zstd-safe >=8.2.0. SP1 6.10.0 still pins
+  # zstd ^0.13, which requires zstd-safe ^7; no compatible fixes exist.
+  # zstd-sys was upgraded to 2.1.2, fixing RUSTSEC-2026-0410.
+  #
+  # SP1's only zstd call is network/client.rs::create_artifact_with_content's encode_all
+  # on serialized proving input. Each call creates and finishes a fresh
+  # encoder: it does not reuse contexts (0391), decode legacy frames (0403),
+  # mix streaming/one-shot operations (0400), train dictionaries (0401),
+  # or call OutBuffer::around_pos (0397). The seekable (0396/0398/0405),
+  # experimental (0395/0399/0402/0404), and zstdmt (0406) features are disabled.
+  # Thus the affected paths are not used by this dependency graph.
+  # Remove this group when SP1 upgrades to zstd >=0.14.3.
+  "RUSTSEC-2026-0391",
+  "RUSTSEC-2026-0395",
+  "RUSTSEC-2026-0396",
+  "RUSTSEC-2026-0397",
+  "RUSTSEC-2026-0398",
+  "RUSTSEC-2026-0399",
+  "RUSTSEC-2026-0400",
+  "RUSTSEC-2026-0401",
+  "RUSTSEC-2026-0402",
+  "RUSTSEC-2026-0403",
+  "RUSTSEC-2026-0404",
+  "RUSTSEC-2026-0405",
+  "RUSTSEC-2026-0406",
 ]

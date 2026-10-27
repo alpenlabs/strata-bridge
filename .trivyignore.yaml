@@ -67,26 +67,25 @@ vulnerabilities:
 
   - id: CVE-2026-46654
     statement: |
-      p3-challenger 0.3.3-succinct — MultiField32Challenger Fiat-Shamir
+      p3-challenger 0.4.3-succinct — MultiField32Challenger Fiat-Shamir
       transcript malleability / challenge entropy loss (GHSA-vj64-rjf3-w3v7).
 
       Dependency path:
-        p3-challenger 0.3.3-succinct
-          -> slop-* / sp1-prover 6.2.0 -> sp1-sdk 6.2.0
-            -> zkaleido-sp1-host (`sp1` feature) -> strata-bridge-proof
+        p3-challenger =0.4.3-succinct
+          -> slop-challenger / slop-bn254 6.10.0 -> sp1-prover 6.10.0
+            -> sp1-sdk 6.10.0 -> zkaleido-sp1-host -> strata-bridge-proof-common
 
-      Why unfixable: the fix lands only in the upstream p3-challenger
-      0.4.3 / 0.5.3. The installed crate is Succinct's Plonky3 fork, whose
-      latest release is 0.3.3-succinct; sp1-sdk 6.2.x pins the fork, so the
-      0.4/0.5 line is unreachable via semver.
+      Why unfixable: SP1 6.10.0 pins Succinct's fork exactly. Its latest
+      published release is 0.4.3-succinct, which is distinct from the patched
+      upstream 0.4.3 / 0.5.3 releases and still uses the affected challenger
+      construction. Upstream releases cannot satisfy the exact fork pin.
 
-      Required fix: Succinct ships a patched fork and bumps SP1's Plonky3
-      pin, then this workspace bumps sp1-sdk / sp1-verifier.
+      Required fix: Succinct releases a patched fork and SP1 adopts it,
+      then this workspace upgrades SP1 and removes this exception.
 
-      Risk: proving-side Fiat-Shamir soundness flaw in SP1's BN254-wrapping
-      challenger. The workspace delegates proving to SP1 rather than driving
-      this challenger directly; it is not a remotely reachable path in the
-      running bridge node.
+      Residual risk: HIGH, proof-system soundness. SP1's BN254 wrapping
+      challenger uses this code. Delegating proving to SP1 does not establish
+      that the flaw is inapplicable; this is an upstream-blocked exception.
 
   - id: GHSA-5j98-2g5x-46v6
     statement: |
