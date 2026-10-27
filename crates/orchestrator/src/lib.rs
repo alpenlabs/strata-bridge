@@ -10,6 +10,7 @@
 //! - Providing a channel of communication between the various state machines in the bridge.
 
 pub mod applicator;
+pub mod current_covenant;
 pub mod duty_dispatcher;
 pub mod errors;
 pub mod events_classifier;
