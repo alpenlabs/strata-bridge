@@ -70,6 +70,8 @@ class BridgeDepositCapTest(StrataTestBase):
             assert info is not None, f"deposit {deposit_id} did not complete"
             deposit_txids[deposit_id] = info.get("status").get("deposit_txid")
         self.logger.info(f"Deposits {admitted_ids} completed; the cap is full")
+        for idx, rpc in enumerate(bridge_rpcs):
+            self._wait_until_admission(rpc, "deposit_cap_reached", f"operator {idx}")
 
         # A node whose cap is full refuses to vouch for its covenant, so the surplus DRT is built
         # without asking it.
@@ -104,6 +106,8 @@ class BridgeDepositCapTest(StrataTestBase):
                 error_msg=f"operator {idx} still lists deposit {withdrawn_id} as pending",
             )
         self.logger.info(f"Deposit {withdrawn_id} withdrawn on every operator; the slot is free")
+        for idx, rpc in enumerate(bridge_rpcs):
+            self._wait_until_admission(rpc, "ready", f"operator {idx}")
 
         next_txid = dev_cli.send_deposit_request(bridge_rpc_url(bridge_nodes[0]))
         next_id = wait_until_drt_recognized(bridge_rpc, next_txid)
@@ -125,6 +129,12 @@ class BridgeDepositCapTest(StrataTestBase):
         self._assert_skipped(bridge_rpcs[0], DEPOSIT_CAP, "operator 0 after restart")
 
         return True
+
+    def _wait_until_admission(self, rpc, status: str, who: str):
+        wait_until(
+            lambda: rpc.stratabridge_currentCovenant()["admission"]["status"] == status,
+            error_msg=f"{who} never reported its current covenant's admission as {status}",
+        )
 
     def _assert_skipped(self, rpc, deposit_id: int, who: str):
         status = rpc.stratabridge_depositInfo(deposit_id)["status"]
