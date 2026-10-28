@@ -12,29 +12,30 @@ From the repository root:
 cargo build --locked -p strata-bridge-admin-tool
 ```
 
-Create `admin-tool.toml` in your working directory, replacing the placeholders:
+Use the existing bridge `params.toml` for the network, ordered admin public keys, and threshold. The tool loads it through the bridge's shared params parser.
+
+Create a separate `admin-tool.toml` for this tool's RPC connection and the target claim's N-of-N internal key:
 
 ```toml
-network = "signet"
 n_of_n_pubkey = "<N_OF_N_INTERNAL_PUBLIC_KEY>"
-admin_pubkeys = ["<ADMIN_PUBLIC_KEY_0>", "<ADMIN_PUBLIC_KEY_1>", "<ADMIN_PUBLIC_KEY_2>"]
-threshold = 2
 
 [rpc]
 url = "http://127.0.0.1:38332"
-cookie_file = "/path/to/bitcoin/signet/.cookie"
+username = "username"
+password = "password"
 ```
 
-Public keys are 32-byte x-only keys encoded as 64 hex characters. Use the untweaked N-of-N internal key and preserve the admin keys' script order. These settings must match the target claim, including when signing for an older claim.
+The internal key is a 32-byte x-only public key encoded as 64 hex characters, before any Taproot tweak. It remains explicit because an older claim may use different operator membership from the current operator schedule. The internal key and admin settings must match the target claim's connector.
 
-The Bitcoin Core node must match `network` and have `txindex=1` to look up confirmed claims. For username/password authentication, replace `cookie_file` with `username` and `password` in `[rpc]`. Relative cookie paths resolve against the config file's directory.
+The Bitcoin Core node must match the network in the bridge params and have `txindex=1` to look up confirmed claims. RPC uses username/password authentication and is configured only for this binary.
 
-Use `--config /path/to/admin-tool.toml` to select a different config file.
+The default files are `params.toml` and `admin-tool.toml` in the working directory. Use `--params` and `--config` to select other paths.
 
 ## 1. Inspect
 
 ```bash
 ./target/debug/admin-tool inspect \
+  --params /path/to/bridge/params.toml \
   --claim-txid <CLAIM_TXID> \
   --unstaking-hash <UNSTAKING_HASH>
 ```
@@ -49,6 +50,7 @@ Supply an existing admin private key file containing 64 hex characters, with opt
 
 ```bash
 ./target/debug/admin-tool sign \
+  --params /path/to/bridge/params.toml \
   --claim-txid <CLAIM_TXID> \
   --unstaking-hash <UNSTAKING_HASH> \
   --signer-file /path/to/admin-key \

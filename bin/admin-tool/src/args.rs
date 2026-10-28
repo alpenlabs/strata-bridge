@@ -9,9 +9,12 @@ use clap::{Args, Parser, Subcommand};
 #[derive(Debug, Parser)]
 #[command(name = "admin-tool", version)]
 pub(crate) struct Cli {
-    /// Shared admin settings and Bitcoin Core RPC connection (TOML).
+    /// Claim's N-of-N internal key and this tool's Bitcoin Core RPC connection (TOML).
     #[arg(long, global = true, default_value = "admin-tool.toml")]
     pub config: PathBuf,
+    /// Existing bridge params containing the network, ordered admin keys, and threshold.
+    #[arg(long, global = true, default_value = "params.toml")]
+    pub params: PathBuf,
     /// Operation to perform.
     #[command(subcommand)]
     pub command: Command,

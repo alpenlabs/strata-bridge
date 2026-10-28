@@ -36,9 +36,16 @@ fn public_key(byte: u8) -> bitcoin::XOnlyPublicKey {
         .0
 }
 
-fn run(config: &Path, claim: Txid, hash: sha256::Hash, key: Option<&Path>) -> Output {
+fn run(
+    config: &Path,
+    params: &Path,
+    claim: Txid,
+    hash: sha256::Hash,
+    key: Option<&Path>,
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_admin-tool"));
     command.arg("--config").arg(config);
+    command.arg("--params").arg(params);
     command.arg(if key.is_some() { "sign" } else { "inspect" });
     command.args([
         "--claim-txid",
@@ -70,9 +77,10 @@ fn inspect_sign_and_publish_with_separate_funding() {
     let mut conf = Conf::default();
     conf.args.push("-txindex=1");
     let node = Node::with_conf("bitcoind", &conf).unwrap();
+    let credentials = node.params.get_cookie_values().unwrap().unwrap();
     let rpc = Client::new(
         &node.rpc_url(),
-        Auth::CookieFile(node.params.cookie_file.clone()),
+        Auth::UserPass(credentials.user.clone(), credentials.password.clone()),
     )
     .unwrap();
     let address = rpc
@@ -111,24 +119,51 @@ fn inspect_sign_and_publish_with_separate_funding() {
     rpc.generate_to_address(1, &address).unwrap();
 
     let directory = tempfile::tempdir().unwrap();
-    fs::copy(
-        &node.params.cookie_file,
-        directory.path().join("rpc.cookie"),
-    )
-    .unwrap();
     let config = directory.path().join("admin-tool.toml");
     let config_text = toml::to_string(&json!({
-        "network": "regtest",
         "n_of_n_pubkey": public_key(4).to_string(),
-        "admin_pubkeys": admin_keys.iter().map(ToString::to_string).collect::<Vec<_>>(),
-        "threshold": 2,
-        "rpc": {"url": node.rpc_url(), "cookie_file": "rpc.cookie"},
+        "rpc": {
+            "url": node.rpc_url(),
+            "username": credentials.user,
+            "password": credentials.password,
+        },
     }))
     .unwrap();
     fs::write(&config, &config_text).unwrap();
 
+    let params = directory.path().join("params.toml");
+    let params_text = toml::to_string(&json!({
+        "network": "regtest",
+        "genesis_height": 101,
+        "keys": {
+            "admin": {
+                "pubkeys": admin_keys.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "threshold": 2,
+            },
+            // Operator membership is not needed here: the claim's internal key is explicit.
+            "operators": [],
+        },
+        "protocol": {
+            "bury_depth": 2,
+            "magic_bytes": "ALPN",
+            "deposit_amount": 1_000_000_000,
+            "stake_amount": 100_000_000,
+            "operator_fee": 10_000_000,
+            "sweep_fee_rate": 10,
+            "recovery_delay": 1_008,
+            "contest_timelock": 144,
+            "proof_timelock": 144,
+            "ack_timelock": 432,
+            "nack_timelock": 144,
+            "contested_payout_timelock": 1_008,
+            "unstaking_timelock": 2_016,
+        },
+    }))
+    .unwrap();
+    fs::write(&params, &params_text).unwrap();
+
     // Inspection works without any private key file and reports the matched connector.
-    let inspected = run(&config, claim_txid, hash, None);
+    let inspected = run(&config, &params, claim_txid, hash, None);
     assert!(
         inspected.status.success(),
         "{}",
@@ -145,14 +180,25 @@ fn inspect_sign_and_publish_with_separate_funding() {
     let first_key = directory.path().join("admin-1");
     fs::write(&first_key, "01".repeat(32)).unwrap();
     let wrong_network = directory.path().join("wrong-network.toml");
-    fs::write(&wrong_network, config_text.replace("regtest", "signet")).unwrap();
+    fs::write(&wrong_network, params_text.replace("regtest", "signet")).unwrap();
     assert_failure(
-        run(&wrong_network, claim_txid, hash, Some(&first_key)),
-        "config expects signet",
+        run(&config, &wrong_network, claim_txid, hash, Some(&first_key)),
+        "bridge params expect signet",
+    );
+    let wrong_admins = directory.path().join("wrong-admins.toml");
+    fs::write(
+        &wrong_admins,
+        params_text.replace(&admin_keys[0].to_string(), &public_key(9).to_string()),
+    )
+    .unwrap();
+    assert_failure(
+        run(&config, &wrong_admins, claim_txid, hash, Some(&first_key)),
+        "does not match claim output 1",
     );
     assert_failure(
         run(
             &config,
+            &params,
             claim_txid,
             sha256::Hash::hash(&[8; 32]),
             Some(&first_key),
@@ -162,7 +208,7 @@ fn inspect_sign_and_publish_with_separate_funding() {
     let unknown_key = directory.path().join("unknown-admin");
     fs::write(&unknown_key, "09".repeat(32)).unwrap();
     assert_failure(
-        run(&config, claim_txid, hash, Some(&unknown_key)),
+        run(&config, &params, claim_txid, hash, Some(&unknown_key)),
         "not in the admin set",
     );
 
@@ -173,7 +219,7 @@ fn inspect_sign_and_publish_with_separate_funding() {
     for (index, admin_key) in admin_keys.iter().enumerate().take(2) {
         let key = directory.path().join(format!("admin-{}", index + 1));
         fs::write(&key, format!("{:02x}", index + 1).repeat(32)).unwrap();
-        let signed = run(&config, claim_txid, hash, Some(&key));
+        let signed = run(&config, &params, claim_txid, hash, Some(&key));
         assert!(
             signed.status.success(),
             "{}",
@@ -236,9 +282,12 @@ fn inspect_sign_and_publish_with_separate_funding() {
     let burn_txid = rpc.send_raw_transaction(&funded).unwrap();
 
     // Both commands reject the now-spent connector, including an unconfirmed mempool spend.
-    assert_failure(run(&config, claim_txid, hash, None), "spent or unavailable");
     assert_failure(
-        run(&config, claim_txid, hash, Some(&first_key)),
+        run(&config, &params, claim_txid, hash, None),
+        "spent or unavailable",
+    );
+    assert_failure(
+        run(&config, &params, claim_txid, hash, Some(&first_key)),
         "spent or unavailable",
     );
     let mined = rpc.generate_to_address(1, &address).unwrap();

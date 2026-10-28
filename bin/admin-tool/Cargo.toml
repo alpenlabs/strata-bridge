@@ -22,6 +22,7 @@ clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strata-bridge-admin-signing.workspace = true
+strata-bridge-common.workspace = true
 tokio.workspace = true
 toml.workspace = true
 

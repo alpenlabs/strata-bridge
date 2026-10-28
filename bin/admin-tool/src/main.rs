@@ -6,11 +6,12 @@ mod config;
 use std::io::{self, Write};
 
 use anyhow::{ensure, Context, Result};
-use bitcoin::hex::DisplayHex;
+use bitcoin::{hex::DisplayHex, Network};
 use bitcoincore_rpc::RpcApi;
 use clap::Parser;
 use serde::Serialize;
 use strata_bridge_admin_signing::{AdminSigner, AdminSigningRequest, FileAdminSigner};
+use strata_bridge_common::params::Params;
 
 use crate::{
     args::{ClaimArgs, Cli, Command},
@@ -21,22 +22,26 @@ use crate::{
 async fn main() -> Result<()> {
     let args = Cli::parse();
     let config = Config::load(&args.config)?;
+    let params = Params::from_path(&args.params)
+        .with_context(|| format!("could not load bridge params {}", args.params.display()))?;
     let rpc = config.rpc.client()?;
     match args.command {
         Command::Inspect(claim) => {
-            let (request, confirmations) = load_request(&rpc, &config, &claim)?;
-            print_summary(&mut io::stdout(), &config, &request, confirmations)?;
+            let (request, confirmations) = load_request(&rpc, &config, &params, &claim)?;
+            write_summary(&mut io::stdout(), params.network, &request, confirmations)?;
         }
         Command::Sign { claim, signer_file } => {
             // A previous inspection never substitutes for validation at signing time.
-            let (request, confirmations) = load_request(&rpc, &config, &claim)?;
+            let (request, confirmations) = load_request(&rpc, &config, &params, &claim)?;
             let signer = FileAdminSigner::from_path(&signer_file)
                 .context("could not load the admin private key file")?;
             let public_key = signer.public_key().await?;
+
             let mut summary = io::stderr();
-            print_summary(&mut summary, &config, &request, confirmations)?;
+            write_summary(&mut summary, params.network, &request, confirmations)?;
             writeln!(summary, "Signing admin:     {public_key}")?;
             summary.flush()?;
+
             let signature = request.sign(&signer).await?;
             let output = SignatureOutput {
                 claim_outpoint: request.claim_outpoint().to_string(),
@@ -57,31 +62,35 @@ async fn main() -> Result<()> {
 fn load_request(
     rpc: &impl RpcApi,
     config: &Config,
+    params: &Params,
     args: &ClaimArgs,
 ) -> Result<(AdminSigningRequest, u32)> {
     let chain = rpc
         .get_blockchain_info()
         .context("could not read Bitcoin chain information")?;
     ensure!(
-        chain.chain == config.network,
-        "Bitcoin node is on {}, config expects {}",
+        chain.chain == params.network,
+        "Bitcoin node is on {}, bridge params expect {}",
         chain.chain,
-        config.network
+        params.network
     );
+
     let claim = rpc.get_raw_transaction(&args.claim_txid, None).context(
         "could not fetch claim transaction; confirmed claims require a node with txindex=1",
     )?;
     let request = AdminSigningRequest::new(
         args.claim_txid,
         &claim,
-        config.signing_params(args.unstaking_hash),
+        config.signing_params(params, args.unstaking_hash),
     )?;
+
     let outpoint = request.claim_outpoint();
     let unspent = rpc
         .get_tx_out(&outpoint.txid, outpoint.vout, Some(true))
         .context("could not check the claim payout UTXO")?
         .context("claim payout output is spent or unavailable (including mempool spends)")?;
     let prevout = &claim.output[outpoint.vout as usize];
+
     ensure!(
         unspent.value == prevout.value && unspent.script_pub_key.script()? == prevout.script_pubkey,
         "node's unspent output does not match the validated claim payout"
@@ -90,13 +99,13 @@ fn load_request(
 }
 
 /// Shows the target and scope of the authorization before any signature is requested.
-fn print_summary(
+fn write_summary(
     output: &mut impl Write,
-    config: &Config,
+    network: Network,
     request: &AdminSigningRequest,
     confirmations: u32,
 ) -> Result<()> {
-    writeln!(output, "Network:           {}", config.network)?;
+    writeln!(output, "Network:           {network}")?;
     writeln!(output, "Claim output:      {}", request.claim_outpoint())?;
     writeln!(
         output,

@@ -11783,6 +11783,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strata-bridge-admin-signing",
+ "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-tx-graph",
  "tempfile",
