@@ -12,7 +12,10 @@ use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, WalletStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
-use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
+use strata_bridge_db::{
+    traits::BridgeDb,
+    types::{ClaimFundingReservation, FundingAssignment},
+};
 use strata_bridge_p2p_types::{GraphData, XOnlyPubKey};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
@@ -58,7 +61,7 @@ pub(super) async fn generate_graph_data(
     let game_index = GameIndex::try_from(graph_idx.deposit)
         .expect("deposit index does not overflow when mapped to game index");
 
-    let funding_outpoint = ensure_claim_funding_outpoint(cfg, output_handles, graph_idx).await?;
+    let funding_outpoint = ensure_claim_funding_outpoint(cfg, output_handles, ctx).await?;
     info!(?graph_idx, %funding_outpoint, "funding outpoint acquired");
 
     let (adaptor_pubkeys, fault_pubkeys) = fetch_graph_keys(
@@ -141,31 +144,34 @@ async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
         .0)
 }
 
-/// Returns the claim-funding outpoint for `graph_idx`, fetching it from the wallet (refilling
-/// if necessary) and caching to disk when not already saved.
+/// Returns the claim-funding outpoint for the graph of `ctx`, fetching it from the wallet
+/// (refilling if necessary) and caching to disk when not already saved.
 async fn ensure_claim_funding_outpoint(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
-    graph_idx: GraphIdx,
+    ctx: &GraphSMCtx,
 ) -> Result<OutPoint, ExecutorError> {
-    if let Ok(Some(funding_outpoint)) = output_handles
+    let covenant = ctx.covenant;
+    let graph_idx = ctx.graph_idx();
+    if let Ok(Some(reservation)) = output_handles
         .db
-        .get_claim_funding_outpoint(graph_idx)
+        .get_claim_funding_reservation(covenant, graph_idx)
         .await
     {
         info!(
             ?graph_idx,
-            ?funding_outpoint,
+            funding_outpoint = ?reservation.outpoint,
             "reusing cached funding outpoint"
         );
-        return Ok(funding_outpoint);
+        return Ok(reservation.outpoint);
     }
 
     info!(?graph_idx, "fetching funding outpoint from wallet");
-    let funding_outpoint = {
+    let reservation = {
         let mut wallet = output_handles.wallet.write().await;
+        let script_pubkey = wallet.reserved_script_pubkey();
 
-        match reserve_synced_claim_funding(
+        let outpoint = match reserve_synced_claim_funding(
             &mut *wallet,
             cfg.claim_funding_utxo_value,
             cfg.bury_depth,
@@ -245,30 +251,38 @@ async fn ensure_claim_funding_outpoint(
                     }
                 }
             }
+        };
+        ClaimFundingReservation {
+            outpoint,
+            txout: TxOut {
+                value: cfg.claim_funding_utxo_value,
+                script_pubkey,
+            },
         }
     };
+    let funding_outpoint = reservation.outpoint;
 
     let assignment = output_handles
         .db
-        .get_or_set_claim_funding_outpoint(graph_idx, funding_outpoint)
+        .get_or_set_claim_funding_reservation(covenant, graph_idx, reservation)
         .await;
 
     let assigned_outpoint = match assignment {
-        Ok(FundingAssignment::Created(outpoint)) => {
-            info!(?graph_idx, %outpoint, "saved funding outpoint to disk");
-            outpoint
+        Ok(FundingAssignment::Created(reservation)) => {
+            info!(?graph_idx, outpoint = %reservation.outpoint, "saved funding outpoint to disk");
+            reservation.outpoint
         }
-        Ok(FundingAssignment::Existing(outpoint)) => {
+        Ok(FundingAssignment::Existing(reservation)) => {
             info!(
                 ?graph_idx,
-                %outpoint,
+                outpoint = %reservation.outpoint,
                 "using existing funding outpoint saved by another duty"
             );
-            if outpoint != funding_outpoint {
+            if reservation.outpoint != funding_outpoint {
                 let mut wallet = output_handles.wallet.write().await;
                 wallet.release(&[funding_outpoint]);
             }
-            outpoint
+            reservation.outpoint
         }
         Err(err) => {
             let mut wallet = output_handles.wallet.write().await;

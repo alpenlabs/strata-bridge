@@ -9,15 +9,18 @@ use bitcoin::{
 };
 use foundationdb::tuple::PackError;
 use strata_bridge_primitives::{
-    covenant::StakeKey,
-    types::{DepositIdx, OperatorIdx},
+    covenant::{CovenantId, StakeKey},
+    types::{DepositIdx, GraphIdx},
 };
 
 use super::{
     kv::{KVRowSpec, PackableKey, SerializableValue},
     stakes::decode_stake_key,
 };
-use crate::{fdb::dirs::Directories, types::StakeFundingReservation};
+use crate::{
+    fdb::dirs::Directories,
+    types::{ClaimFundingReservation, StakeFundingReservation},
+};
 
 const SERIALIZED_TXID_SIZE: usize = 32;
 const SERIALIZED_VOUT_SIZE: usize = 4;
@@ -69,69 +72,99 @@ fn deserialize_outpoints(bytes: &[u8]) -> Result<Vec<OutPoint>, InvalidOutPointB
     Ok(outpoints)
 }
 
-/// Key for claim-funding rows: `(DepositIdx, OperatorIdx)`.
+/// Key for claim-funding reservation rows: `(CovenantId, DepositIdx, OperatorIdx)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClaimFundingKey {
-    /// Deposit index.
-    pub deposit_idx: DepositIdx,
-    /// Operator index.
-    pub operator_idx: OperatorIdx,
+pub struct ClaimFundingReservationKey {
+    /// Covenant whose graph the reservation funds.
+    pub covenant: CovenantId,
+    /// Graph within that covenant.
+    pub graph_idx: GraphIdx,
 }
 
-impl PackableKey for ClaimFundingKey {
+impl PackableKey for ClaimFundingReservationKey {
     type PackingError = Infallible;
     type UnpackingError = PackError;
     type Packed = Vec<u8>;
 
     fn pack(&self, dirs: &Directories) -> Result<Self::Packed, Self::PackingError> {
-        Ok(dirs
-            .claim_funds
-            .pack::<(u32, u32)>(&(self.deposit_idx, self.operator_idx)))
+        Ok(dirs.claim_funding_reservations.pack(&(
+            self.covenant.to_bytes().as_slice(),
+            self.graph_idx.deposit,
+            self.graph_idx.operator,
+        )))
     }
 
     fn unpack(dirs: &Directories, bytes: &[u8]) -> Result<Self, Self::UnpackingError> {
-        let (deposit_idx, operator_idx) = dirs.claim_funds.unpack::<(u32, u32)>(bytes)?;
+        let (covenant, deposit, operator) = dirs
+            .claim_funding_reservations
+            .unpack::<(Vec<u8>, u32, u32)>(bytes)?;
+        let covenant = covenant
+            .try_into()
+            .map_err(|_| PackError::Message("invalid covenant id length".into()))?;
         Ok(Self {
-            deposit_idx,
-            operator_idx,
+            covenant: CovenantId::from_bytes(covenant)
+                .map_err(|err| PackError::Message(err.to_string().into()))?,
+            graph_idx: GraphIdx { deposit, operator },
         })
     }
 }
 
-/// Value for a claim-funding row: a single `OutPoint`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClaimFundingValue(pub OutPoint);
+/// Error returned when a claim-funding reservation's bytes cannot be parsed.
+#[derive(Debug)]
+pub enum InvalidClaimFundingReservationBytes {
+    /// A consensus-encoded field failed to decode.
+    Decode(encode::Error),
+    /// Bytes past the encoded reservation were not consumed.
+    TrailingBytes,
+}
 
-impl SerializableValue for ClaimFundingValue {
-    type SerializeError = Infallible;
-    type DeserializeError = InvalidOutPointBytes;
-    type Serialized = [u8; SERIALIZED_OUTPOINT_SIZE];
-
-    fn serialize(&self) -> Result<Self::Serialized, Self::SerializeError> {
-        let outpoint = self.0;
-        let mut out = [0u8; SERIALIZED_OUTPOINT_SIZE];
-        out[..SERIALIZED_TXID_SIZE].copy_from_slice(outpoint.txid.as_raw_hash().as_ref());
-        out[SERIALIZED_TXID_SIZE..].copy_from_slice(&outpoint.vout.to_le_bytes());
-        Ok(out)
-    }
-
-    fn deserialize(bytes: &[u8]) -> Result<Self, Self::DeserializeError> {
-        let outpoints = deserialize_outpoints(bytes)?;
-        if outpoints.len() != 1 {
-            return Err(InvalidOutPointBytes { len: bytes.len() });
-        }
-        let outpoint = outpoints[0];
-        Ok(Self(outpoint))
+impl From<encode::Error> for InvalidClaimFundingReservationBytes {
+    fn from(err: encode::Error) -> Self {
+        Self::Decode(err)
     }
 }
 
-/// ZST for claim-funding rows.
-#[derive(Debug)]
-pub struct ClaimFundingRowSpec;
+/// Value for a claim-funding reservation row: a [`ClaimFundingReservation`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimFundingReservationValue(pub ClaimFundingReservation);
 
-impl KVRowSpec for ClaimFundingRowSpec {
-    type Key = ClaimFundingKey;
-    type Value = ClaimFundingValue;
+impl SerializableValue for ClaimFundingReservationValue {
+    type SerializeError = Infallible;
+    type DeserializeError = InvalidClaimFundingReservationBytes;
+    type Serialized = Vec<u8>;
+
+    fn serialize(&self) -> Result<Self::Serialized, Self::SerializeError> {
+        let reservation = &self.0;
+        let mut buf = Vec::new();
+        reservation
+            .outpoint
+            .consensus_encode(&mut buf)
+            .expect("writing to Vec<u8> is infallible");
+        reservation
+            .txout
+            .consensus_encode(&mut buf)
+            .expect("writing to Vec<u8> is infallible");
+        Ok(buf)
+    }
+
+    fn deserialize(bytes: &[u8]) -> Result<Self, Self::DeserializeError> {
+        let mut rest = bytes;
+        let outpoint = OutPoint::consensus_decode(&mut rest)?;
+        let txout = TxOut::consensus_decode(&mut rest)?;
+        if !rest.is_empty() {
+            return Err(InvalidClaimFundingReservationBytes::TrailingBytes);
+        }
+        Ok(Self(ClaimFundingReservation { outpoint, txout }))
+    }
+}
+
+/// ZST for claim-funding reservation rows.
+#[derive(Debug)]
+pub struct ClaimFundingReservationRowSpec;
+
+impl KVRowSpec for ClaimFundingReservationRowSpec {
+    type Key = ClaimFundingReservationKey;
+    type Value = ClaimFundingReservationValue;
 }
 
 /// Key for stake-funding reservation rows: covenant-qualified `StakeKey`.
