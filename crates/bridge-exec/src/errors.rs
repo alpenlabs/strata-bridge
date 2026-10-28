@@ -1,7 +1,7 @@
 //! Error types for the bridge-exec executors.
 
 use bdk_wallet::error::CreateTxError;
-use bitcoin::{FeeRate, OutPoint, Txid};
+use bitcoin::{Amount, FeeRate, OutPoint, Txid};
 use foundationdb::FdbBindingError;
 use strata_bridge_db::fdb::errors::LayerError;
 use terrors::OneOf;
@@ -58,6 +58,18 @@ pub enum ExecutorError {
     /// The claim funding outpoint is not among the reserved wallet's unspent outputs.
     #[error("claim funding outpoint {0} not found in wallet")]
     ClaimFundingOutPointMissing(OutPoint),
+
+    /// The claim-funding reservation recorded for a graph does not hold the amount its claim
+    /// needs.
+    #[error("claim funding reservation {outpoint} holds {found}, but the claim needs {expected}")]
+    ClaimFundingMismatch {
+        /// The reserved outpoint.
+        outpoint: OutPoint,
+        /// The amount the reservation holds.
+        found: Amount,
+        /// The amount the graph's claim needs.
+        expected: Amount,
+    },
 
     /// Error interacting with the database.
     #[error("database error: {0:?}")]
