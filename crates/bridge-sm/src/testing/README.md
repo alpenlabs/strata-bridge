@@ -192,6 +192,7 @@ prop_deterministic!(
     MySM,
     create_sm,
     get_state,
+    config,
     any::<MyState>(),
     any::<MyEvent>()
 );
@@ -206,6 +207,7 @@ prop_no_silent_acceptance!(
     MySM,
     create_sm,
     get_state,
+    config,
     any::<MyState>(),
     any::<MyEvent>()
 );
@@ -220,8 +222,9 @@ prop_terminal_states_reject!(
     MySM,
     create_sm,
     get_state,
+    config,
     arb_terminal_state(),
-    any::<MyEvent>(),
+    any::<MyEvent>()
 );
 ```
 
@@ -235,8 +238,9 @@ prop_terminal_states_ignore_ticks!(
     MySM,
     create_sm,
     get_state,
+    config,
     arb_terminal_state(),
-    arb_tick_events(),
+    arb_tick_events()
 );
 ```
 
@@ -386,6 +390,7 @@ mod tests {
         YourSM,
         create_sm,
         get_state,
+        config,
         any::<YourState>(),
         any::<YourEvent>()
     );
@@ -394,6 +399,7 @@ mod tests {
         YourSM,
         create_sm,
         get_state,
+        config,
         any::<YourState>(),
         any::<YourEvent>()
     );
