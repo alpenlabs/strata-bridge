@@ -11758,6 +11758,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-admin-signing"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "strata-bridge-connectors",
+ "strata-bridge-tx-graph",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "strata-bridge-asm-events"
 version = "0.1.0"
 dependencies = [

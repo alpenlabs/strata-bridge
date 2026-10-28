@@ -1,0 +1,17 @@
+[package]
+name = "strata-bridge-admin-signing"
+version = "0.1.0"
+edition = "2021"
+description = "Admin payout-burn signing without funding or publication"
+
+[lints]
+workspace = true
+
+[dependencies]
+bitcoin.workspace = true
+strata-bridge-connectors.workspace = true
+strata-bridge-tx-graph.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
