@@ -34,12 +34,14 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
             .filter(|id| *id != SMId::OperatorSet)
             .collect(),
 
-        // Each assignment targets one DepositSM and all GraphSMs for that deposit (one per
-        // operator).
+        // Each assignment targets the DepositSM and all GraphSMs (one per operator) of a tracked
+        // deposit. ASM assigns withdrawals of every deposit, so an assignment of a deposit this
+        // node never took part in is routed nowhere.
         UnifiedEvent::Assignment(entries) => entries
             .iter()
-            .flat_map(|entry| {
-                let deposit_idx = entry.deposit_idx();
+            .map(|entry| entry.deposit_idx())
+            .filter(|deposit_idx| registry.contains_id(&SMId::Deposit(*deposit_idx)))
+            .flat_map(|deposit_idx| {
                 let graph_ids = registry
                     .get_graph_ids()
                     .into_iter()
@@ -415,6 +417,42 @@ mod tests {
         // At minimum, each entry produces deposit + graphs
         assert!(routed.contains(&SMId::Deposit(dep1)));
         assert!(routed.contains(&SMId::Deposit(dep2)));
+    }
+
+    #[test]
+    fn route_assignment_skips_untracked_deposits() {
+        // ASM assigns withdrawals of every deposit, including those of covenants this node never
+        // belonged to.
+        let mut arb = ArbitraryGenerator::new();
+        let tracked: AssignmentEntry = arb.generate();
+        let tracked_idx = tracked.deposit_idx();
+        let untracked = loop {
+            let entry: AssignmentEntry = arb.generate();
+            if entry.deposit_idx() != tracked_idx {
+                break entry;
+            }
+        };
+        let untracked_idx = untracked.deposit_idx();
+
+        let mut registry = test_empty_registry();
+        insert_deposit_with_graphs(&mut registry, tracked_idx);
+
+        let event = UnifiedEvent::Assignment(vec![tracked, untracked]);
+        let routed = route(&event, &registry);
+
+        assert!(
+            !routed.contains(&SMId::Deposit(untracked_idx)),
+            "an assignment of an untracked deposit must not be routed: {routed:?}"
+        );
+        assert!(
+            routed.contains(&SMId::Deposit(tracked_idx)),
+            "an assignment of a tracked deposit must still reach its deposit SM: {routed:?}"
+        );
+        assert_eq!(
+            routed.len(),
+            1 + N_TEST_OPERATORS,
+            "only the tracked deposit and its graphs must be routed: {routed:?}"
+        );
     }
 }
 
