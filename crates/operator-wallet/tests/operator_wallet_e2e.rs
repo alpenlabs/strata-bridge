@@ -605,6 +605,59 @@ async fn reserve_utxo_with_value_filters_by_value() {
 
 #[tokio::test]
 #[serial]
+async fn reserved_utxo_finds_an_outpoint_of_any_value() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, general_kp, _) =
+        build_operator_wallet(&bitcoind, 7, 8, 3, Amount::from_btc(0.5).unwrap()).await;
+
+    let values = [
+        Amount::from_btc(0.01).unwrap(),
+        Amount::from_btc(0.05).unwrap(),
+    ];
+    for value in values {
+        let funded = wallet
+            .create_reserved_utxos(
+                FeeRate::from_sat_per_vb(5).unwrap(),
+                value,
+                1,
+                GeneralUtxoPolicy::IncludeUnconfirmed,
+            )
+            .await
+            .unwrap_or_else(|e| panic!("seed funding for {value} failed: {e}"));
+        let signed = sign_and_finalize(funded.psbt, general_kp);
+        bitcoind
+            .client
+            .send_raw_transaction(&signed)
+            .expect("broadcast");
+        let miner_addr = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(1, &miner_addr)
+            .expect("mine");
+        wallet.sync().await.expect("sync");
+    }
+
+    for value in values {
+        let pooled = wallet.reserved_utxos_with_value(value);
+        assert_eq!(pooled.len(), 1, "expected one UTXO of {value}");
+        let found = wallet
+            .reserved_utxo(pooled[0].outpoint)
+            .unwrap_or_else(|| panic!("the {value} UTXO must be found by its outpoint"));
+        assert_eq!(
+            (found.outpoint, found.amount),
+            (pooled[0].outpoint, value),
+            "lookup by outpoint must return the {value} UTXO"
+        );
+    }
+    let unknown = OutPoint::new(Txid::all_zeros(), 0);
+    assert!(
+        wallet.reserved_utxo(unknown).is_none(),
+        "an outpoint the reserved wallet does not hold must not be found"
+    );
+}
+
+#[tokio::test]
+#[serial]
 async fn settled_accepts_unconfirmed_outputs_only_from_own_refills() {
     let bitcoind = setup_bitcoind();
     let (mut wallet, general_kp, _) =

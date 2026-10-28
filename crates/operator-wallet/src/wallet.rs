@@ -195,6 +195,15 @@ impl<G: GeneralWallet, P: WalletStore> OperatorWallet<G, P> {
             .collect()
     }
 
+    /// Returns the spendable reserved-wallet UTXO at `outpoint`, whatever its value.
+    pub fn reserved_utxo(&self, outpoint: OutPoint) -> Option<UtxoInfo> {
+        let tip = self.reserved.latest_checkpoint().height();
+        self.reserved
+            .get_utxo(outpoint)
+            .filter(|output| is_spendable(output, &self.reserved_mempool))
+            .map(|lo| local_output_to_utxo_info(&lo, tip))
+    }
+
     /// Selects and leases one unleased reserved-wallet UTXO of value `value` that the
     /// `ignore` predicate doesn't reject. Returns the selected outpoint (if any) and the
     /// number of *additional* matching UTXOs left after the selection.
