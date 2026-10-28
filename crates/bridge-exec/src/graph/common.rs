@@ -669,7 +669,6 @@ pub(super) async fn publish_graph_partials(
 
 /// Publishes the claim transaction to Bitcoin.
 pub(super) async fn publish_claim(
-    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     claim_tx: &ClaimTx,
 ) -> Result<(), ExecutorError> {
@@ -684,9 +683,7 @@ pub(super) async fn publish_claim(
     let claim_prevout: TxOut = {
         let wallet = output_handles.wallet.read().await;
         wallet
-            .reserved_utxos_with_value(cfg.claim_funding_utxo_value)
-            .into_iter()
-            .find(|utxo| utxo.outpoint == claim_funding_outpoint)
+            .reserved_utxo(claim_funding_outpoint)
             .ok_or_else(|| {
                 warn!(
                     %claim_txid,
