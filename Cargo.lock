@@ -3916,7 +3916,6 @@ dependencies = [
  "serde_json",
  "ssz",
  "strata-asm-admin-threshold-sig",
- "strata-asm-admin-types",
  "strata-asm-checkpoint-types",
  "strata-asm-proto-admin-txs",
  "strata-asm-proto-bridge-txs",

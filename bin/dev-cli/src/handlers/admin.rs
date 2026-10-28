@@ -4,13 +4,11 @@
 //! trigger the hard bridge upgrade in functional tests.
 
 use anyhow::{Context, Result};
-use bitcoin::bip32::Xpriv;
+use bitcoin::{bip32::Xpriv, Network, Txid};
 use bitcoincore_rpc::{Auth, Client};
-use secp256k1::{rand::rngs::OsRng, Keypair, SECP256K1};
-use strata_asm_admin_types::{AdminTxType, UpdateTxType};
+use secp256k1::{rand::rngs::OsRng, Keypair, SecretKey, SECP256K1};
 use strata_asm_proto_admin_txs::{
     actions::{updates::Defcon1Update, MultisigAction, UpdateAction},
-    constants::ADMINISTRATION_SUBPROTOCOL_ID,
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
@@ -19,41 +17,19 @@ use strata_bridge_primitives::constants::BRIDGE_TAG;
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
-use crate::{cli::Defcon1Args, handlers::checkpoint::envelope::build_and_broadcast_envelope_tx};
+use crate::{
+    cli::{BtcArgs, Defcon1Args},
+    handlers::checkpoint::envelope::build_and_broadcast_envelope_tx,
+};
 
 /// Handles the defcon1 command: builds, signs, and broadcasts the admin envelope tx.
-///
-/// Test deployments configure the security council as the operators' musig2 keys with
-/// threshold 1, so the council signer is derived exactly like an operator key (signer
-/// index 0 = operator 0).
 pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
-    let client = Client::new(
-        &args.btc_args.url,
-        Auth::UserPass(args.btc_args.user.clone(), args.btc_args.pass.clone()),
-    )
-    .context("failed to create bitcoin client")?;
-
-    let seed_bytes = hex::decode(&args.seed).context("invalid hex seed")?;
-    let xpriv = Xpriv::new_master(args.network, &seed_bytes)
-        .context("failed to derive master key from seed")?;
-    let operator_keys = OperatorKeys::new(&xpriv).context("failed to derive operator keys")?;
-    let musig2 =
-        Musig2Keys::derive(operator_keys.base_xpriv()).context("failed to derive musig2 keys")?;
-    let council_sk = musig2.keypair.secret_key();
-
     let action = MultisigAction::Update(UpdateAction::Defcon1(Defcon1Update));
-    let signatures = create_signature_set(&[council_sk], &[0], &action, args.seqno, args.network);
-    let payload = SignedPayload::new(args.seqno, action, signatures);
-
-    let magic: MagicBytes = BRIDGE_TAG.parse().expect("valid magic bytes");
-    let envelope_keypair = Keypair::new(SECP256K1, &mut OsRng);
-    let txid = build_and_broadcast_envelope_tx(
-        &client,
-        &envelope_keypair,
-        magic,
-        ADMINISTRATION_SUBPROTOCOL_ID,
-        AdminTxType::Update(UpdateTxType::Defcon1).into(),
-        &payload.into_envelope_bytes(),
+    let txid = sign_and_broadcast_admin_action(
+        &args.btc_args,
+        &args.seed,
+        action,
+        args.seqno,
         args.network,
     )
     .context("failed to broadcast defcon1 envelope tx")?;
@@ -62,6 +38,63 @@ pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
     println!("txid = {txid}");
 
     Ok(())
+}
+
+/// Signs `action` as the admin signer derived from `seed` and broadcasts it in an SPS-50
+/// envelope tx.
+///
+/// Test deployments configure every admin role as the operators' musig2 keys with threshold 1,
+/// so the signer is derived exactly like an operator key (signer index 0 = operator 0).
+fn sign_and_broadcast_admin_action(
+    btc_args: &BtcArgs,
+    seed: &str,
+    action: MultisigAction,
+    seqno: u64,
+    network: Network,
+) -> Result<Txid> {
+    let client = Client::new(
+        &btc_args.url,
+        Auth::UserPass(btc_args.user.clone(), btc_args.pass.clone()),
+    )
+    .context("failed to create bitcoin client")?;
+
+    let tag = action.tag();
+    let payload = signed_admin_payload(seed, action, seqno, network)?;
+
+    let magic: MagicBytes = BRIDGE_TAG.parse().expect("valid magic bytes");
+    let envelope_keypair = Keypair::new(SECP256K1, &mut OsRng);
+    build_and_broadcast_envelope_tx(
+        &client,
+        &envelope_keypair,
+        magic,
+        tag.subproto_id(),
+        tag.tx_type(),
+        &payload.into_envelope_bytes(),
+        network,
+    )
+}
+
+/// Signs `action` at `seqno` as the admin signer derived from `seed`.
+fn signed_admin_payload(
+    seed: &str,
+    action: MultisigAction,
+    seqno: u64,
+    network: Network,
+) -> Result<SignedPayload> {
+    let signer = derive_admin_signer(seed, network)?;
+    let signatures = create_signature_set(&[signer], &[0], &action, seqno, network);
+    Ok(SignedPayload::new(seqno, action, signatures))
+}
+
+/// Derives the admin signing key from an operator's hex-encoded seed.
+fn derive_admin_signer(seed: &str, network: Network) -> Result<SecretKey> {
+    let seed_bytes = hex::decode(seed).context("invalid hex seed")?;
+    let xpriv =
+        Xpriv::new_master(network, &seed_bytes).context("failed to derive master key from seed")?;
+    let operator_keys = OperatorKeys::new(&xpriv).context("failed to derive operator keys")?;
+    let musig2 =
+        Musig2Keys::derive(operator_keys.base_xpriv()).context("failed to derive musig2 keys")?;
+    Ok(musig2.keypair.secret_key())
 }
 
 #[cfg(test)]
