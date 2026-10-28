@@ -5,7 +5,7 @@ use foundationdb::{FdbBindingError, Transaction, options::TransactionOption};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
-    covenant::StakeKey,
+    covenant::{CovenantId, StakeKey},
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
@@ -20,10 +20,10 @@ use crate::{
         row_spec::{
             deposits::{DepositStateKey, DepositStateRowSpec},
             funds::{
-                ClaimFundingKey, ClaimFundingRowSpec, ClaimFundingValue,
-                StakeFundingReservationKey, StakeFundingReservationRowSpec,
-                StakeFundingReservationValue, WithdrawalFundingKey, WithdrawalFundingRowSpec,
-                WithdrawalFundingValue,
+                ClaimFundingReservationKey, ClaimFundingReservationRowSpec,
+                ClaimFundingReservationValue, StakeFundingReservationKey,
+                StakeFundingReservationRowSpec, StakeFundingReservationValue, WithdrawalFundingKey,
+                WithdrawalFundingRowSpec, WithdrawalFundingValue,
             },
             graphs::GraphStateRowSpec,
             operator_set::{OperatorSetKey, OperatorSetRowSpec},
@@ -33,7 +33,10 @@ use crate::{
         },
     },
     traits::BridgeDb,
-    types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch},
+    types::{
+        ClaimFundingReservation, FundingAssignment, PersistedState, StakeFundingReservation,
+        WriteBatch,
+    },
 };
 
 impl BridgeDb for FdbClient {
@@ -160,31 +163,33 @@ impl BridgeDb for FdbClient {
 
     // ── Funds ─────────────────────────────────────────────────────────
 
-    async fn get_claim_funding_outpoint(
+    async fn get_claim_funding_reservation(
         &self,
+        covenant: CovenantId,
         graph_idx: GraphIdx,
-    ) -> Result<Option<OutPoint>, Self::Error> {
+    ) -> Result<Option<ClaimFundingReservation>, Self::Error> {
         let result = self
-            .basic_get::<ClaimFundingRowSpec>(ClaimFundingKey {
-                deposit_idx: graph_idx.deposit,
-                operator_idx: graph_idx.operator,
+            .basic_get::<ClaimFundingReservationRowSpec>(ClaimFundingReservationKey {
+                covenant,
+                graph_idx,
             })
             .await?;
         Ok(result.map(|v| v.0))
     }
 
-    async fn get_or_set_claim_funding_outpoint(
+    async fn get_or_set_claim_funding_reservation(
         &self,
+        covenant: CovenantId,
         graph_idx: GraphIdx,
-        outpoint: OutPoint,
-    ) -> Result<FundingAssignment<OutPoint>, Self::Error> {
+        reservation: ClaimFundingReservation,
+    ) -> Result<FundingAssignment<ClaimFundingReservation>, Self::Error> {
         let assignment = self
-            .basic_get_or_set_assignment::<ClaimFundingRowSpec>(
-                ClaimFundingKey {
-                    deposit_idx: graph_idx.deposit,
-                    operator_idx: graph_idx.operator,
+            .basic_get_or_set_assignment::<ClaimFundingReservationRowSpec>(
+                ClaimFundingReservationKey {
+                    covenant,
+                    graph_idx,
                 },
-                ClaimFundingValue(outpoint),
+                ClaimFundingReservationValue(reservation),
             )
             .await?;
 
@@ -224,7 +229,9 @@ impl BridgeDb for FdbClient {
 
     async fn get_all_funds(&self) -> Result<Vec<OutPoint>, Self::Error> {
         let claim_pairs = self
-            .basic_get_all::<ClaimFundingRowSpec>(|dirs| &dirs.claim_funds)
+            .basic_get_all::<ClaimFundingReservationRowSpec>(|dirs| {
+                &dirs.claim_funding_reservations
+            })
             .await?;
         let reservation_pairs = self
             .basic_get_all::<StakeFundingReservationRowSpec>(|dirs| {
@@ -247,7 +254,7 @@ impl BridgeDb for FdbClient {
                     .map(|(_, v)| v.0.len())
                     .sum::<usize>(),
         );
-        funds.extend(claim_pairs.into_iter().map(|(_, v)| v.0));
+        funds.extend(claim_pairs.into_iter().map(|(_, v)| v.0.outpoint));
         funds.extend(reservation_pairs.into_iter().flat_map(|(_, v)| {
             v.0.unsigned_tx
                 .input
@@ -296,10 +303,14 @@ impl BridgeDb for FdbClient {
         .await
     }
 
-    async fn delete_claim_funding_outpoint(&self, graph_idx: GraphIdx) -> Result<(), Self::Error> {
-        self.basic_delete::<ClaimFundingRowSpec>(ClaimFundingKey {
-            deposit_idx: graph_idx.deposit,
-            operator_idx: graph_idx.operator,
+    async fn delete_claim_funding_reservation(
+        &self,
+        covenant: CovenantId,
+        graph_idx: GraphIdx,
+    ) -> Result<(), Self::Error> {
+        self.basic_delete::<ClaimFundingReservationRowSpec>(ClaimFundingReservationKey {
+            covenant,
+            graph_idx,
         })
         .await
     }
@@ -448,7 +459,7 @@ mod tests {
     use std::{collections::BTreeMap, num::NonZero, sync::OnceLock, time::Instant};
 
     use bitcoin::{
-        Network, TapSighashType,
+        Amount, Network, ScriptBuf, TapSighashType, TxOut,
         hashes::{Hash, sha256},
         taproot,
     };
@@ -464,7 +475,7 @@ mod tests {
         covenant::CovenantId,
         operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
         operator_table::{OperatorTable, prop_test_generators::arb_operator_table},
-        types::{DepositIdx, OperatorIdx},
+        types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
     };
     use strata_bridge_sm::{
         deposit::{context::DepositSMCtx, state::DepositState},
@@ -739,6 +750,68 @@ mod tests {
                     .await
                     .unwrap(),
                 Some(first)
+            );
+        });
+    }
+
+    #[test]
+    fn claim_funding_reservations_of_one_graph_are_independent_per_covenant() {
+        let table = test_operator_table(3, 0);
+        let first_covenant = CovenantId::from_operator_table(&table, 100).unwrap();
+        let second_covenant = CovenantId::from_operator_table(&table, 200).unwrap();
+        let graph_idx = GraphIdx {
+            deposit: 7,
+            operator: 0,
+        };
+        let first = claim_reservation(OutPoint::new(generate_txid(), 0), 10_000);
+        let second = claim_reservation(OutPoint::new(generate_txid(), 0), 20_000);
+        block_on(async {
+            let client = get_client();
+            for covenant in [first_covenant, second_covenant] {
+                client
+                    .delete_claim_funding_reservation(covenant, graph_idx)
+                    .await
+                    .unwrap();
+            }
+            assert_eq!(
+                client
+                    .get_or_set_claim_funding_reservation(first_covenant, graph_idx, first.clone())
+                    .await
+                    .unwrap(),
+                FundingAssignment::Created(first.clone()),
+                "the first covenant's graph takes its own reservation"
+            );
+            assert_eq!(
+                client
+                    .get_or_set_claim_funding_reservation(
+                        second_covenant,
+                        graph_idx,
+                        second.clone()
+                    )
+                    .await
+                    .unwrap(),
+                FundingAssignment::Created(second),
+                "the same graph index in another covenant must not reuse that reservation"
+            );
+            client
+                .delete_claim_funding_reservation(second_covenant, graph_idx)
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .get_claim_funding_reservation(first_covenant, graph_idx)
+                    .await
+                    .unwrap(),
+                Some(first),
+                "deleting one covenant's reservation must leave the other's intact"
+            );
+            assert_eq!(
+                client
+                    .get_claim_funding_reservation(second_covenant, graph_idx)
+                    .await
+                    .unwrap(),
+                None,
+                "the deleted reservation must be gone"
             );
         });
     }
@@ -1070,6 +1143,29 @@ mod tests {
             prevouts,
             stake_output_vout,
         }
+    }
+
+    /// Builds a [`ClaimFundingReservation`] for a `sats`-valued output at `outpoint`.
+    fn claim_reservation(outpoint: OutPoint, sats: u64) -> ClaimFundingReservation {
+        ClaimFundingReservation {
+            outpoint,
+            txout: TxOut {
+                value: Amount::from_sat(sats),
+                script_pubkey: ScriptBuf::from_bytes(vec![0x51]),
+            },
+        }
+    }
+
+    fn arb_claim_reservation() -> impl Strategy<Value = ClaimFundingReservation> {
+        (arb_outpoint(), any::<u64>())
+            .prop_map(|(outpoint, sats)| claim_reservation(outpoint, sats))
+    }
+
+    fn arb_covenant() -> impl Strategy<Value = CovenantId> {
+        any::<BitcoinBlockHeight>().prop_map(|height| {
+            CovenantId::from_operator_table(&test_operator_table(3, 0), height)
+                .expect("a non-empty table aggregates")
+        })
     }
 
     /// Builds a [`GraphSM`] from the given components.
@@ -1487,46 +1583,51 @@ mod tests {
             })?;
         }
 
-        /// Property: claim funding outpoint can be stored/retrieved with the same graph key.
+        /// Property: a claim-funding reservation can be stored and retrieved with the same key.
         #[test]
-        fn claim_funding_outpoint_roundtrip(
+        fn claim_funding_reservation_roundtrip(
+            covenant in arb_covenant(),
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
-            outpoint in arb_outpoint(),
+            reservation in arb_claim_reservation(),
         ) {
             let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
 
             block_on(async {
                 let client = get_client();
 
-                client.delete_claim_funding_outpoint(graph_idx).await.unwrap();
+                client
+                    .delete_claim_funding_reservation(covenant, graph_idx)
+                    .await
+                    .unwrap();
 
                 let assignment = client
-                    .get_or_set_claim_funding_outpoint(graph_idx, outpoint)
+                    .get_or_set_claim_funding_reservation(covenant, graph_idx, reservation.clone())
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_claim_funding_outpoint(graph_idx)
+                    .get_claim_funding_reservation(covenant, graph_idx)
                     .await
                     .unwrap();
 
-                prop_assert_eq!(FundingAssignment::Created(outpoint), assignment);
-                prop_assert_eq!(Some(outpoint), retrieved);
+                prop_assert_eq!(FundingAssignment::Created(reservation.clone()), assignment);
+                prop_assert_eq!(Some(reservation), retrieved);
 
                 Ok(())
             })?;
         }
 
-        /// Property: claim funding outpoint get-or-set preserves the first graph assignment.
+        /// Property: claim-funding get-or-set preserves the first reservation for a graph.
         #[test]
-        fn claim_funding_outpoint_get_or_set_is_idempotent(
+        fn claim_funding_reservation_get_or_set_is_idempotent(
+            covenant in arb_covenant(),
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
-            first_outpoint in arb_outpoint(),
-            second_outpoint in arb_outpoint(),
+            first_reservation in arb_claim_reservation(),
+            second_reservation in arb_claim_reservation(),
         ) {
-            prop_assume!(first_outpoint != second_outpoint);
+            prop_assume!(first_reservation != second_reservation);
 
             let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
 
@@ -1534,26 +1635,30 @@ mod tests {
                 let client = get_client();
 
                 client
-                    .delete_claim_funding_outpoint(graph_idx)
+                    .delete_claim_funding_reservation(covenant, graph_idx)
                     .await
                     .unwrap();
 
                 let first = client
-                    .get_or_set_claim_funding_outpoint(graph_idx, first_outpoint)
+                    .get_or_set_claim_funding_reservation(
+                        covenant,
+                        graph_idx,
+                        first_reservation.clone(),
+                    )
                     .await
                     .unwrap();
                 let second = client
-                    .get_or_set_claim_funding_outpoint(graph_idx, second_outpoint)
+                    .get_or_set_claim_funding_reservation(covenant, graph_idx, second_reservation)
                     .await
                     .unwrap();
                 let retrieved = client
-                    .get_claim_funding_outpoint(graph_idx)
+                    .get_claim_funding_reservation(covenant, graph_idx)
                     .await
                     .unwrap();
 
-                prop_assert_eq!(FundingAssignment::Created(first_outpoint), first);
-                prop_assert_eq!(FundingAssignment::Existing(first_outpoint), second);
-                prop_assert_eq!(Some(first_outpoint), retrieved);
+                prop_assert_eq!(FundingAssignment::Created(first_reservation.clone()), first);
+                prop_assert_eq!(FundingAssignment::Existing(first_reservation.clone()), second);
+                prop_assert_eq!(Some(first_reservation), retrieved);
 
                 Ok(())
             })?;
@@ -1640,9 +1745,10 @@ mod tests {
         /// Property: `get_all_funds` returns both claim and withdrawal funding entries.
         #[test]
         fn get_all_funds_test(
+            covenant in arb_covenant(),
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
-            outpoint_claim in arb_outpoint(),
+            claim in arb_claim_reservation(),
             outpoints_wf in arb_outpoints(),
         ) {
             let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
@@ -1650,14 +1756,17 @@ mod tests {
             block_on(async {
                 let client = get_client();
 
-                client.delete_claim_funding_outpoint(graph_idx).await.unwrap();
+                client
+                    .delete_claim_funding_reservation(covenant, graph_idx)
+                    .await
+                    .unwrap();
                 client
                     .delete_withdrawal_funding_outpoints(graph_idx)
                     .await
                     .unwrap();
 
                 let claim_assignment = client
-                    .get_or_set_claim_funding_outpoint(graph_idx, outpoint_claim)
+                    .get_or_set_claim_funding_reservation(covenant, graph_idx, claim.clone())
                     .await
                     .unwrap();
                 let withdrawal_assignment = client
@@ -1665,7 +1774,7 @@ mod tests {
                     .await
                     .unwrap();
 
-                prop_assert_eq!(FundingAssignment::Created(outpoint_claim), claim_assignment);
+                prop_assert_eq!(FundingAssignment::Created(claim.clone()), claim_assignment);
                 prop_assert_eq!(
                     FundingAssignment::Created(outpoints_wf.clone()),
                     withdrawal_assignment
@@ -1673,7 +1782,7 @@ mod tests {
 
                 let all = client.get_all_funds().await.unwrap();
 
-                prop_assert!(all.contains(&outpoint_claim), "get_all_funds missing claim outpoint: {outpoint_claim}");
+                prop_assert!(all.contains(&claim.outpoint), "get_all_funds missing claim outpoint: {}", claim.outpoint);
                 for op in outpoints_wf {
                     prop_assert!(all.contains(&op), "get_all_funds missing withdrawal outpoint: {op}");
                 }
@@ -1864,34 +1973,38 @@ mod tests {
             })?;
         }
 
-        /// Property: deleting claim funding outpoint makes it unreadable.
+        /// Property: deleting a claim-funding reservation makes it unreadable.
         #[test]
-        fn delete_claim_funding_outpoint_roundtrip(
+        fn delete_claim_funding_reservation_roundtrip(
+            covenant in arb_covenant(),
             deposit_idx in any::<DepositIdx>(),
             operator_idx in any::<OperatorIdx>(),
-            outpoint in arb_outpoint(),
+            reservation in arb_claim_reservation(),
         ) {
             let graph_idx = GraphIdx { deposit: deposit_idx, operator: operator_idx };
 
             block_on(async {
                 let client = get_client();
 
-                client.delete_claim_funding_outpoint(graph_idx).await.unwrap();
-
-                let assignment = client
-                    .get_or_set_claim_funding_outpoint(graph_idx, outpoint)
+                client
+                    .delete_claim_funding_reservation(covenant, graph_idx)
                     .await
                     .unwrap();
 
-                prop_assert_eq!(FundingAssignment::Created(outpoint), assignment);
+                let assignment = client
+                    .get_or_set_claim_funding_reservation(covenant, graph_idx, reservation.clone())
+                    .await
+                    .unwrap();
+
+                prop_assert_eq!(FundingAssignment::Created(reservation), assignment);
 
                 client
-                    .delete_claim_funding_outpoint(graph_idx)
+                    .delete_claim_funding_reservation(covenant, graph_idx)
                     .await
                     .unwrap();
 
                 let retrieved = client
-                    .get_claim_funding_outpoint(graph_idx)
+                    .get_claim_funding_reservation(covenant, graph_idx)
                     .await
                     .unwrap();
                 prop_assert_eq!(None, retrieved);

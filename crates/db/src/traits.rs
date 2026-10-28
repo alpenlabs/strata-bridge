@@ -6,14 +6,16 @@ use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
-    covenant::StakeKey,
+    covenant::{CovenantId, StakeKey},
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
     deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
 };
 
-use crate::types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch};
+use crate::types::{
+    ClaimFundingReservation, FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch,
+};
 
 /// Standard persistence interface for a bridge node.
 pub trait BridgeDb {
@@ -120,20 +122,22 @@ pub trait BridgeDb {
 
     // ── Funds ─────────────────────────────────────────────────────────
 
-    /// Gets, if present, the reserved [`OutPoint`] used to fund the claim transaction (and
-    /// subsequently the entire graph).
-    fn get_claim_funding_outpoint(
+    /// Gets, if present, the [`ClaimFundingReservation`] that funds the claim transaction (and
+    /// subsequently the entire graph) of `graph_idx` in `covenant`.
+    fn get_claim_funding_reservation(
         &self,
+        covenant: CovenantId,
         graph_idx: GraphIdx,
-    ) -> impl Future<Output = Result<Option<OutPoint>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Option<ClaimFundingReservation>, Self::Error>> + Send;
 
-    /// Returns the existing claim-funding [`OutPoint`] for `graph_idx`, or stores and returns
-    /// `outpoint` when no assignment exists.
-    fn get_or_set_claim_funding_outpoint(
+    /// Returns the existing claim-funding reservation for `graph_idx` in `covenant`, or stores
+    /// and returns `reservation` when no assignment exists.
+    fn get_or_set_claim_funding_reservation(
         &self,
+        covenant: CovenantId,
         graph_idx: GraphIdx,
-        outpoint: OutPoint,
-    ) -> impl Future<Output = Result<FundingAssignment<OutPoint>, Self::Error>> + Send;
+        reservation: ClaimFundingReservation,
+    ) -> impl Future<Output = Result<FundingAssignment<ClaimFundingReservation>, Self::Error>> + Send;
 
     /// Gets, if present, the [`StakeFundingReservation`] persisted for the given stake.
     fn get_stake_funding_reservation(
@@ -175,9 +179,10 @@ pub trait BridgeDb {
     /// resulting reserved-wallet output.
     fn get_all_funds(&self) -> impl Future<Output = Result<Vec<OutPoint>, Self::Error>> + Send;
 
-    /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.
-    fn delete_claim_funding_outpoint(
+    /// Deletes the [`ClaimFundingReservation`] for `graph_idx` in `covenant`.
+    fn delete_claim_funding_reservation(
         &self,
+        covenant: CovenantId,
         graph_idx: GraphIdx,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
     /// Deletes the reserved [`OutPoint`]s for the given graph and purpose.

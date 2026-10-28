@@ -1,6 +1,6 @@
 //! Database types that are agnostic to the underlying database implementation.
 
-use bitcoin::{Transaction, TxOut};
+use bitcoin::{OutPoint, Transaction, TxOut};
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_primitives::{
     covenant::StakeKey,
@@ -25,6 +25,17 @@ pub struct StakeFundingReservation {
 
     /// Index of the reserved-wallet funding output in `unsigned_tx.output`.
     pub stake_output_vout: u32,
+}
+
+/// A reserved-wallet output committed to fund one graph's claim.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimFundingReservation {
+    /// The reserved-wallet output the claim spends.
+    pub outpoint: OutPoint,
+
+    /// The output at `outpoint`, so that a reused reservation can be checked against the claim
+    /// it funds.
+    pub txout: TxOut,
 }
 
 /// Result of claiming a first-writer-wins funding assignment.

@@ -56,8 +56,8 @@ pub struct Directories {
     /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     pub stakes: DirectorySubspace,
 
-    /// Subspace for storing claim-funding outpoints, keyed by `(DepositIdx, OperatorIdx)`.
-    pub claim_funds: DirectorySubspace,
+    /// Subspace for storing claim-funding reservations, keyed by covenant and graph.
+    pub claim_funding_reservations: DirectorySubspace,
 
     /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
     /// identity.
@@ -90,7 +90,8 @@ impl Directories {
         let deposits = open_subdir(&root, txn, SubSpaceId::Deposits).await?;
         let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
         let stakes = open_subdir(&root, txn, SubSpaceId::Stakes).await?;
-        let claim_funding_outpoints = open_subdir(&root, txn, SubSpaceId::ClaimFunds).await?;
+        let claim_funding_reservations =
+            open_subdir(&root, txn, SubSpaceId::ClaimFundingReservations).await?;
         let stake_funding_reservations =
             open_subdir(&root, txn, SubSpaceId::StakeFundingReservations).await?;
         let withdrawal_funding_outpoints =
@@ -104,7 +105,7 @@ impl Directories {
             deposits,
             graphs,
             stakes,
-            claim_funds: claim_funding_outpoints,
+            claim_funding_reservations,
             stake_funding_reservations,
             fulfillment_funds: withdrawal_funding_outpoints,
             safe_harbour,
@@ -147,8 +148,8 @@ pub enum SubSpaceId {
     Graphs,
     /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     Stakes,
-    /// Subspace for storing claim-funding outpoints.
-    ClaimFunds,
+    /// Subspace for storing claim-funding reservations, keyed by covenant and graph.
+    ClaimFundingReservations,
     /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
     /// identity.
     StakeFundingReservations,
@@ -167,7 +168,7 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::Deposits => "deposits",
             SubSpaceId::Graphs => "graphs",
             SubSpaceId::Stakes => "stakes",
-            SubSpaceId::ClaimFunds => "claim_funds",
+            SubSpaceId::ClaimFundingReservations => "claim_funding_reservations",
             SubSpaceId::StakeFundingReservations => "stake_funding_reservations",
             SubSpaceId::FulfillmentFunds => "fulfillment_funds",
             SubSpaceId::OperatorSet => "operator_set",
