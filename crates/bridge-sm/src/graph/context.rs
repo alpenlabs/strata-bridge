@@ -1,13 +1,18 @@
 //! Context for the Graph State Machine.
 
-use bitcoin::{OutPoint, XOnlyPublicKey, hashes::sha256};
+use bitcoin::{Amount, OutPoint, XOnlyPublicKey, hashes::sha256};
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::{ClaimContestConnector, ClaimPayoutConnector};
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
-use strata_bridge_tx_graph::game_graph::{DepositParams, KeyData, SetupParams};
+use strata_bridge_tx_graph::{
+    fee,
+    game_graph::{DepositParams, KeyData, SetupParams},
+    transactions::claim::ClaimTx,
+};
 
 use crate::graph::config::GraphSMCfg;
 
@@ -158,6 +163,37 @@ impl GraphSMCtx {
         }
     }
 
+    /// Returns the value the claim-funding output must hold to fund this graph's claim.
+    pub fn claim_funding_value(&self, cfg: &GraphSMCfg) -> Amount {
+        let protocol = &cfg.game_graph_params;
+        let n_of_n_pubkey = self
+            .operator_table()
+            .aggregated_btc_key()
+            .x_only_public_key()
+            .0;
+        let watchtower_pubkeys = self.watchtower_pubkeys();
+        let n_watchtowers =
+            u32::try_from(watchtower_pubkeys.len()).expect("operator tables hold under u32::MAX");
+
+        let claim_contest = ClaimContestConnector::new(
+            protocol.network,
+            n_of_n_pubkey,
+            watchtower_pubkeys,
+            protocol.contest_timelock,
+            fee::claim_contest_surcharge(n_watchtowers, protocol.counterproof_n_data),
+        );
+
+        let claim_payout = ClaimPayoutConnector::new(
+            protocol.network,
+            n_of_n_pubkey,
+            cfg.admin.pubkeys.clone(),
+            cfg.admin.threshold,
+            self.unstaking_image(),
+        );
+
+        ClaimTx::claim_funds_required(&claim_contest, &claim_payout)
+    }
+
     /// Returns the list of watchtower pubkeys for this graph.
     pub fn watchtower_pubkeys(&self) -> Vec<XOnlyPublicKey> {
         let owner_idx = self.operator_idx();
@@ -187,6 +223,10 @@ mod tests {
     use bitcoin_bosd::Descriptor;
     use strata_bridge_primitives::operator_table::PublicOperatorTable;
     use strata_bridge_test_utils::bridge_fixtures::{random_p2tr_desc, test_operator_table};
+    use strata_bridge_tx_graph::{
+        game_graph::{GameData, GameGraph},
+        transactions::claim::ClaimTx,
+    };
 
     use super::*;
     use crate::graph::{
@@ -326,5 +366,39 @@ mod tests {
                 .collect::<Vec<_>>(),
             "slash output i must pay the watchtower in slot i"
         );
+    }
+
+    #[test]
+    fn claim_funding_matches_the_graph_built_for_each_membership_size() {
+        let mut cfg = cfg_with(registered_descs());
+        // The slash transaction splits the stake evenly among the watchtowers.
+        cfg.game_graph_params.stake_amount = Amount::from_sat(60_000_000);
+        let mut previous = None;
+        for members in [&[0, 1][..], &[0, 1, 2], &[0, 1, 2, 3]] {
+            let ctx = graph_ctx(members, 0);
+            let n_watchtowers = ctx.watchtower_pubkeys().len();
+            let mut deposit = test_deposit_params();
+            deposit.adaptor_pubkeys.truncate(n_watchtowers);
+            deposit.fault_pubkeys.truncate(n_watchtowers);
+            let (_, connectors) = GameGraph::new(GameData {
+                protocol: cfg.game_graph_params,
+                setup: ctx.generate_setup_params(&cfg, &deposit),
+                deposit,
+            });
+
+            let value = ctx.claim_funding_value(&cfg);
+
+            assert_eq!(
+                value,
+                ClaimTx::claim_funds_required(&connectors.claim_contest, &connectors.claim_payout),
+                "claim funding for {} members must match the claim built for them",
+                members.len()
+            );
+            assert!(
+                previous.is_none_or(|previous| value > previous),
+                "each additional watchtower must raise the claim funding"
+            );
+            previous = Some(value);
+        }
     }
 }
