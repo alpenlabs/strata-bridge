@@ -13,6 +13,7 @@ use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::BridgeCounterproofHost;
+use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_proof::BridgeProofHost;
 use strata_predicate::PredicateKey;
 use tokio::time;
@@ -160,19 +161,21 @@ fn verify_asm_params(params: &Params, config: &Config, asm: &AsmParams) -> Resul
         u64::from(asm.anchor.block.height()),
     )?;
 
-    // The operator lists must match in content and order: assignments route by operator
-    // index, so a reordering is as consensus-breaking as a different key set.
+    // ASM indexes its genesis operators by list position, and assignments route by operator
+    // index, so the registrations active at genesis must match them in content and order.
+    // Registrations activating later are enacted on ASM through admin updates.
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-3621>
     // Check against membership at current covenant activation window.
-    let bridge_operators: Vec<XOnlyPublicKey> = params
+    let bridge_operators: Vec<(OperatorIdx, XOnlyPublicKey)> = params
         .keys
         .operators
-        .iter()
-        .map(|k| k.covenant_key())
+        .active_at(params.genesis_height)
+        .map(|op| (op.index(), op.covenant_key()))
         .collect();
-    let asm_operators: Vec<XOnlyPublicKey> =
-        bridge.operators.iter().map(|op| (*op).into()).collect();
-    ensure_eq("operators", bridge_operators, asm_operators)
+    let asm_operators: Vec<(OperatorIdx, XOnlyPublicKey)> = (0..)
+        .zip(bridge.operators.iter().map(|op| (*op).into()))
+        .collect();
+    ensure_eq("genesis_operators", bridge_operators, asm_operators)
 }
 
 /// The configured Mosaic circuit is pinned to the counterproof host's verifying key.
@@ -231,6 +234,7 @@ mod tests {
     use mosaic_rpc_types::{RpcByte32, RpcCircuitInfo};
     use strata_asm_params::{BridgeInitConfig, SubprotocolInstance};
     use strata_bridge_common::params::TimelockOrderingError;
+    use strata_bridge_primitives::operator_set_schedule::{OperatorSetSchedule, ScheduledOperator};
     use strata_bridge_test_utils::arbitrary_generator::ArbitraryGenerator;
     use strata_l1_txfmt::MagicBytes;
 
@@ -255,8 +259,8 @@ mod tests {
         bridge.operators = params
             .keys
             .operators
-            .iter()
-            .map(|k| k.covenant_key().into())
+            .active_at(params.genesis_height)
+            .map(|op| op.covenant_key().into())
             .collect();
         asm
     }
@@ -355,7 +359,12 @@ mod tests {
             }),
             ("genesis_height", |asm| asm.anchor.block.height += 1),
             // Same key set, different order: still a consensus split.
-            ("operators", |asm| bridge_cfg_mut(asm).operators.reverse()),
+            ("genesis_operators", |asm| {
+                bridge_cfg_mut(asm).operators.reverse()
+            }),
+            ("genesis_operators", |asm| {
+                bridge_cfg_mut(asm).operators.pop();
+            }),
         ];
 
         let params = test_params();
@@ -371,6 +380,44 @@ mod tests {
                 "expected `{label}` mismatch, got: {err}"
             );
         }
+    }
+
+    #[test]
+    fn registrations_activating_after_genesis_are_not_compared() {
+        let mut params = test_params();
+        let joining = params
+            .keys
+            .operators
+            .iter()
+            .map(ScheduledOperator::index)
+            .max()
+            .expect("the fixture schedules operators");
+        let operators = params
+            .keys
+            .operators
+            .iter()
+            .map(|op| {
+                let activation_height = if op.index() == joining {
+                    params.genesis_height + 1
+                } else {
+                    op.activation_height()
+                };
+                ScheduledOperator::new(
+                    op.index(),
+                    op.covenant_key(),
+                    op.p2p_key().clone(),
+                    op.payout_descriptor().clone(),
+                    activation_height,
+                    op.deactivation_height(),
+                )
+                .expect("rescheduling a valid operator keeps it valid")
+            })
+            .collect();
+        params.keys.operators =
+            OperatorSetSchedule::new(operators).expect("rescheduled operators form a schedule");
+
+        verify_asm_params(&params, &test_config(), &matching_asm(&params))
+            .expect("a registration activating after genesis must not be compared with ASM");
     }
 
     #[test]
