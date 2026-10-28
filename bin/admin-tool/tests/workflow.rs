@@ -18,7 +18,7 @@ use bitcoin::{
     secp256k1::{Keypair, SECP256K1},
     taproot,
     transaction::Version,
-    Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
+    Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use corepc_node::{Conf, Node};
@@ -223,9 +223,17 @@ fn inspect_sign_and_publish_with_separate_funding() {
         .sign_raw_transaction_with_wallet(&burn, None, None)
         .unwrap();
     assert!(funded.complete);
-    let burn_txid = rpc
-        .send_raw_transaction(&funded.transaction().unwrap())
-        .unwrap();
+    let funded = funded.transaction().unwrap();
+
+    // Dropping 0x82 makes Core interpret this signature as SIGHASH_DEFAULT.
+    let mut invalid = funded.clone();
+    let mut witness = invalid.input[0].witness.to_vec();
+    witness[1].truncate(64);
+    invalid.input[0].witness = Witness::from_slice(&witness);
+    let rejected = rpc.test_mempool_accept(&[&invalid]).unwrap();
+    assert!(!rejected[0].allowed);
+
+    let burn_txid = rpc.send_raw_transaction(&funded).unwrap();
 
     // Both commands reject the now-spent connector, including an unconfirmed mempool spend.
     assert_failure(run(&config, claim_txid, hash, None), "spent or unavailable");

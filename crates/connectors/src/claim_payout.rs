@@ -218,16 +218,13 @@ mod tests {
         absolute,
         sighash::{Prevouts, SighashCache},
         transaction::Version,
-        Amount, OutPoint, Psbt, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid,
+        Amount, OutPoint, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid,
     };
     use secp256k1::{rand::random, Keypair};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::{
-        test_utils::{BitcoinNode, Signer},
-        SigningInfo,
-    };
+    use crate::{test_utils::Signer, SigningInfo};
 
     struct ClaimPayoutSigner<const THRESHOLD: usize, const N_ADMINS: usize> {
         n_of_n_keypair: Keypair,
@@ -446,80 +443,6 @@ mod tests {
         changed_prevout = prevout.clone();
         changed_prevout.script_pubkey = ScriptBuf::new();
         assert_ne!(original, hash(&template, &changed_prevout));
-    }
-
-    #[test]
-    fn admin_burn_none_anyonecanpay_spend_after_funding() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let mut node = BitcoinNode::new();
-        let fee = Amount::from_sat(1_000);
-        let funding_tx = Transaction {
-            version: Version(2),
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![node.next_coinbase_txin()],
-            output: vec![
-                connector.tx_out(),
-                TxOut {
-                    value: node.coinbase_amount() - connector.value() - fee,
-                    script_pubkey: node.wallet_address().script_pubkey(),
-                },
-            ],
-        };
-        let funding_txid = node.sign_and_broadcast(&funding_tx);
-        node.mine_blocks(1);
-
-        // Admins sign before the publisher selects any funding input or output.
-        let mut tx = admin_burn_template(OutPoint {
-            txid: funding_txid,
-            vout: 0,
-        });
-        let sighash_type = TapSighashType::NonePlusAnyoneCanPay;
-        let signing_info = admin_signing_info(&connector, &tx, &[connector.tx_out()], sighash_type);
-        let admin_signatures = signer
-            .admin_keypairs
-            .iter()
-            .enumerate()
-            .take(2)
-            .map(|(pubkey_index, keypair)| AdminSignature {
-                pubkey_index,
-                signature: taproot::Signature {
-                    signature: signing_info.sign(keypair),
-                    sighash_type,
-                },
-            })
-            .collect();
-
-        tx.input.push(node.next_coinbase_txin());
-        tx.output.push(TxOut {
-            value: node.coinbase_amount() + connector.value() - fee,
-            script_pubkey: node.wallet_address().script_pubkey(),
-        });
-        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
-        psbt.inputs[0].witness_utxo = Some(connector.tx_out());
-        psbt.inputs[1].witness_utxo = Some(node.coinbase_tx_out());
-        connector.finalize_input(
-            &mut psbt.inputs[0],
-            &ClaimPayoutWitness::AdminBurn { admin_signatures },
-        );
-        let tx = psbt.extract_tx().unwrap();
-        let witness = tx.input[0].witness.to_vec();
-        assert!(witness[0].is_empty());
-        for signature in &witness[1..3] {
-            assert_eq!(signature.len(), 65);
-            assert_eq!(signature[64], 0x82);
-        }
-
-        // Omitting the sighash byte makes Bitcoin interpret the signature as SIGHASH_DEFAULT.
-        let mut invalid = tx.clone();
-        let mut invalid_witness = witness;
-        invalid_witness[1].truncate(64);
-        invalid.input[0].witness = bitcoin::Witness::from_slice(&invalid_witness);
-        let invalid = node.sign(&invalid);
-        assert!(node.client().send_raw_transaction(&invalid).is_err());
-
-        node.sign_and_broadcast(&tx);
-        node.mine_blocks(1);
     }
 
     #[test]

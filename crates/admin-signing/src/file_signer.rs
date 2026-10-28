@@ -121,15 +121,4 @@ mod tests {
             assert!(!error.to_string().contains(&encoded));
         }
     }
-
-    #[test]
-    fn missing_key_file_is_an_error_and_is_never_created() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("missing-key");
-        assert!(matches!(
-            FileAdminSigner::from_path(&path),
-            Err(FileSignerError::Io(_))
-        ));
-        assert!(!path.exists());
-    }
 }

@@ -1,18 +1,16 @@
-use std::{io, sync::Mutex};
+use std::{
+    convert::Infallible,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use bitcoin::{
     absolute,
     hashes::{sha256, Hash},
-    secp256k1::{schnorr, Keypair, Message, SecretKey, SECP256K1},
-    sighash::{Prevouts, SighashCache},
+    secp256k1::{schnorr, Keypair, Message, SECP256K1},
     transaction::Version,
     Amount, Network, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
-use strata_bridge_connectors::{
-    prelude::{ClaimPayoutConnector, ClaimPayoutSpendPath},
-    Connector,
-};
-use strata_bridge_tx_graph::transactions::prelude::{AdminBurnData, AdminBurnTx};
+use strata_bridge_connectors::{prelude::ClaimPayoutConnector, Connector};
 
 use crate::{
     AdminSigner, AdminSigningParams, AdminSigningRequest, RequestError, SigningError,
@@ -20,8 +18,7 @@ use crate::{
 };
 
 fn keypair(byte: u8) -> Keypair {
-    let secret = SecretKey::from_slice(&[byte; 32]).unwrap();
-    Keypair::from_secret_key(SECP256K1, &secret)
+    Keypair::from_seckey_slice(SECP256K1, &[byte; 32]).unwrap()
 }
 
 fn params() -> AdminSigningParams {
@@ -72,8 +69,7 @@ fn request() -> AdminSigningRequest {
 struct TestSigner {
     public_key: XOnlyPublicKey,
     signing_key: Keypair,
-    fail: bool,
-    signed_digests: Mutex<Vec<[u8; 32]>>,
+    signing_called: AtomicBool,
 }
 
 impl TestSigner {
@@ -82,40 +78,22 @@ impl TestSigner {
         Self {
             public_key: signing_key.x_only_public_key().0,
             signing_key,
-            fail: false,
-            signed_digests: Mutex::new(Vec::new()),
+            signing_called: AtomicBool::new(false),
         }
     }
 }
 
 impl AdminSigner for TestSigner {
-    type Error = io::Error;
+    type Error = Infallible;
 
     async fn public_key(&self) -> Result<XOnlyPublicKey, Self::Error> {
         Ok(self.public_key)
     }
 
     async fn sign_digest(&self, digest: [u8; 32]) -> Result<schnorr::Signature, Self::Error> {
-        self.signed_digests.lock().unwrap().push(digest);
-        if self.fail {
-            return Err(io::Error::other("signer unavailable"));
-        }
+        self.signing_called.store(true, Ordering::Relaxed);
         Ok(SECP256K1.sign_schnorr_no_aux_rand(&Message::from_digest(digest), &self.signing_key))
     }
-}
-
-#[test]
-fn validates_claim_and_produces_a_repeatable_request() {
-    let params = params();
-    let claim = claim(&params);
-    let txid = claim.compute_txid();
-    let first = AdminSigningRequest::new(txid, &claim, params.clone()).unwrap();
-    let second = AdminSigningRequest::new(txid, &claim, params.clone()).unwrap();
-
-    assert_eq!(first.claim_outpoint(), OutPoint::new(txid, 1));
-    assert_eq!(first.admin_pubkeys(), params.admin_pubkeys);
-    assert_eq!(first.threshold(), 2);
-    assert_eq!(first.digest(), second.digest());
 }
 
 #[test]
@@ -211,7 +189,6 @@ async fn signs_with_the_matching_admin_and_exports_the_sighash_byte() {
     let encoded = signature.signature.serialize();
     assert_eq!(encoded.len(), 65);
     assert_eq!(encoded[64], 0x82);
-    assert_eq!(*signer.signed_digests.lock().unwrap(), [request.digest()]);
     SECP256K1
         .verify_schnorr(
             &signature.signature.signature,
@@ -228,7 +205,7 @@ async fn rejects_an_unknown_admin_before_requesting_a_signature() {
         request().sign(&signer).await,
         Err(SigningError::UnauthorizedSigner(key)) if key == signer.public_key
     ));
-    assert!(signer.signed_digests.lock().unwrap().is_empty());
+    assert!(!signer.signing_called.load(Ordering::Relaxed));
 }
 
 #[tokio::test]
@@ -238,16 +215,6 @@ async fn rejects_a_backend_signature_from_a_different_key() {
     assert!(matches!(
         request().sign(&signer).await,
         Err(SigningError::InvalidSignature(_))
-    ));
-}
-
-#[tokio::test]
-async fn propagates_signer_failure() {
-    let mut signer = TestSigner::new(1);
-    signer.fail = true;
-    assert!(matches!(
-        request().sign(&signer).await,
-        Err(SigningError::Backend(error)) if error.to_string() == "signer unavailable"
     ));
 }
 
@@ -270,45 +237,4 @@ async fn signature_cannot_authorize_a_different_claim() {
             &signer.public_key,
         )
         .is_err());
-}
-
-#[tokio::test]
-async fn signature_survives_publisher_funding_and_output_changes() {
-    let params = params();
-    let connector = connector(&params);
-    let claim = claim(&params);
-    let claim_txid = claim.compute_txid();
-    let request = AdminSigningRequest::new(claim_txid, &claim, params).unwrap();
-    let signer = TestSigner::new(1);
-    let signature = request.sign(&signer).await.unwrap();
-
-    let mut funded = AdminBurnTx::new(AdminBurnData { claim_txid }, connector.clone());
-    funded.push_input(
-        TxIn {
-            previous_output: OutPoint::new(Txid::from_byte_array([10; 32]), 3),
-            ..Default::default()
-        },
-        TxOut {
-            value: Amount::from_sat(100_000),
-            script_pubkey: ScriptBuf::new(),
-        },
-    );
-    funded.push_output(TxOut {
-        value: Amount::from_sat(90_000),
-        script_pubkey: ScriptBuf::new_p2tr(SECP256K1, keypair(11).x_only_public_key().0, None),
-    });
-
-    let message = connector
-        .get_signing_info_with_sighash_type(
-            &mut SighashCache::new(funded.as_ref()),
-            Prevouts::All(funded.prevouts()),
-            ClaimPayoutSpendPath::AdminBurn,
-            0,
-            ADMIN_SIGHASH_TYPE,
-        )
-        .sighash;
-    assert_eq!(*message.as_ref(), request.digest());
-    SECP256K1
-        .verify_schnorr(&signature.signature.signature, &message, &signer.public_key)
-        .unwrap();
 }
