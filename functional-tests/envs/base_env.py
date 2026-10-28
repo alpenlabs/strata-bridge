@@ -26,6 +26,7 @@ from factory.fdb import generate_fdb_root_directory
 from utils.bitcoin import generate_blocks, prepare_wallet_and_chain
 from utils.mosaic import get_peer_ids
 from utils.utils import (
+    OperatorKeyInfo,
     generate_p2p_ports,
     read_operator_key,
     wait_until_bitcoind_ready,
@@ -195,7 +196,7 @@ class BaseEnv(flexitest.EnvConfig):
         else:
             params_file_path, asm_vk_path, _ = write_asm_params(
                 bitcoind_rpc,
-                self.operator_key_infos,
+                self.genesis_operator_key_infos,
                 int(self.initial_blocks),
                 self._asm_config,
                 generated_dir,
@@ -212,8 +213,13 @@ class BaseEnv(flexitest.EnvConfig):
         bitcoind_rpc,
         fdb_props,
         mosaic_rpc: str,
+        start: bool = True,
     ):
-        """Create a single bridge operator (S2 service + Bridge node + ASM RPC)."""
+        """Create a single bridge operator (S2 service + Bridge node + ASM RPC).
+
+        With `start` unset, the bridge node is created but left stopped; its S2 service and
+        the ASM RPC service are started either way.
+        """
         s2_fac = ectx.get_factory("s2")
         bo_fac = ectx.get_factory("bofac")
 
@@ -260,6 +266,7 @@ class BaseEnv(flexitest.EnvConfig):
             bridge_config_params=self._bridge_config_params,
             mosaic_rpc=mosaic_rpc,
             mosaic_peers=self.mosaic_peer_ids,
+            start=start,
         )
 
         return s2_service, bridge_operator, self._asm_rpc_service
@@ -277,6 +284,11 @@ class BaseEnv(flexitest.EnvConfig):
 
         # Generate blocks for finalization
         brpc.proxy.generatetoaddress(self.finalization_blocks, wallet_addr)
+
+    @property
+    def genesis_operator_key_infos(self) -> list[OperatorKeyInfo]:
+        """Keys of the operators in ASM's genesis bridge operator set."""
+        return self.operator_key_infos
 
     @property
     def asm_params(self) -> AsmParams:

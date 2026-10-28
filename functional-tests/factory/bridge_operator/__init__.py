@@ -91,6 +91,7 @@ class BridgeOperatorFactory(PortProbingFactory):
         bridge_config_params: BridgeConfigParams,
         mosaic_rpc: str,
         mosaic_peers: list[str],
+        start: bool = True,
     ) -> flexitest.Service:
         bridge_operator_name = get_operator_service_name(operator_idx, BRIDGE_NODE_DIR)
         rpc_port = self.next_port()
@@ -154,6 +155,9 @@ class BridgeOperatorFactory(PortProbingFactory):
         # Use the current operator's wallet addresses
         current_operator_key = operator_key_infos[operator_idx]
         props = {
+            "operator_idx": operator_idx,
+            "p2p_addr": my_p2p_addr,
+            "mosaic_peer_id": mosaic_peers[operator_idx],
             "rpc_port": rpc_port,
             "logfile": logfile_path,
             "config_path": config_toml_path,
@@ -183,6 +187,7 @@ class BridgeOperatorFactory(PortProbingFactory):
             env=env,
         )
         svc.stop_timeout = 300
-        svc.start()
+        if start:
+            svc.start()
         inject_service_create_rpc(svc, rpc_url, bridge_operator_name)
         return svc
