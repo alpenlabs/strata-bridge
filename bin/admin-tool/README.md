@@ -87,7 +87,7 @@ Neither command funds or broadcasts a transaction. Both require a live RPC conne
 With `bitcoind` available on `PATH`:
 
 ```bash
-cargo test --locked -p strata-bridge-admin-signing -p strata-bridge-admin-tool
+cargo test --locked -p strata-bridge-admin-tool
 ```
 
 The integration test runs the real CLI against a temporary Bitcoin Core regtest node, collects two independent admin signatures, adds funding separately, and mines the resulting spend.

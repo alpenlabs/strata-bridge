@@ -6,8 +6,9 @@ use anyhow::{Context, Result};
 use bitcoin::{hashes::sha256, XOnlyPublicKey};
 use bitcoincore_rpc::{Auth, Client};
 use serde::Deserialize;
-use strata_bridge_admin_signing::AdminSigningParams;
 use strata_bridge_common::params::Params;
+
+use crate::signing::SigningParams;
 
 /// Claim's internal key and the RPC connection used by this binary.
 #[derive(Deserialize)]
@@ -24,6 +25,7 @@ impl Config {
     pub(crate) fn load(path: &Path) -> Result<Self> {
         let text = fs::read_to_string(path)
             .with_context(|| format!("could not read config {}", path.display()))?;
+
         toml::from_str(&text).context("invalid admin-tool TOML config")
     }
 
@@ -32,8 +34,8 @@ impl Config {
         &self,
         params: &Params,
         unstaking_hash: sha256::Hash,
-    ) -> AdminSigningParams {
-        AdminSigningParams {
+    ) -> SigningParams {
+        SigningParams {
             network: params.network,
             n_of_n_pubkey: self.n_of_n_pubkey,
             admin_pubkeys: params.keys.admin.pubkeys.clone(),
@@ -59,6 +61,7 @@ impl RpcConfig {
     /// Connects using username/password authentication.
     pub(crate) fn client(&self) -> Result<Client> {
         let auth = Auth::UserPass(self.username.clone(), self.password.clone());
+
         Client::new(&self.url, auth).context("could not initialize Bitcoin Core RPC client")
     }
 }

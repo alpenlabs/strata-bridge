@@ -11758,20 +11758,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-admin-signing"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "hex",
- "strata-bridge-connectors",
- "strata-bridge-tx-graph",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "zeroize",
-]
-
-[[package]]
 name = "strata-bridge-admin-tool"
 version = "0.1.0"
 dependencies = [
@@ -11780,15 +11766,16 @@ dependencies = [
  "bitcoincore-rpc",
  "clap",
  "corepc-node",
+ "hex",
  "serde",
  "serde_json",
- "strata-bridge-admin-signing",
  "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-tx-graph",
  "tempfile",
  "tokio",
  "toml 0.8.23",
+ "zeroize",
 ]
 
 [[package]]
