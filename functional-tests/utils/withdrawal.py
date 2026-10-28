@@ -10,9 +10,10 @@ from constants import (
     COUNTERPROOF_ACK_NACK_VOUT,
     DT_DEPOSIT_VOUT,
 )
+from rpc.asm_types import AssignmentEntry
 from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
 from utils.deposit import wait_until_utxo_spent
-from utils.utils import find_utxo_spender_txid, wait_until
+from utils.utils import find_utxo_spender_txid, wait_for_tx_confirmation, wait_until
 
 
 def tx_inputs(bitcoin_rpc, txid: str) -> list[tuple[str, int]]:
@@ -284,3 +285,86 @@ def assert_contest_shape(bitcoin_rpc, claim_txid: str, num_watchtowers: int) -> 
 
     logging.info(f"Contest {contest_txid} spends claim:{CLAIM_CONTEST_VOUT} with {n_out} outputs")
     return contest_txid
+
+
+def fulfill_withdrawal(
+    dev_cli,
+    asm_rpc,
+    bitcoin_rpc,
+    assignee_rpc,
+    deposit_idx: int,
+    assignee: int,
+    genesis_l1_height: int,
+) -> None:
+    """Withdraw `deposit_idx` through `assignee` and wait until it fulfills the withdrawal.
+
+    ASM assigns the oldest unassigned deposit, preferring `assignee` among its eligible operators;
+    fails unless that is `deposit_idx` assigned to `assignee`.
+    """
+    tip_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
+    checkpoint_txid = dev_cli.send_mock_checkpoint_from_tip(
+        asm_rpc,
+        tip_hash,
+        num_ol_slots=1,
+        assignee_node_idx=assignee,
+        genesis_l1_height=genesis_l1_height,
+    )
+    checkpoint_block_hash = wait_for_tx_confirmation(bitcoin_rpc, checkpoint_txid)
+
+    result: dict[str, AssignmentEntry | None] = {"assignment": None}
+
+    def assigned():
+        assignments = [
+            AssignmentEntry.from_dict(raw)
+            for raw in asm_rpc.strata_asm_getAssignments(checkpoint_block_hash)
+        ]
+        result["assignment"] = next(
+            (entry for entry in assignments if entry.deposit_entry.deposit_idx == deposit_idx),
+            None,
+        )
+        return result["assignment"] is not None
+
+    wait_until(
+        assigned,
+        timeout=300,
+        error_msg=f"ASM did not assign the withdrawal of deposit {deposit_idx}",
+    )
+    assignment = result["assignment"]
+    assert assignment is not None
+    assert assignment.current_assignee == assignee, (
+        f"ASM must assign deposit {deposit_idx} to operator {assignee}, assigned {assignment}"
+    )
+
+    wait_until(
+        lambda: (
+            (assignee_rpc.stratabridge_withdrawalStatus(deposit_idx) or {}).get("status")
+            == "complete"
+        ),
+        timeout=600,
+        error_msg=f"operator {assignee} did not fulfill the withdrawal of deposit {deposit_idx}",
+    )
+
+
+def wait_until_paid_out(
+    bitcoin_rpc,
+    deposit_txid: str,
+    deposit_idx: int,
+    assignee: int,
+    assignee_payout_address: str,
+    timeout=900,
+) -> str:
+    """Wait until deposit `deposit_idx` pays `assignee` out and return the payout's txid.
+
+    Only the deposit's covenant can spend its output, so a cooperative payout shows every member
+    of that covenant co-signed.
+    """
+    wait_until_utxo_spent(bitcoin_rpc, deposit_txid, DT_DEPOSIT_VOUT, timeout)
+    payout_txid = find_utxo_spender_txid(bitcoin_rpc, deposit_txid, DT_DEPOSIT_VOUT)
+    payout = bitcoin_rpc.proxy.getrawtransaction(payout_txid, True)
+    paid_addresses = [output["scriptPubKey"].get("address") for output in payout["vout"]]
+    assert assignee_payout_address in paid_addresses, (
+        f"payout {payout_txid} of deposit {deposit_idx} must pay operator {assignee} at "
+        f"{assignee_payout_address}, paid {paid_addresses}"
+    )
+    logging.info(f"Deposit {deposit_idx} paid out to operator {assignee} by {payout_txid}")
+    return payout_txid

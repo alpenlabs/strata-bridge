@@ -1,27 +1,36 @@
 import logging
 
 from constants import STAKE_VOUT
-from rpc.types import RpcOperatorStakeInfo, RpcStakeStateLabel
+from rpc.types import RpcCovenantId, RpcOperatorStakeInfo, RpcStakeStateLabel
 from utils.utils import wait_for_tx_confirmation, wait_until
 
 
-def get_stake_status(bridge_rpc) -> list[RpcOperatorStakeInfo]:
-    """Return the bridge node's view of every operator's stake status."""
-    return [
+def get_stake_status(
+    bridge_rpc, covenant: RpcCovenantId | None = None
+) -> list[RpcOperatorStakeInfo]:
+    """Return the bridge node's view of every stake's status, or only `covenant`'s stakes."""
+    stakes = [
         RpcOperatorStakeInfo.from_json(entry) for entry in bridge_rpc.stratabridge_stakeStatus()
     ]
+    if covenant is None:
+        return stakes
+    return [stake for stake in stakes if stake.covenant == covenant]
 
 
-def get_operator_stake_status(bridge_rpc, operator_idx: int) -> RpcOperatorStakeInfo:
-    """Return the given operator's current stake status from `stakeStatus`.
+def get_operator_stake_status(
+    bridge_rpc, operator_idx: int, covenant: RpcCovenantId | None = None
+) -> RpcOperatorStakeInfo:
+    """Return the given operator's stake status from `stakeStatus`.
 
-    Fails if the bridge node is not tracking the requested operator.
+    Without `covenant`, this is the first of the operator's stakes the node reports. Fails if
+    the bridge node is not tracking a matching stake.
     """
-    for stake in get_stake_status(bridge_rpc):
+    for stake in get_stake_status(bridge_rpc, covenant):
         if stake.operator_idx == operator_idx:
             return stake
 
-    raise AssertionError(f"operator {operator_idx} is missing from stakeStatus")
+    scope = "" if covenant is None else f" for covenant {covenant}"
+    raise AssertionError(f"operator {operator_idx} is missing from stakeStatus{scope}")
 
 
 def confirmed_stake_txid_for_operator(bridge_rpc, bitcoin_rpc, operator_idx: int) -> str:
@@ -51,6 +60,7 @@ def wait_until_all_operators_staked(
     bitcoin_rpc,
     expected_operator_count: int,
     timeout: int = 300,
+    covenant: RpcCovenantId | None = None,
 ) -> list[RpcOperatorStakeInfo]:
     """Wait until the bridge node reports that every operator's stake is confirmed.
 
@@ -69,6 +79,7 @@ def wait_until_all_operators_staked(
             this many stakes, protecting against premature ``True`` during
             startup before every SSM has been bootstrapped.
         timeout: Maximum wait time in seconds.
+        covenant: When given, only this covenant's stakes are counted and checked.
     """
     confirmed_states = {
         RpcStakeStateLabel.CONFIRMED,
@@ -78,7 +89,7 @@ def wait_until_all_operators_staked(
     result: dict[str, list[RpcOperatorStakeInfo] | None] = {"stakes": None}
 
     def check():
-        stakes = get_stake_status(bridge_rpc)
+        stakes = get_stake_status(bridge_rpc, covenant)
         logging.info(f"Current stake status: {stakes}")
         if len(stakes) < expected_operator_count:
             return False
