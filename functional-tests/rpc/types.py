@@ -211,10 +211,49 @@ class RpcStakeStateLabel(Enum):
     SLASHED = "slashed"
 
 
+@dataclass(frozen=True)
+class RpcCovenantId:
+    """A covenant's identity: its aggregate key and the height of its last admin change."""
+
+    aggregate_pubkey: str
+    activation_height: int
+
+    @classmethod
+    def from_json(cls, data: dict) -> "RpcCovenantId":
+        return cls(
+            aggregate_pubkey=data["aggregate_pubkey"],
+            activation_height=int(data["activation_height"]),
+        )
+
+
+@dataclass
+class RpcCurrentCovenant:
+    """The current covenant and its deposit admission, returned by `currentCovenant`."""
+
+    processed_height: int
+    covenant: RpcCovenantId
+    members: list[int]
+    admission: dict
+
+    @property
+    def admission_status(self) -> str:
+        return self.admission["status"]
+
+    @classmethod
+    def from_json(cls, data: dict) -> "RpcCurrentCovenant":
+        return cls(
+            processed_height=int(data["processed_height"]),
+            covenant=RpcCovenantId.from_json(data["covenant"]),
+            members=[int(member) for member in data["members"]],
+            admission=data["admission"],
+        )
+
+
 @dataclass
 class RpcOperatorStakeInfo:
     """Per-operator stake status returned by `stratabridge_stakeStatus`."""
 
+    covenant: RpcCovenantId
     operator_idx: int
     state: RpcStakeStateLabel
     stake_txid: str | None = None
@@ -224,6 +263,7 @@ class RpcOperatorStakeInfo:
     @classmethod
     def from_json(cls, data: dict) -> "RpcOperatorStakeInfo":
         return cls(
+            covenant=RpcCovenantId.from_json(data["covenant"]),
             operator_idx=int(data["operator_idx"]),
             state=RpcStakeStateLabel(data["state"]),
             stake_txid=data.get("stake_txid"),

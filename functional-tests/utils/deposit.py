@@ -3,7 +3,9 @@ import logging
 from bitcoinlib.services.bitcoind import BitcoindClient
 
 from constants import DT_DEPOSIT_VOUT
-from rpc.types import RpcDepositInfo, RpcDepositStatus
+from rpc.asm_types import DepositEntry
+from rpc.client import RpcError
+from rpc.types import RpcDepositInfo, RpcDepositStatus, RpcDepositStatusComplete
 from utils.utils import wait_until
 
 
@@ -178,3 +180,54 @@ def wait_until_drts_reach_status_threshold(
     )
     assert result["deposit_ids"] is not None
     return result["deposit_ids"]
+
+
+def make_deposit(dev_cli, bridge_node_url: str, member_rpcs: list, expected_idx: int) -> str:
+    """Make a deposit to the current covenant of the node at `bridge_node_url`.
+
+    Waits until every member assigns it `expected_idx` and completes it, and returns the deposit
+    txid.
+    """
+    drt_txid = dev_cli.send_deposit_request(bridge_node_url)
+    logging.info(f"Broadcast DRT {drt_txid}, expecting deposit index {expected_idx}")
+    for member, rpc in enumerate(member_rpcs):
+        deposit_idx = wait_until_drt_recognized(rpc, drt_txid)
+        assert deposit_idx == expected_idx, (
+            f"member rpc {member} assigned index {deposit_idx} to DRT {drt_txid}, "
+            f"expected {expected_idx}"
+        )
+
+    for rpc in member_rpcs:
+        wait_until_deposit_status(rpc, expected_idx, RpcDepositStatusComplete)
+    return member_rpcs[0].stratabridge_depositInfo(expected_idx)["status"]["deposit_txid"]
+
+
+def wait_until_asm_deposit(
+    asm_rpc, bitcoin_rpc: BitcoindClient, deposit_idx: int, timeout=300
+) -> DepositEntry:
+    """Wait until ASM records `deposit_idx` among its unassigned deposits at the chain tip."""
+    result: dict[str, DepositEntry | None] = {"entry": None}
+
+    def check():
+        tip_hash = bitcoin_rpc.proxy.getblockhash(bitcoin_rpc.proxy.getblockcount())
+        try:
+            raw_entries = asm_rpc.strata_asm_getDeposits(tip_hash)
+        except RpcError as err:
+            logging.info(f"ASM has no state for tip {tip_hash} yet: {err}")
+            return False
+
+        entries = [DepositEntry.from_dict(raw) for raw in raw_entries]
+        result["entry"] = next(
+            (entry for entry in entries if entry.deposit_idx == deposit_idx), None
+        )
+        return result["entry"] is not None
+
+    wait_until(
+        check,
+        timeout=timeout,
+        step=1,
+        error_msg=f"Timeout after {timeout}s waiting for ASM to record deposit {deposit_idx}",
+    )
+    entry = result["entry"]
+    assert entry is not None
+    return entry
