@@ -144,8 +144,28 @@ async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
         .0)
 }
 
+/// Returns the outpoint of `reservation` if it holds exactly `value`, so that a reservation of
+/// another amount is never spent for this graph's claim.
+fn check_claim_funding(
+    reservation: &ClaimFundingReservation,
+    value: Amount,
+) -> Result<OutPoint, ExecutorError> {
+    if reservation.txout.value == value {
+        Ok(reservation.outpoint)
+    } else {
+        Err(ExecutorError::ClaimFundingMismatch {
+            outpoint: reservation.outpoint,
+            found: reservation.txout.value,
+            expected: value,
+        })
+    }
+}
+
 /// Returns the claim-funding outpoint for the graph of `ctx`, fetching it from the wallet
 /// (refilling if necessary) and caching to disk when not already saved.
+///
+/// The output is sized for the graph's own membership, and a cached reservation is reused only
+/// if it holds exactly that amount.
 async fn ensure_claim_funding_outpoint(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -153,6 +173,7 @@ async fn ensure_claim_funding_outpoint(
 ) -> Result<OutPoint, ExecutorError> {
     let covenant = ctx.covenant;
     let graph_idx = ctx.graph_idx();
+    let value = ctx.claim_funding_value(&cfg.graph_sm_cfg);
     if let Ok(Some(reservation)) = output_handles
         .db
         .get_claim_funding_reservation(covenant, graph_idx)
@@ -163,20 +184,16 @@ async fn ensure_claim_funding_outpoint(
             funding_outpoint = ?reservation.outpoint,
             "reusing cached funding outpoint"
         );
-        return Ok(reservation.outpoint);
+        return check_claim_funding(&reservation, value);
     }
 
-    info!(?graph_idx, "fetching funding outpoint from wallet");
+    info!(?graph_idx, %value, "fetching funding outpoint from wallet");
     let reservation = {
         let mut wallet = output_handles.wallet.write().await;
         let script_pubkey = wallet.reserved_script_pubkey();
 
-        let outpoint = match reserve_synced_claim_funding(
-            &mut *wallet,
-            cfg.claim_funding_utxo_value,
-            cfg.bury_depth,
-        )
-        .await?
+        let outpoint = match reserve_synced_claim_funding(&mut *wallet, value, cfg.bury_depth)
+            .await?
         {
             Some(outpoint) => outpoint,
             None => {
@@ -187,7 +204,7 @@ async fn ensure_claim_funding_outpoint(
                 let funded = wallet
                     .create_reserved_utxos(
                         fee::FEE_RATE,
-                        cfg.claim_funding_utxo_value,
+                        value,
                         cfg.funding_uxto_pool_size,
                         GeneralUtxoPolicy::BuriedOnly {
                             bury_depth: cfg.bury_depth,
@@ -239,7 +256,7 @@ async fn ensure_claim_funding_outpoint(
                 // refill just registered one.
                 let settled = wallet.settled(cfg.bury_depth);
                 match wallet
-                    .reserve_utxo_with_value(cfg.claim_funding_utxo_value, predicate::not(settled))
+                    .reserve_utxo_with_value(value, predicate::not(settled))
                     .0
                 {
                     Some(outpoint) => outpoint,
@@ -255,7 +272,7 @@ async fn ensure_claim_funding_outpoint(
         ClaimFundingReservation {
             outpoint,
             txout: TxOut {
-                value: cfg.claim_funding_utxo_value,
+                value,
                 script_pubkey,
             },
         }
@@ -282,7 +299,7 @@ async fn ensure_claim_funding_outpoint(
                 let mut wallet = output_handles.wallet.write().await;
                 wallet.release(&[funding_outpoint]);
             }
-            reservation.outpoint
+            check_claim_funding(&reservation, value)?
         }
         Err(err) => {
             let mut wallet = output_handles.wallet.write().await;
@@ -778,10 +795,11 @@ mod tests {
         FundedPsbt, GeneralWallet, OperatorWallet, OperatorWalletConfig, UtxoInfo, sync::Backend,
         test_utils::MemoryStore,
     };
+    use strata_bridge_db::types::ClaimFundingReservation;
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
     use super::{
-        ExecutorError, reconcile_claim_funding_leases_after_driver_failure,
+        ExecutorError, check_claim_funding, reconcile_claim_funding_leases_after_driver_failure,
         reserve_synced_claim_funding, watchtower_idxs,
     };
 
@@ -914,6 +932,85 @@ mod tests {
         assert!(
             wallet.leased_outpoints().is_empty(),
             "stale funding must not be reserved"
+        );
+    }
+
+    #[tokio::test]
+    async fn claim_funding_selects_only_the_graph_denomination() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let mut wallet = reconciliation_wallet(&bitcoind, vec![], false, BTreeSet::new()).await;
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let address =
+            bitcoin::Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+                .expect("reserved address");
+        let smaller = Amount::from_sat(100_000);
+        let larger = Amount::from_sat(150_000);
+        for value in [smaller, larger] {
+            bitcoind
+                .client
+                .send_to_address(&address, value)
+                .expect("fund reserved wallet");
+        }
+        bitcoind
+            .client
+            .generate_to_address(3, &miner)
+            .expect("bury funding");
+
+        let first = reserve_synced_claim_funding(&mut wallet, smaller, 2)
+            .await
+            .expect("wallet syncs")
+            .expect("a settled output of the smaller amount exists");
+        let second = reserve_synced_claim_funding(&mut wallet, larger, 2)
+            .await
+            .expect("wallet syncs")
+            .expect("a settled output of the larger amount exists");
+        assert_eq!(
+            [first, second].map(|outpoint| wallet.reserved_utxo(outpoint).map(|u| u.amount)),
+            [Some(smaller), Some(larger)],
+            "each graph must be funded at its own amount"
+        );
+
+        let exhausted = reserve_synced_claim_funding(&mut wallet, larger, 2)
+            .await
+            .expect("wallet syncs");
+        assert_eq!(
+            exhausted, None,
+            "no other output of the larger amount remains"
+        );
+        assert!(
+            wallet.leased_outpoints().contains(&first)
+                && wallet.leased_outpoints().contains(&second),
+            "an exhausted pool must leave reservations of every amount in place"
+        );
+    }
+
+    #[test]
+    fn reused_claim_funding_must_hold_the_graph_amount() {
+        let value = Amount::from_sat(100_000);
+        let outpoint = OutPoint::new(Txid::from_byte_array([7; 32]), 0);
+        let reservation = |value| ClaimFundingReservation {
+            outpoint,
+            txout: TxOut {
+                value,
+                script_pubkey: ScriptBuf::new(),
+            },
+        };
+
+        assert_eq!(
+            check_claim_funding(&reservation(value), value).ok(),
+            Some(outpoint),
+            "a reservation holding the graph's amount must be reused"
+        );
+        assert!(
+            matches!(
+                check_claim_funding(&reservation(Amount::from_sat(90_000)), value),
+                Err(ExecutorError::ClaimFundingMismatch { .. })
+            ),
+            "a reservation of another amount must be rejected even though this node holds it"
         );
     }
 
