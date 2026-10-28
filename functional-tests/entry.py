@@ -6,7 +6,7 @@ import sys
 
 import flexitest
 
-from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
+from constants import TEST_DIR
 from envs import AsmEnv, BitcoinEnvConfig, BridgeNetworkEnv, ExternalBtcBridgeNetworkEnv
 from envs.testenv import StrataTestRuntime
 from factory.asm_rpc import AsmRpcFactory
@@ -17,6 +17,7 @@ from factory.mosaic import MosaicFactory
 from factory.s2 import S2Factory
 from utils.logging import setup_root_logger
 from utils.service_diagnostics import install_service_exit_logging
+from utils.utils import read_all_operator_keys
 
 # Groups in here don't run when you just call `./run_test.sh` with no
 # arguments. They're the slow / expensive ones that we never want sweeping up the default
@@ -86,8 +87,8 @@ def main(argv):
         os.path.join(root_dir, "..", "docker", "gen_s2_tls.sh")
     )
 
-    # generate mtls cred
-    for operator_idx in range(BRIDGE_NETWORK_SIZE):
+    # generate mtls cred for every fixture operator
+    for operator_idx in range(len(read_all_operator_keys())):
         generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, operator_idx)
 
     # Probe and filter tests.

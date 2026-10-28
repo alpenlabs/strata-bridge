@@ -5,6 +5,7 @@ from .btc_config import BitcoinEnvConfig
 from .deferred_start_bridge_network_env import DeferredStartBridgeNetworkEnv
 from .external_btc_bridge_network_env import ExternalBtcBridgeNetworkEnv
 from .live_env import StrataLiveEnv
+from .operator_set_change_env import OperatorSetChangeEnv
 
 __all__ = [
     "AsmEnv",
@@ -13,5 +14,6 @@ __all__ = [
     "BitcoinEnvConfig",
     "DeferredStartBridgeNetworkEnv",
     "ExternalBtcBridgeNetworkEnv",
+    "OperatorSetChangeEnv",
     "StrataLiveEnv",
 ]
