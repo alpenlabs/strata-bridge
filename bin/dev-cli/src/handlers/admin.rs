@@ -1,24 +1,30 @@
 //! Publishes ASM admin (governance) transactions.
 //!
-//! Currently only Defcon1, the Security Council's immediate safe-harbour activation used to
-//! trigger the hard bridge upgrade in functional tests.
+//! - Defcon1: the Security Council's immediate safe-harbour activation used to trigger the hard
+//!   bridge upgrade in functional tests.
+//! - Operator set update: the Strata Administrator's addition and removal of bridge operators,
+//!   enacted by ASM after the configured operator-update confirmation depth.
 
 use anyhow::{Context, Result};
 use bitcoin::{bip32::Xpriv, Network, Txid};
 use bitcoincore_rpc::{Auth, Client};
-use secp256k1::{rand::rngs::OsRng, Keypair, SecretKey, SECP256K1};
+use secp256k1::{rand::rngs::OsRng, Keypair, SecretKey, XOnlyPublicKey, SECP256K1};
 use strata_asm_proto_admin_txs::{
-    actions::{updates::Defcon1Update, MultisigAction, UpdateAction},
+    actions::{
+        updates::{Defcon1Update, OperatorSetUpdate},
+        MultisigAction, UpdateAction,
+    },
     parser::SignedPayload,
     test_utils::create_signature_set,
 };
 use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys};
 use strata_bridge_primitives::constants::BRIDGE_TAG;
+use strata_crypto::EvenPublicKey;
 use strata_l1_txfmt::MagicBytes;
 use tracing::info;
 
 use crate::{
-    cli::{BtcArgs, Defcon1Args},
+    cli::{BtcArgs, Defcon1Args, OperatorSetUpdateArgs},
     handlers::checkpoint::envelope::build_and_broadcast_envelope_tx,
 };
 
@@ -38,6 +44,34 @@ pub(crate) fn handle_defcon1(args: Defcon1Args) -> Result<()> {
     println!("txid = {txid}");
 
     Ok(())
+}
+
+/// Handles the operator-set-update command: builds, signs, and broadcasts the admin envelope tx.
+///
+/// ASM assigns each added key the next unused operator index and never reuses indices, so the
+/// matching bridge params registrations must use those indices.
+pub(crate) fn handle_operator_set_update(args: OperatorSetUpdateArgs) -> Result<()> {
+    let action = operator_set_update_action(&args.add, args.remove);
+    let txid = sign_and_broadcast_admin_action(
+        &args.btc_args,
+        &args.seed,
+        action,
+        args.seqno,
+        args.network,
+    )
+    .context("failed to broadcast operator set update envelope tx")?;
+
+    info!(event = "operator set update admin tx broadcast", %txid);
+    println!("txid = {txid}");
+
+    Ok(())
+}
+
+/// Builds the admin action adding the operators with covenant keys `add` and removing the
+/// operators at ASM indices `remove`.
+fn operator_set_update_action(add: &[XOnlyPublicKey], remove: Vec<u32>) -> MultisigAction {
+    let add = add.iter().copied().map(EvenPublicKey::from).collect();
+    MultisigAction::Update(OperatorSetUpdate::new(add, remove).into())
 }
 
 /// Signs `action` as the admin signer derived from `seed` and broadcasts it in an SPS-50

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use bitcoin::{address::NetworkUnchecked, Address, BlockHash, Network};
 use clap::{Parser, Subcommand};
+use secp256k1::XOnlyPublicKey;
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +26,9 @@ pub(crate) enum Commands {
 
     /// Publish a Defcon1 admin transaction activating the ASM safe harbour.
     Defcon1(Defcon1Args),
+
+    /// Publish an admin transaction updating the ASM bridge operator set.
+    OperatorSetUpdate(OperatorSetUpdateArgs),
 
     /// Contest a claim transaction.
     Contest(ContestArgs),
@@ -152,6 +156,42 @@ pub(crate) struct Defcon1Args {
         long,
         default_value = "1",
         help = "admin action sequence number (must exceed the council's last seqno)"
+    )]
+    pub(crate) seqno: u64,
+
+    #[arg(long, default_value_t = Network::Regtest, help = "bitcoin network")]
+    pub(crate) network: Network,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Publish an admin tx adding and removing ASM bridge operators",
+    version
+)]
+pub(crate) struct OperatorSetUpdateArgs {
+    #[arg(
+        long,
+        help = "hex-encoded seed of the strata administrator signer (operator 0 in test setups)"
+    )]
+    pub(crate) seed: String,
+
+    #[arg(
+        long,
+        required_unless_present = "remove",
+        help = "x-only covenant key of an operator to add; repeatable"
+    )]
+    pub(crate) add: Vec<XOnlyPublicKey>,
+
+    #[arg(long, help = "ASM index of an operator to remove; repeatable")]
+    pub(crate) remove: Vec<u32>,
+
+    #[arg(
+        long,
+        default_value = "1",
+        help = "admin action sequence number (must exceed the administrator's last seqno)"
     )]
     pub(crate) seqno: u64,
 

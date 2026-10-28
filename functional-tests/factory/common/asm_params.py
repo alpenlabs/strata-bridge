@@ -206,6 +206,7 @@ def build_asm_params(
     operator_fee: int = 100_000_000,
     recovery_delay: int = 1_008,
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS,
+    operator_update_confirmation_depth: int = 144,
 ) -> AsmParams:
     compressed_keys = [f"02{key}" for key in musig2_keys]
     anchor = build_l1_anchor(genesis_height, get_block_header)
@@ -220,7 +221,7 @@ def build_asm_params(
             strata_seq_manager_multisig_update=144,
             alpen_admin_multisig_update=144,
             strata_security_council_multisig_update=144,
-            operator_update=144,
+            operator_update=operator_update_confirmation_depth,
             sequencer_update=144,
             ol_stf_vk_update=144,
             asm_stf_vk_update=144,
