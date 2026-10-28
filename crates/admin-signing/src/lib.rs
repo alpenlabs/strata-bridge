@@ -4,9 +4,11 @@
 //! [`AdminSigner`]. It does not select funding, access a wallet, or broadcast transactions.
 //! The caller supplies the claim transaction and is responsible for checking its chain status.
 
+mod file_signer;
 mod request;
 mod signer;
 
+pub use file_signer::{FileAdminSigner, FileSignerError};
 pub use request::{AdminSigningParams, AdminSigningRequest, RequestError, ADMIN_SIGHASH_TYPE};
 pub use signer::{AdminSigner, SigningError};
 

@@ -27,6 +27,7 @@ members = [
   "crates/tx-graph",
 
   # binaries listed separately
+  "bin/admin-tool",
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/secret-service",

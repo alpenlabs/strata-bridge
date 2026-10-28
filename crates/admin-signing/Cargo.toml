@@ -9,9 +9,12 @@ workspace = true
 
 [dependencies]
 bitcoin.workspace = true
+hex.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-tx-graph.workspace = true
 thiserror.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt"] }

@@ -1,0 +1,32 @@
+[package]
+name = "strata-bridge-admin-tool"
+version = "0.1.0"
+edition = "2021"
+description = "Inspect and sign claim-specific admin payout interventions"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "admin-tool"
+path = "src/main.rs"
+# The integration test exercises the real executable; there is no separate unit-test harness.
+test = false
+bench = false
+
+[dependencies]
+anyhow.workspace = true
+bitcoin.workspace = true
+bitcoincore-rpc.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+strata-bridge-admin-signing.workspace = true
+tokio.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+corepc-node.workspace = true
+strata-bridge-connectors.workspace = true
+strata-bridge-tx-graph.workspace = true
+tempfile.workspace = true
