@@ -156,6 +156,48 @@ class DevCli:
         txid = res.splitlines()[-1].split("=")[-1].strip()
         return txid
 
+    def send_operator_set_update(
+        self,
+        seqno: int,
+        add_keys: list[str] | None = None,
+        remove_indices: list[int] | None = None,
+    ) -> str:
+        """Publish an admin tx adding `add_keys` and removing the operators at `remove_indices`.
+
+        The test ASM params configure the strata administrator as the operators' musig2 keys
+        with threshold 1, so operator 0's seed signs as the administrator (signer index 0).
+        ASM enacts the update once the tx is buried by its operator-update confirmation depth.
+        """
+        add_keys = add_keys or []
+        remove_indices = remove_indices or []
+        assert add_keys or remove_indices, "an operator set update needs a change"
+
+        rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
+        wallet = self.bitcoind_props.get("walletname", "testwallet")
+
+        args = [
+            "operator-set-update",
+            "--btc-url",
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
+            "--btc-user",
+            self.bitcoind_props.get("rpc_user", "user"),
+            "--btc-pass",
+            self.bitcoind_props.get("rpc_password", "password"),
+            "--seed",
+            self.operator_key_infos[0].SEED,
+            "--seqno",
+            str(seqno),
+        ]
+        for key in add_keys:
+            args += ["--add", key]
+        for index in remove_indices:
+            args += ["--remove", str(index)]
+
+        res = self._run_command(args)
+        # HACK: (@Rajil1213) parse raw stdout to extract txid
+        txid = res.splitlines()[-1].split("=")[-1].strip()
+        return txid
+
     def send_mock_checkpoint(
         self,
         checkpoint_tip: CheckpointTip | None,

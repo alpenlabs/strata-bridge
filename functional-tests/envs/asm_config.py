@@ -17,3 +17,5 @@ class AsmEnvConfig:
     # descriptor; the address is held deactivated at init and toggled by the security
     # council via Defcon signals.
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS
+    # Blocks after inclusion at which ASM enacts an admin operator set update.
+    operator_update_confirmation_depth: int = 144

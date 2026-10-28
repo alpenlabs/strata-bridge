@@ -25,6 +25,7 @@ async fn main() -> Result<(), Error> {
             checkpoint::handle_create_and_publish_mock_checkpoint(args).await
         }
         cli::Commands::Defcon1(args) => admin::handle_defcon1(args),
+        cli::Commands::OperatorSetUpdate(args) => admin::handle_operator_set_update(args),
         cli::Commands::Contest(args) => contest::handle_contest(args).await,
         cli::Commands::Claim(args) => claim::handle_claim(args).await,
         cli::Commands::BridgeProof(args) => bridge_proof::handle_bridge_proof(args).await,
