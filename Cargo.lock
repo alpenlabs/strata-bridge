@@ -12010,6 +12010,7 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
+ "strata-predicate",
  "terrors",
  "tokio",
 ]

@@ -10,7 +10,9 @@ use strata_bridge_primitives::{
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_sm::{
-    deposit::machine::DepositSM, graph::machine::GraphSM, stake::machine::StakeSM,
+    deposit::{config::DepositSMCfg, machine::DepositSM},
+    graph::{config::GraphSMCfg, machine::GraphSM},
+    stake::machine::StakeSM,
 };
 
 use crate::types::{FundingAssignment, PersistedState, StakeFundingReservation, WriteBatch};
@@ -117,6 +119,34 @@ pub trait BridgeDb {
         &self,
         stake_key: StakeKey,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    // ── SM Params ────────────────────────────────────────────────────
+    //
+    // A missing row means the state machine predates per-SM params. There is deliberately no
+    // setter: params reach the database only through `WriteBatch::add_*_with_params`, which
+    // carries them in the same `persist_batch` transaction as their state.
+
+    /// Gets, if present, the params the deposit at [`DepositIdx`] was created under.
+    fn get_deposit_params(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> impl Future<Output = Result<Option<DepositSMCfg>, Self::Error>> + Send;
+
+    /// Returns the params of every deposit that has them, as `(DepositIdx, DepositSMCfg)` pairs.
+    fn get_all_deposit_params(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(DepositIdx, DepositSMCfg)>, Self::Error>> + Send;
+
+    /// Gets, if present, the params the graph at [`GraphIdx`] was created under.
+    fn get_graph_params(
+        &self,
+        graph_idx: GraphIdx,
+    ) -> impl Future<Output = Result<Option<GraphSMCfg>, Self::Error>> + Send;
+
+    /// Returns the params of every graph that has them, as `(GraphIdx, GraphSMCfg)` pairs.
+    fn get_all_graph_params(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(GraphIdx, GraphSMCfg)>, Self::Error>> + Send;
 
     // ── Funds ─────────────────────────────────────────────────────────
 

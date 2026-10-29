@@ -1,13 +1,13 @@
-//! Configuration shared across all deposit state machines.
+//! Configuration of deposit state machines.
 
 use bitcoin::{Amount, FeeRate, Network};
+use serde::{Deserialize, Serialize};
 use strata_l1_txfmt::MagicBytes;
 
-/// Bridge-wide configuration shared across all deposit state machines.
+/// Configuration for a deposit state machine.
 ///
-/// These configurations are static over the lifetime of the bridge protocol
-/// and apply uniformly to all deposit state machine instances.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Serializable so that the params a deposit was created under can be persisted beside it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DepositSMCfg {
     /// The Bitcoin network (mainnet, testnet, regtest, etc.) used by the bridge.
     pub network: Network,
@@ -57,5 +57,37 @@ impl DepositSMCfg {
     /// Returns the fee rate that the safe-harbour sweep transaction pays.
     pub const fn sweep_fee_rate(&self) -> FeeRate {
         self.sweep_fee_rate
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use strata_bridge_test_utils::bridge_fixtures::{
+        TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_RECOVERY_DELAY,
+        TEST_SWEEP_FEE_RATE,
+    };
+
+    use super::*;
+
+    /// `Network` and `MagicBytes` serialize differently depending on `is_human_readable`, and this
+    /// config is persisted with postcard (non-human-readable). An upstream bump that switched
+    /// either to a string-only impl would otherwise only surface when a node failed to recover its
+    /// state machines.
+    #[test]
+    fn postcard_roundtrip() {
+        let cfg = DepositSMCfg {
+            network: Network::Regtest,
+            cooperative_payout_timeout_blocks: 144,
+            deposit_amount: TEST_DEPOSIT_AMOUNT,
+            operator_fee: TEST_OPERATOR_FEE,
+            magic_bytes: TEST_MAGIC_BYTES.into(),
+            recovery_delay: TEST_RECOVERY_DELAY,
+            sweep_fee_rate: TEST_SWEEP_FEE_RATE,
+        };
+
+        let bytes = postcard::to_allocvec(&cfg).expect("config must serialize");
+        let decoded: DepositSMCfg = postcard::from_bytes(&bytes).expect("config must deserialize");
+
+        assert_eq!(cfg, decoded);
     }
 }

@@ -66,7 +66,7 @@ pub(in crate::mode) async fn init_rpc_server(
     health_registry: HealthRegistry,
 ) -> anyhow::Result<()> {
     let rpc_persister = Persister::new(db);
-    let sm_config = build_sm_config(config, params);
+    let sm_config = build_sm_config(config, params)?;
 
     let rpc_config = config.rpc.clone();
     let rpc_addr = rpc_config.rpc_addr.clone();

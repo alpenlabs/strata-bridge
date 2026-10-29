@@ -6,6 +6,7 @@ pub mod graphs;
 pub mod kv;
 pub mod safe_harbour;
 pub mod signatures;
+pub mod sm_params;
 pub mod stakes;
 
 pub mod operator_set;

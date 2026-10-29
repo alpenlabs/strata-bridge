@@ -77,7 +77,7 @@ where
     M: MosaicClientApi + 'static,
 {
     let persister = Persister::new(fdb_client.clone());
-    let sm_config = build_sm_config(config, params);
+    let sm_config = build_sm_config(config, params)?;
     let registry = persister
         .recover_registry(sm_config.clone())
         .await
@@ -260,7 +260,10 @@ fn orchestrator_stale_after(config: &Config) -> Duration {
     base_interval.checked_mul(2).unwrap_or(base_interval)
 }
 
-pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
+pub(in crate::mode) fn build_sm_config(
+    config: &Config,
+    params: &Params,
+) -> anyhow::Result<SMConfig> {
     // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2665>
     // Import this from the counterproof module once it exists.
     const COUNTERPROOF_N_DATA: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)
@@ -325,13 +328,22 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         },
     };
 
-    SMConfig {
+    let sm_config = SMConfig {
         deposit: Arc::new(deposit_config),
         graph: Arc::new(graph_config),
         stake: Arc::new(stake_config),
         max_active_deposits: config.max_active_deposits,
         deposit_index_offset: params.protocol.deposit_index_offset,
-    }
+    };
+
+    // All three configs come from the same `Params`, so a mismatch means this function has
+    // drifted, not that the operator misconfigured anything. Checked anyway because the drift is
+    // invisible locally and only shows up as a peer disagreeing on a txid.
+    sm_config
+        .validate_consistency()
+        .map_err(|err| anyhow!("inconsistent state machine config: {err}"))?;
+
+    Ok(sm_config)
 }
 
 fn build_exec_config(
@@ -364,7 +376,9 @@ mod tests {
         let mut params = test_params();
         params.protocol.deposit_index_offset = 1200;
         assert_eq!(
-            build_sm_config(&test_config(), &params).deposit_index_offset,
+            build_sm_config(&test_config(), &params)
+                .expect("test params build a consistent config")
+                .deposit_index_offset,
             1200,
             "The registry must allocate from the offset supplied in the protocol params"
         );
