@@ -207,13 +207,19 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ github.workspace }}/target/asm
-          key: ${{ runner.os }}-asm-runner-${{ steps.bin-versions.outputs.asm-ref-type }}-${{ steps.bin-versions.outputs.asm-ref }}-${{ needs.extract-rust-version.outputs.nightly-version }}
+          key: ${{ runner.os }}-asm-runner-zmq-aligned-${{ steps.bin-versions.outputs.asm-ref-type }}-${{ steps.bin-versions.outputs.asm-ref }}-${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install asm binary
         if: steps.cache-asm.outputs.cache-hit != 'true'
         env:
           ASM_REF_TYPE: ${{ steps.bin-versions.outputs.asm-ref-type }}
           ASM_REF: ${{ steps.bin-versions.outputs.asm-ref }}
+          # NOTE: (@Rajil1213) asm builds the vendored libzmq 4.3.4, which segfaults when compiled
+          # for x86-64-v3 as the ubuntu-26.04 runner's gcc does by default (see the zmq-sys patch in
+          # Cargo.toml). These defines make it allocate its queues with the alignment it assumes.
+          # Drop them, and the `zmq-aligned` segment of the cache key above, once the asm ref
+          # pulls in libzmq 4.3.5.
+          CXXFLAGS_x86_64_unknown_linux_gnu: "-DHAVE_POSIX_MEMALIGN=1 -DZMQ_CACHELINE_SIZE=64"
         run: |
           cargo install --locked --git https://github.com/alpenlabs/asm "--$ASM_REF_TYPE" "$ASM_REF" --root "$GITHUB_WORKSPACE/target/asm" strata-asm-runner
 
