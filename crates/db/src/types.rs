@@ -7,7 +7,9 @@ use strata_bridge_primitives::{
     types::{DepositIdx, GraphIdx},
 };
 use strata_bridge_sm::{
-    deposit::machine::DepositSM, graph::machine::GraphSM, operator_set::OperatorSetSM,
+    deposit::{config::DepositSMCfg, machine::DepositSM},
+    graph::{config::GraphSMCfg, machine::GraphSM},
+    operator_set::OperatorSetSM,
     stake::machine::StakeSM,
 };
 
@@ -81,6 +83,10 @@ pub struct WriteBatch {
     /// Stake state machines to persist, keyed by covenant and operator index.
     stakes: Vec<StakeSM>,
     operator_set: Option<OperatorSetSM>,
+    /// Params of the deposits to persist, keyed by deposit index.
+    deposit_params: Vec<(DepositIdx, DepositSMCfg)>,
+    /// Params of the graphs to persist, keyed by graph index.
+    graph_params: Vec<(GraphIdx, GraphSMCfg)>,
 }
 
 impl WriteBatch {
@@ -91,6 +97,8 @@ impl WriteBatch {
             graphs: Vec::new(),
             stakes: Vec::new(),
             operator_set: None,
+            deposit_params: Vec::new(),
+            graph_params: Vec::new(),
         }
     }
 
@@ -119,6 +127,16 @@ impl WriteBatch {
         self.operator_set = Some(operator_set);
     }
 
+    /// Returns the deposit params in the batch.
+    pub fn deposit_params(&self) -> &[(DepositIdx, DepositSMCfg)] {
+        &self.deposit_params
+    }
+
+    /// Returns the graph params in the batch.
+    pub fn graph_params(&self) -> &[(GraphIdx, GraphSMCfg)] {
+        &self.graph_params
+    }
+
     /// Adds a deposit state machine to the batch.
     pub fn add_deposit(&mut self, deposit_sm: DepositSM) {
         self.deposits.push(deposit_sm);
@@ -132,5 +150,18 @@ impl WriteBatch {
     /// Adds a stake state machine to the batch.
     pub fn add_stake(&mut self, stake_sm: StakeSM) {
         self.stakes.push(stake_sm);
+    }
+
+    /// Adds a deposit state machine together with the params it was created under.
+    pub fn add_deposit_with_params(&mut self, deposit_sm: DepositSM, cfg: DepositSMCfg) {
+        self.deposit_params
+            .push((deposit_sm.context.deposit_idx, cfg));
+        self.deposits.push(deposit_sm);
+    }
+
+    /// Adds a graph state machine together with the params it was created under.
+    pub fn add_graph_with_params(&mut self, graph_sm: GraphSM, cfg: GraphSMCfg) {
+        self.graph_params.push((graph_sm.context.graph_idx, cfg));
+        self.graphs.push(graph_sm);
     }
 }
