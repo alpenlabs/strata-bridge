@@ -7,12 +7,16 @@ from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
 from rpc.types import RpcDepositStatusComplete
 from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
+from utils.covenant import get_current_covenant, wait_until_current_covenant
 from utils.deposit import (
+    make_deposit,
+    wait_until_asm_deposit,
     wait_until_deposit_status,
     wait_until_drt_recognized,
     wait_until_utxo_spent,
 )
 from utils.dev_cli import DevCli
+from utils.node_config import restart_bridge_node_with_overrides
 from utils.stake import (
     assert_slash_spends_stake,
     confirmed_stake_txid_for_operator,
@@ -22,8 +26,17 @@ from utils.utils import (
     read_operator_key,
     wait_for_tx_confirmation,
     wait_until,
+    wait_until_bridge_ready,
 )
-from utils.withdrawal import wait_until_active_valid_claim, wait_until_bridge_proof_timedout
+from utils.withdrawal import (
+    fulfill_withdrawal,
+    wait_until_active_valid_claim,
+    wait_until_bridge_proof_timedout,
+    wait_until_paid_out,
+)
+
+# The successor starts its deposit sequence clear of the genesis covenant's indices.
+POST_SLASH_DEPOSIT_INDEX_OFFSET = 100
 
 
 @flexitest.register
@@ -38,6 +51,8 @@ class BridgeProofTimeoutTest(StrataTestBase):
     4. Publish a contest against the claim
     5. Wait for the claim phase to transition to bridge_proof_timedout
     6. Verify the assigned operator is slashed and its stake output is spent
+    7. Verify the survivors move to a ready successor covenant without the slashed operator
+    8. Verify ASM records a deposit to the successor, which is then withdrawn and paid out
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -59,6 +74,7 @@ class BridgeProofTimeoutTest(StrataTestBase):
     def main(self, ctx: flexitest.RunContext):
         bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
         bridge_rpc = bridge_rpcs[0]
+        genesis_covenant = get_current_covenant(bridge_rpc).covenant
 
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoin_rpc = bitcoind_service.create_rpc()
@@ -180,6 +196,63 @@ class BridgeProofTimeoutTest(StrataTestBase):
             slashed_stake.slash_txid,
             assigned_stake_txid,
             STAKE_VOUT,
+        )
+
+        survivors = [idx for idx in range(num_operators) if idx != assigned_idx]
+        successor = wait_until_current_covenant([bridge_rpcs[idx] for idx in survivors], survivors)
+        assert successor.activation_height == genesis_covenant.activation_height, (
+            f"a slash must keep the covenant's activation height: {successor} after "
+            f"{genesis_covenant}"
+        )
+        assert successor.aggregate_pubkey != genesis_covenant.aggregate_pubkey, (
+            f"a slash must change the covenant's aggregate key: {successor} after "
+            f"{genesis_covenant}"
+        )
+        self.logger.info(
+            f"Survivors {survivors} moved to ready successor covenant {successor} after the slash"
+        )
+
+        # The slash itself needs no restart; this one only loads the successor's fresh offset.
+        survivor_rpcs = [bridge_rpcs[idx] for idx in survivors]
+        for idx in survivors:
+            restart_bridge_node_with_overrides(
+                bridge_nodes[idx],
+                config_overrides={},
+                params_overrides={
+                    "protocol": {"deposit_index_offset": POST_SLASH_DEPOSIT_INDEX_OFFSET}
+                },
+            )
+            wait_until_bridge_ready(bridge_rpcs[idx])
+        restored = wait_until_current_covenant(survivor_rpcs, survivors)
+        assert restored == successor, (
+            f"the slash must survive a restart: {restored} after {successor}"
+        )
+
+        post_slash_deposit_idx = POST_SLASH_DEPOSIT_INDEX_OFFSET
+        post_slash_deposit_txid = make_deposit(
+            dev_cli,
+            bridge_rpc_url(bridge_nodes[survivors[0]]),
+            survivor_rpcs,
+            post_slash_deposit_idx,
+        )
+        wait_until_asm_deposit(asm_rpc, bitcoin_rpc, post_slash_deposit_idx)
+
+        assignee = survivors[0]
+        fulfill_withdrawal(
+            dev_cli,
+            asm_rpc,
+            bitcoin_rpc,
+            bridge_rpcs[assignee],
+            post_slash_deposit_idx,
+            assignee,
+            genesis_covenant.activation_height,
+        )
+        wait_until_paid_out(
+            bitcoin_rpc,
+            post_slash_deposit_txid,
+            post_slash_deposit_idx,
+            assignee,
+            operator_key_infos[assignee].GENERAL_WALLET,
         )
 
         return True
