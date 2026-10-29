@@ -121,7 +121,7 @@ pub struct AdminMultisig {
 /// Parameters that are inherent from the protocol.
 ///
 /// These parameters don't need to be actively shared.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProtocolParams {
     /// Used bitcoin network.
     pub network: Network,
