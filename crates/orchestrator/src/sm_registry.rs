@@ -79,6 +79,79 @@ const fn is_terminal(state: &DepositState) -> bool {
     }
 }
 
+/// A protocol constant that two of the state machine configs both encode but disagree on.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("state machine configs disagree on {field}: {left} vs {right}")]
+pub struct SMConfigMismatch {
+    /// Which pair of configs disagrees, and on what.
+    pub field: &'static str,
+    /// Value held by the first config named in `field`.
+    pub left: String,
+    /// Value held by the second config named in `field`.
+    pub right: String,
+}
+
+impl SMConfig {
+    /// Checks that the deposit, graph and stake configs agree on every constant they share.
+    ///
+    /// They are views of the same protocol params, and a drift between them builds a deposit or
+    /// stake against different values than its game graph, which only surfaces later as a peer
+    /// disagreeing about a txid.
+    pub fn validate_consistency(&self) -> Result<(), SMConfigMismatch> {
+        let (deposit, graph, stake) = (
+            &*self.deposit,
+            &self.graph.game_graph_params,
+            &self.stake.protocol_params,
+        );
+
+        [
+            mismatch("deposit/graph network", deposit.network, graph.network),
+            mismatch(
+                "deposit/graph magic_bytes",
+                deposit.magic_bytes,
+                graph.magic_bytes,
+            ),
+            mismatch(
+                "deposit/graph deposit_amount",
+                deposit.deposit_amount,
+                graph.deposit_amount,
+            ),
+            mismatch(
+                "deposit/graph operator_fee",
+                deposit.operator_fee,
+                self.graph.operator_fee,
+            ),
+            mismatch("stake/graph network", stake.network, graph.network),
+            mismatch(
+                "stake/graph magic_bytes",
+                stake.magic_bytes,
+                graph.magic_bytes,
+            ),
+            mismatch(
+                "stake/graph stake_amount",
+                stake.stake_amount,
+                graph.stake_amount,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .next()
+        .map_or(Ok(()), Err)
+    }
+}
+
+fn mismatch<T: PartialEq + Debug>(
+    field: &'static str,
+    left: T,
+    right: T,
+) -> Option<SMConfigMismatch> {
+    (left != right).then(|| SMConfigMismatch {
+        field,
+        left: format!("{left:?}"),
+        right: format!("{right:?}"),
+    })
+}
+
 /// The registry that holds all the active state machines in `strata-bridge`.
 #[derive(Debug, Clone)]
 pub struct SMRegistry {
@@ -870,6 +943,54 @@ mod tests {
             test_registry_with_cap, test_sm_config, unavailable_bitcoin_client,
         },
     };
+
+    // ===== Config consistency tests =====
+
+    #[test]
+    fn consistent_config_validates() {
+        assert_eq!(
+            crate::testing::test_sm_config().validate_consistency(),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn config_mismatch_is_reported_per_field() {
+        let base = crate::testing::test_sm_config();
+
+        let mut deposit = (*base.deposit).clone();
+        deposit.operator_fee = base.graph.operator_fee + Amount::from_sat(1);
+        let cfg = SMConfig {
+            deposit: Arc::new(deposit),
+            ..base.clone()
+        };
+        assert_eq!(
+            cfg.validate_consistency().unwrap_err().field,
+            "deposit/graph operator_fee"
+        );
+
+        let mut graph = (*base.graph).clone();
+        graph.game_graph_params.deposit_amount = base.deposit.deposit_amount + Amount::from_sat(1);
+        let cfg = SMConfig {
+            graph: Arc::new(graph),
+            ..base.clone()
+        };
+        assert_eq!(
+            cfg.validate_consistency().unwrap_err().field,
+            "deposit/graph deposit_amount"
+        );
+
+        let mut stake = *base.stake;
+        stake.protocol_params.stake_amount += Amount::from_sat(1);
+        let cfg = SMConfig {
+            stake: Arc::new(stake),
+            ..base
+        };
+        assert_eq!(
+            cfg.validate_consistency().unwrap_err().field,
+            "stake/graph stake_amount"
+        );
+    }
 
     // ===== Basic CRUD tests =====
 
