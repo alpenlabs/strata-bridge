@@ -485,8 +485,7 @@ mod tests {
     const N_DATA: NonZero<usize> = NonZero::new(132).unwrap();
     const DEPOSIT_AMOUNT: Amount = Amount::from_int_btc(10);
     /// Picked so the per-watchtower stake (`STAKE_AMOUNT / n_watchtowers`) is an integer for
-    /// every `n_watchtowers` exercised by the per-`n` `pin_slash_vsize_at_*` tests, since
-    /// `SlashTx::new` asserts `STAKE_AMOUNT.to_sat() % n_watchtowers == 0`.
+    /// every `n_watchtowers` exercised by the per-`n` `pin_slash_vsize_at_*` tests.
     /// `2520` = LCM(1..=10).
     const STAKE_AMOUNT: Amount = Amount::from_sat(2_520_000_000);
 
