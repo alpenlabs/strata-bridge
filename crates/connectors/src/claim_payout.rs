@@ -297,31 +297,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn payout_spend() {
-        ClaimPayoutSigner::<2, 4>::assert_connector_is_spendable(ClaimPayoutSpendPath::Payout);
-    }
-
-    #[test]
-    fn admin_burn_spend_1_of_1() {
-        ClaimPayoutSigner::<1, 1>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
-    }
-
-    #[test]
-    fn admin_burn_spend_1_of_3() {
-        ClaimPayoutSigner::<1, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
-    }
-
-    #[test]
-    fn admin_burn_spend_2_of_3() {
-        ClaimPayoutSigner::<2, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
-    }
-
-    #[test]
-    fn admin_burn_spend_3_of_3() {
-        ClaimPayoutSigner::<3, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
-    }
-
     fn admin_burn_template(claim_outpoint: OutPoint) -> Transaction {
         Transaction {
             version: Version(3),
@@ -348,6 +323,51 @@ mod tests {
             0,
             sighash_type,
         )
+    }
+
+    // Fixed byte tags distinguish signatures in these 2-of-3 witness layout tests.
+    fn admin_witness_inputs(signatures: &[(usize, u8)]) -> Vec<Vec<u8>> {
+        let connector = ClaimPayoutSigner::<2, 3>::generate().get_connector();
+        let admin_signatures = signatures
+            .iter()
+            .map(|&(pubkey_index, byte)| AdminSignature {
+                pubkey_index,
+                signature: taproot::Signature::from_slice(&[byte; 64]).unwrap(),
+            })
+            .collect();
+
+        let witness = ClaimPayoutWitness::AdminBurn { admin_signatures };
+        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
+        else {
+            panic!("admin burn is a script-path spend");
+        };
+
+        script_inputs
+    }
+
+    #[test]
+    fn payout_spend() {
+        ClaimPayoutSigner::<2, 4>::assert_connector_is_spendable(ClaimPayoutSpendPath::Payout);
+    }
+
+    #[test]
+    fn admin_burn_spend_1_of_1() {
+        ClaimPayoutSigner::<1, 1>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    }
+
+    #[test]
+    fn admin_burn_spend_1_of_3() {
+        ClaimPayoutSigner::<1, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    }
+
+    #[test]
+    fn admin_burn_spend_2_of_3() {
+        ClaimPayoutSigner::<2, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    }
+
+    #[test]
+    fn admin_burn_spend_3_of_3() {
+        ClaimPayoutSigner::<3, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
     }
 
     #[test]
@@ -447,127 +467,31 @@ mod tests {
 
     #[test]
     fn admin_burn_witness_truncates_surplus_indexed_signatures() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature_0 =
-            taproot::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let signature_1 =
-            taproot::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let signature_2 =
-            taproot::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: signature_0,
-                },
-                AdminSignature {
-                    pubkey_index: 2,
-                    signature: signature_2,
-                },
-                AdminSignature {
-                    pubkey_index: 1,
-                    signature: signature_1,
-                },
-            ],
-        };
-
-        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
-        else {
-            panic!("admin burn is a script-path spend");
-        };
+        let script_inputs = admin_witness_inputs(&[(0, 0xAA), (2, 0xCC), (1, 0xBB)]);
 
         assert_eq!(
             script_inputs,
-            vec![
-                Vec::new(),
-                signature_1.serialize().to_vec(),
-                signature_0.serialize().to_vec(),
-            ]
+            vec![Vec::new(), vec![0xBB; 64], vec![0xAA; 64]]
         );
     }
 
     #[test]
     fn admin_burn_witness_ignores_duplicate_indices() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature_0 =
-            taproot::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let duplicate_signature =
-            taproot::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let signature_2 =
-            taproot::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: signature_0,
-                },
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: duplicate_signature,
-                },
-                AdminSignature {
-                    pubkey_index: 2,
-                    signature: signature_2,
-                },
-            ],
-        };
-
-        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
-        else {
-            panic!("admin burn is a script-path spend");
-        };
+        let script_inputs = admin_witness_inputs(&[(0, 0xAA), (0, 0xBB), (2, 0xCC)]);
 
         assert_eq!(
             script_inputs,
-            vec![
-                signature_2.serialize().to_vec(),
-                Vec::new(),
-                signature_0.serialize().to_vec()
-            ]
+            vec![vec![0xCC; 64], Vec::new(), vec![0xAA; 64]]
         );
     }
 
     #[test]
     fn admin_burn_witness_ignores_out_of_bounds_indices() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature_0 =
-            taproot::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let out_of_bounds_signature =
-            taproot::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let signature_2 =
-            taproot::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: signature_0,
-                },
-                AdminSignature {
-                    pubkey_index: 3,
-                    signature: out_of_bounds_signature,
-                },
-                AdminSignature {
-                    pubkey_index: 2,
-                    signature: signature_2,
-                },
-            ],
-        };
-
-        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
-        else {
-            panic!("admin burn is a script-path spend");
-        };
+        let script_inputs = admin_witness_inputs(&[(0, 0xAA), (3, 0xBB), (2, 0xCC)]);
 
         assert_eq!(
             script_inputs,
-            vec![
-                signature_2.serialize().to_vec(),
-                Vec::new(),
-                signature_0.serialize().to_vec()
-            ]
+            vec![vec![0xCC; 64], Vec::new(), vec![0xAA; 64]]
         );
     }
 
@@ -576,32 +500,7 @@ mod tests {
         expected = "admin burn requires at least threshold signatures for distinct known admin pubkeys"
     )]
     fn admin_burn_witness_rejects_below_threshold_signatures() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature =
-            taproot::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let duplicate_signature =
-            taproot::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let out_of_bounds_signature =
-            taproot::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature,
-                },
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: duplicate_signature,
-                },
-                AdminSignature {
-                    pubkey_index: 3,
-                    signature: out_of_bounds_signature,
-                },
-            ],
-        };
-
-        connector.get_taproot_witness(&witness);
+        admin_witness_inputs(&[(0, 0xAA), (0, 0xBB), (3, 0xCC)]);
     }
 
     #[test]

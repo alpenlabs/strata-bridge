@@ -19,7 +19,6 @@ bitcoincore-rpc.workspace = true
 clap.workspace = true
 hex.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 strata-bridge-common.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-tx-graph.workspace = true
@@ -29,4 +28,5 @@ zeroize.workspace = true
 
 [dev-dependencies]
 corepc-node.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true

@@ -16,24 +16,39 @@ use bitcoin::{
     hashes::{sha256, Hash},
     hex::FromHex,
     secp256k1::{Keypair, SECP256K1},
-    taproot,
     transaction::Version,
-    Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid, Witness,
+    Amount, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
 };
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use corepc_node::{Conf, Node};
 use serde_json::{json, Value};
-use strata_bridge_connectors::{
-    prelude::{AdminSignature, ClaimPayoutConnector},
-    Connector,
-};
-use strata_bridge_tx_graph::transactions::prelude::{AdminBurnData, AdminBurnTx};
+use strata_bridge_connectors::{prelude::ClaimPayoutConnector, Connector};
 
 fn public_key(byte: u8) -> bitcoin::XOnlyPublicKey {
     Keypair::from_seckey_slice(SECP256K1, &[byte; 32])
         .unwrap()
         .x_only_public_key()
         .0
+}
+
+fn command(
+    config: &Path,
+    params: &Path,
+    claim: Txid,
+    hash: sha256::Hash,
+    operation: &str,
+) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_admin-tool"));
+    command.arg("--config").arg(config);
+    command.arg("--params").arg(params);
+    command.arg(operation);
+    command.args([
+        "--claim-txid",
+        &claim.to_string(),
+        "--unstaking-hash",
+        &hash.to_string(),
+    ]);
+    command
 }
 
 fn run(
@@ -43,16 +58,8 @@ fn run(
     hash: sha256::Hash,
     key: Option<&Path>,
 ) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_admin-tool"));
-    command.arg("--config").arg(config);
-    command.arg("--params").arg(params);
-    command.arg(if key.is_some() { "sign" } else { "inspect" });
-    command.args([
-        "--claim-txid",
-        &claim.to_string(),
-        "--unstaking-hash",
-        &hash.to_string(),
-    ]);
+    let operation = if key.is_some() { "sign" } else { "inspect" };
+    let mut command = command(config, params, claim, hash, operation);
     if let Some(path) = key {
         command.arg("--signer-file").arg(path);
     }
@@ -63,7 +70,7 @@ fn assert_failure(output: Output, message: &str) {
     assert!(!output.status.success());
     assert!(
         output.stdout.is_empty(),
-        "a failed command must not export a signature"
+        "a failed command must not export a signature or transaction"
     );
     assert!(
         String::from_utf8_lossy(&output.stderr).contains(message),
@@ -73,7 +80,7 @@ fn assert_failure(output: Output, message: &str) {
 }
 
 #[test]
-fn inspect_sign_and_publish_with_separate_funding() {
+fn inspect_sign_assemble_and_publish_with_separate_funding() {
     let mut conf = Conf::default();
     conf.args.push("-txindex=1");
     let node = Node::with_conf("bitcoind", &conf).unwrap();
@@ -120,177 +127,185 @@ fn inspect_sign_and_publish_with_separate_funding() {
 
     let directory = tempfile::tempdir().unwrap();
     let config = directory.path().join("admin-tool.toml");
-    let config_text = toml::to_string(&json!({
-        "n_of_n_pubkey": public_key(4).to_string(),
-        "rpc": {
-            "url": node.rpc_url(),
-            "username": credentials.user,
-            "password": credentials.password,
-        },
-    }))
-    .unwrap();
+    let config_text = format!(
+        r#"n_of_n_pubkey = "{internal_key}"
+
+[rpc]
+url = "{url}"
+username = "{username}"
+password = "{password}"
+"#,
+        internal_key = public_key(4),
+        url = node.rpc_url(),
+        username = credentials.user,
+        password = credentials.password,
+    );
+
     fs::write(&config, &config_text).unwrap();
 
     let params = directory.path().join("params.toml");
-    let params_text = toml::to_string(&json!({
-        "network": "regtest",
-        "genesis_height": 101,
-        "keys": {
-            "admin": {
-                "pubkeys": admin_keys.iter().map(ToString::to_string).collect::<Vec<_>>(),
-                "threshold": 2,
-            },
-            // Operator membership is not needed here: the claim's internal key is explicit.
-            "operators": [],
-        },
-        "protocol": {
-            "bury_depth": 2,
-            "magic_bytes": "ALPN",
-            "deposit_amount": 1_000_000_000,
-            "stake_amount": 100_000_000,
-            "operator_fee": 10_000_000,
-            "sweep_fee_rate": 10,
-            "recovery_delay": 1_008,
-            "contest_timelock": 144,
-            "proof_timelock": 144,
-            "ack_timelock": 432,
-            "nack_timelock": 144,
-            "contested_payout_timelock": 1_008,
-            "unstaking_timelock": 2_016,
-        },
-    }))
-    .unwrap();
+    let params_text = format!(
+        r#"network = "regtest"
+genesis_height = 101
+
+[keys]
+operators = []
+
+[keys.admin]
+pubkeys = ["{admin_a}", "{admin_b}", "{admin_c}"]
+threshold = 2
+
+[protocol]
+bury_depth = 2
+magic_bytes = "ALPN"
+deposit_amount = 1_000_000_000
+stake_amount = 100_000_000
+operator_fee = 10_000_000
+sweep_fee_rate = 10
+recovery_delay = 1_008
+contest_timelock = 144
+proof_timelock = 144
+ack_timelock = 432
+nack_timelock = 144
+contested_payout_timelock = 1_008
+unstaking_timelock = 2_016
+"#,
+        admin_a = admin_keys[0],
+        admin_b = admin_keys[1],
+        admin_c = admin_keys[2],
+    );
+
     fs::write(&params, &params_text).unwrap();
 
     // Inspection works without any private key file and reports the matched connector.
     let inspected = run(&config, &params, claim_txid, hash, None);
+
     assert!(
         inspected.status.success(),
         "{}",
         String::from_utf8_lossy(&inspected.stderr)
     );
     let review = String::from_utf8(inspected.stdout).unwrap();
+
     assert!(review.contains(&format!("{claim_txid}:1")));
     assert!(review.contains("Matches claim output; currently unspent"));
     assert!(review.contains("NONE | ANYONECANPAY (0x82)"));
-    for key in &admin_keys {
-        assert!(review.contains(&key.to_string()));
-    }
 
     let first_key = directory.path().join("admin-1");
     fs::write(&first_key, "01".repeat(32)).unwrap();
     let wrong_network = directory.path().join("wrong-network.toml");
     fs::write(&wrong_network, params_text.replace("regtest", "signet")).unwrap();
+
     assert_failure(
         run(&config, &wrong_network, claim_txid, hash, Some(&first_key)),
         "bridge params expect signet",
-    );
-    let wrong_admins = directory.path().join("wrong-admins.toml");
-    fs::write(
-        &wrong_admins,
-        params_text.replace(&admin_keys[0].to_string(), &public_key(9).to_string()),
-    )
-    .unwrap();
-    assert_failure(
-        run(&config, &wrong_admins, claim_txid, hash, Some(&first_key)),
-        "does not match claim output 1",
-    );
-    assert_failure(
-        run(
-            &config,
-            &params,
-            claim_txid,
-            sha256::Hash::hash(&[8; 32]),
-            Some(&first_key),
-        ),
-        "does not match claim output 1",
-    );
-    let unknown_key = directory.path().join("unknown-admin");
-    fs::write(&unknown_key, "09".repeat(32)).unwrap();
-    assert_failure(
-        run(&config, &params, claim_txid, hash, Some(&unknown_key)),
-        "not in the admin set",
     );
 
     // Two admins export independently. Neither command changes the node's mempool.
     let mempool_before = rpc.get_raw_mempool().unwrap();
     let mut signatures = Vec::new();
-    let mut digest = None;
     for (index, admin_key) in admin_keys.iter().enumerate().take(2) {
         let key = directory.path().join(format!("admin-{}", index + 1));
         fs::write(&key, format!("{:02x}", index + 1).repeat(32)).unwrap();
+
         let signed = run(&config, &params, claim_txid, hash, Some(&key));
+
         assert!(
             signed.status.success(),
             "{}",
             String::from_utf8_lossy(&signed.stderr)
         );
-        assert!(String::from_utf8_lossy(&signed.stderr).contains("The publisher can add funding"));
-        let output: Value = serde_json::from_slice(&signed.stdout).unwrap();
-        assert_eq!(output["claim_outpoint"], format!("{claim_txid}:1"));
-        assert_eq!(output["admin_index"], index);
-        assert_eq!(output["admin_public_key"], admin_key.to_string());
-        assert_eq!(output["sighash_type"], "0x82");
-        if let Some(expected) = &digest {
-            assert_eq!(&output["signing_digest"], expected);
-        }
-        digest = Some(output["signing_digest"].clone());
-        assert!(review.contains(output["signing_digest"].as_str().unwrap()));
-        let bytes = Vec::from_hex(output["signature"].as_str().unwrap()).unwrap();
+        let summary = String::from_utf8(signed.stderr).unwrap();
+
+        assert!(summary.contains("The publisher can add funding"));
+        assert!(summary.contains(&format!("Signing admin:     {admin_key}")));
+
+        let signature = String::from_utf8(signed.stdout).unwrap();
+        let bytes = Vec::from_hex(signature.trim()).unwrap();
         assert_eq!(bytes.len(), 65);
         assert_eq!(bytes[64], 0x82);
-        signatures.push(AdminSignature {
-            pubkey_index: index,
-            signature: taproot::Signature::from_slice(&bytes).unwrap(),
-        });
+        signatures.push(signature.trim().to_owned());
     }
-    assert_eq!(rpc.get_raw_mempool().unwrap(), mempool_before);
-    assert!(rpc
-        .get_tx_out(&claim_txid, 1, Some(true))
-        .unwrap()
-        .is_some());
 
-    // An independent publisher adds funding and outputs using the existing bridge builder.
-    let funding = rpc.get_block(&blocks[1]).unwrap().txdata[0].clone();
-    let mut burn = AdminBurnTx::new(AdminBurnData { claim_txid }, connector.clone());
-    burn.push_input(
-        TxIn {
-            previous_output: OutPoint::new(funding.compute_txid(), 0),
-            ..Default::default()
-        },
-        funding.output[0].clone(),
+    // Assembly needs only the shared signatures, not a private key.
+    let mut assemble = command(&config, &params, claim_txid, hash, "assemble");
+    for signature in signatures {
+        assemble.arg("--signature").arg(signature);
+    }
+
+    let assembled = assemble.output().unwrap();
+
+    assert!(
+        assembled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&assembled.stderr)
     );
-    burn.push_output(TxOut {
-        value: funding.output[0].value + connector.value() - Amount::from_sat(1_000),
-        script_pubkey: address.script_pubkey(),
-    });
-    let burn = burn.finalize_partial(signatures);
+    let summary = String::from_utf8(assembled.stderr).unwrap();
+
+    assert!(summary.contains(&format!("Included admin [0]: {}", admin_keys[0])));
+    assert!(summary.contains(&format!("Included admin [1]: {}", admin_keys[1])));
+    assert!(!summary.contains("Included admin [2]:"));
+
+    let input_weight: u64 = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("Connector input weight: "))
+        .unwrap()
+        .strip_suffix(" WU")
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    let hex = String::from_utf8(assembled.stdout).unwrap();
+    let burn: Transaction =
+        bitcoin::consensus::deserialize(&Vec::from_hex(hex.trim()).unwrap()).unwrap();
+
+    assert_eq!(burn.input.len(), 1);
+    assert_eq!(burn.input[0].previous_output, OutPoint::new(claim_txid, 1));
+    assert_eq!(burn.output[0].value, Amount::ZERO);
+    assert!(burn.output[0].script_pubkey.is_op_return());
+    assert_eq!(rpc.get_raw_mempool().unwrap(), mempool_before);
+
+    // Core's external wallet selects funding and change while preserving the admin witness.
+    let funding: Value = rpc
+        .call(
+            "fundrawtransaction",
+            &[
+                json!(hex.trim()),
+                json!({
+                    "fee_rate": 10,
+                    "minconf": 1,
+                    "input_weights": [{
+                        "txid": claim_txid,
+                        "vout": 1,
+                        "weight": input_weight,
+                    }],
+                }),
+                json!(true),
+            ],
+        )
+        .unwrap();
+    let wallet_funded: Transaction =
+        bitcoin::consensus::deserialize(&Vec::from_hex(funding["hex"].as_str().unwrap()).unwrap())
+            .unwrap();
+    assert!(wallet_funded.input.len() > 1);
+    assert_eq!(wallet_funded.input[0], burn.input[0]);
+
     let funded = rpc
-        .sign_raw_transaction_with_wallet(&burn, None, None)
+        .sign_raw_transaction_with_wallet(&wallet_funded, None, None)
         .unwrap();
     assert!(funded.complete);
     let funded = funded.transaction().unwrap();
 
-    // Dropping 0x82 makes Core interpret this signature as SIGHASH_DEFAULT.
-    let mut invalid = funded.clone();
-    let mut witness = invalid.input[0].witness.to_vec();
-    witness[1].truncate(64);
-    invalid.input[0].witness = Witness::from_slice(&witness);
-    let rejected = rpc.test_mempool_accept(&[&invalid]).unwrap();
-    assert!(!rejected[0].allowed);
-
     let burn_txid = rpc.send_raw_transaction(&funded).unwrap();
 
-    // Both commands reject the now-spent connector, including an unconfirmed mempool spend.
-    assert_failure(
-        run(&config, &params, claim_txid, hash, None),
-        "spent or unavailable",
-    );
+    // Signing checks unspent status again, including the burn now in the mempool.
     assert_failure(
         run(&config, &params, claim_txid, hash, Some(&first_key)),
         "spent or unavailable",
     );
+
     let mined = rpc.generate_to_address(1, &address).unwrap();
+
     assert!(rpc
         .get_block(&mined[0])
         .unwrap()

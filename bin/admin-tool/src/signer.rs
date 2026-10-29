@@ -13,7 +13,7 @@ pub(super) trait AdminSigner: Send + Sync {
     async fn sign_digest(&self, digest: [u8; 32]) -> Result<schnorr::Signature>;
 }
 
-/// Existing private key file: 64 hex characters with optional surrounding whitespace.
+/// Contents of existing private key file: 64 hex characters
 pub(super) struct FileAdminSigner {
     /// Untweaked signing key, kept inside this backend.
     keypair: Keypair,

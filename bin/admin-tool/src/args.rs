@@ -1,4 +1,4 @@
-//! Command-line inputs for inspection and signing.
+//! Command-line inputs for inspection, signing, and witness assembly.
 
 use std::path::PathBuf;
 
@@ -25,7 +25,7 @@ pub(crate) struct Cli {
 pub(crate) enum Command {
     /// Validate the claim connector and show the signing details without a key.
     Inspect(ClaimArgs),
-    /// Repeat validation and print one admin's signature as JSON.
+    /// Repeat validation and print one admin's signature as hex, including the sighash byte.
     Sign {
         /// Claim and public hashlock information.
         #[command(flatten)]
@@ -34,9 +34,28 @@ pub(crate) enum Command {
         #[arg(long)]
         signer_file: PathBuf,
     },
+    /// Verify shared admin signatures and print a transaction for external funding.
+    Assemble {
+        /// Claim and public hashlock information.
+        #[command(flatten)]
+        claim: ClaimArgs,
+        /// 65-byte admin signature as hex, including the final 82; repeat for each signer.
+        #[arg(long = "signature", required = true)]
+        signatures: Vec<String>,
+    },
 }
 
-/// Public inputs shared by both operations.
+impl Command {
+    pub(crate) const fn claim(&self) -> &ClaimArgs {
+        match &self {
+            Command::Inspect(claim)
+            | Command::Sign { claim, .. }
+            | Command::Assemble { claim, .. } => claim,
+        }
+    }
+}
+
+/// Public inputs shared by all operations.
 #[derive(Debug, Args)]
 pub(crate) struct ClaimArgs {
     /// Claim whose payout output (index 1) is being authorized for spending.

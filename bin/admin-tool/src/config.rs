@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bitcoin::{hashes::sha256, XOnlyPublicKey};
 use bitcoincore_rpc::{Auth, Client};
 use serde::Deserialize;
@@ -26,7 +26,13 @@ impl Config {
         let text = fs::read_to_string(path)
             .with_context(|| format!("could not read config {}", path.display()))?;
 
-        toml::from_str(&text).context("invalid admin-tool TOML config")
+        // Parser errors can include credential values and source excerpts.
+        toml::from_str(&text).map_err(|_| {
+            anyhow!(
+                "invalid admin-tool TOML config {}; check its syntax and required fields",
+                path.display()
+            )
+        })
     }
 
     /// Combines bridge params with the claim-specific connector information.
@@ -63,5 +69,24 @@ impl RpcConfig {
         let auth = Auth::UserPass(self.username.clone(), self.password.clone());
 
         Client::new(&self.url, auth).context("could not initialize Bitcoin Core RPC client")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_config_does_not_expose_credentials() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        fs::write(file.path(), "[rpc]\npassword = PRIVATE_PASSWORD_MARKER\n").unwrap();
+
+        let error = Config::load(file.path())
+            .err()
+            .expect("invalid TOML must be rejected");
+        let diagnostic = format!("{error:#}");
+
+        assert!(diagnostic.contains("invalid admin-tool TOML config"));
+        assert!(!diagnostic.contains("PRIVATE_PASSWORD_MARKER"));
     }
 }

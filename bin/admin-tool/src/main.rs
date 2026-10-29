@@ -8,14 +8,13 @@ mod signing;
 use std::io::{self, Write};
 
 use anyhow::{ensure, Context, Result};
-use bitcoin::{hex::DisplayHex, Network};
+use bitcoin::{consensus::encode::serialize_hex, hex::DisplayHex, Network};
 use bitcoincore_rpc::RpcApi;
 use clap::Parser;
+use strata_bridge_common::params::Params;
 // Used by the separate integration test, rather than this binary's unit tests.
 #[cfg(test)]
-use corepc_node as _;
-use serde_json::json;
-use strata_bridge_common::params::Params;
+use {corepc_node as _, serde_json as _};
 
 use crate::{
     args::{ClaimArgs, Cli, Command},
@@ -32,9 +31,7 @@ async fn main() -> Result<()> {
         .with_context(|| format!("could not load bridge params {}", args.params.display()))?;
     let rpc = config.rpc.client()?;
 
-    let claim = match &args.command {
-        Command::Inspect(claim) | Command::Sign { claim, .. } => claim,
-    };
+    let claim = args.command.claim();
     let (request, confirmations) = load_request(&rpc, &config, &params, claim)?;
 
     match args.command {
@@ -51,25 +48,35 @@ async fn main() -> Result<()> {
             writeln!(summary, "Signing admin:     {public_key}")?;
             summary.flush()?;
 
-            let signature = request.sign(&signer, public_key).await?;
-            let output = json!({
-                "claim_outpoint": request.claim_outpoint().to_string(),
-                "admin_public_key": public_key.to_string(),
-                "admin_index": signature.pubkey_index,
-                "signing_digest": request.digest().to_lower_hex_string(),
-                "sighash_type": "0x82",
-                "signature": signature.signature.serialize().to_lower_hex_string(),
-            });
+            let signature = request.sign_and_verify(&signer, public_key).await?;
+            println!("{}", signature.serialize().to_lower_hex_string());
+        }
+        Command::Assemble { signatures, .. } => {
+            let burn = request.assemble(&signatures)?;
+            write_summary(&mut io::stderr(), params.network, &request, confirmations)?;
 
-            serde_json::to_writer_pretty(io::stdout(), &output)?;
-            println!();
+            for &index in &burn.admin_indices {
+                eprintln!(
+                    "Included admin [{index}]: {}",
+                    request.admin_pubkeys()[index]
+                );
+            }
+
+            let tx = burn.transaction;
+            eprintln!(
+                "Connector input weight: {} WU",
+                tx.input[0].segwit_weight().to_wu()
+            );
+            eprintln!("Admin witness assembled. Fund and sign funding inputs externally before publication.");
+            println!("{}", serialize_hex(&tx));
         }
     }
 
     Ok(())
 }
 
-/// Fetches and validates the claim and its currently unspent payout output.
+/// Fetches and validates the claim and its currently unspent payout output. Returns
+/// `SigningRequest` and confirmations for claim transaction.
 fn load_request(
     rpc: &impl RpcApi,
     config: &Config,
