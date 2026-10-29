@@ -66,8 +66,6 @@ impl SlashTx {
     /// # Panics
     ///
     /// This method panics if the number of watchtowers is zero.
-    ///
-    /// This method panics if the watchtower stake is not divisible by the number of watchtowers.
     pub fn new(
         data: SlashData,
         contest_slash_connector: ContestSlashConnector,
@@ -80,14 +78,9 @@ impl SlashTx {
         );
         // cast safety: size(usize) <= size(u64)
         let n_watchtowers = watchtower_descriptors.len() as u64;
-        assert_eq!(
-            stake_connector.value() % n_watchtowers,
-            Amount::ZERO,
-            "The total stake must be divisible by the number of watchtowers. Total stake = {}, number of watchtowers = {}",
-            stake_connector.value(),
-            watchtower_descriptors.len()
-        );
+        // Each watchtower receives the floor of an even split; the remainder goes to fees.
         let watchtower_stake = stake_connector.value() / n_watchtowers;
+        let stake_remainder = stake_connector.value() % n_watchtowers;
         let excess_input = contest_slash_connector.value();
         let first_extra = excess_input / n_watchtowers + excess_input % n_watchtowers;
         let other_extra = excess_input / n_watchtowers;
@@ -118,7 +111,7 @@ impl SlashTx {
         // cast safety: n_watchtowers fits in u32 (asserted via slice length being non-empty above
         // and by upstream callers). The slash tx fee is distributed across every watchtower
         // output by rounding the per-watchtower share up — the tx may overpay by at most
-        // `n_watchtowers - 1` sats, which is acceptable slippage.
+        // `n_watchtowers - 1` sats, which is acceptable slippage, on top of the stake remainder.
         let fee = crate::fee::slash_fee(watchtower_descriptors.len() as u32);
         let fee_per_watchtower = Amount::from_sat(fee.to_sat().div_ceil(n_watchtowers));
         let mut output = vec![TxOut {
@@ -138,9 +131,11 @@ impl SlashTx {
         let value_out: Amount = output.iter().map(|x| x.value).sum();
         let actual_fee = value_in - value_out;
         debug_assert!(
-            actual_fee >= fee && actual_fee.to_sat() < fee.to_sat() + n_watchtowers,
+            actual_fee >= fee
+                && actual_fee.to_sat() < fee.to_sat() + stake_remainder.to_sat() + n_watchtowers,
             "tx must pay between {fee} and {fee_upper} fees (value in = {value_in}, value out = {value_out}, actual fee = {actual_fee})",
-            fee_upper = Amount::from_sat(fee.to_sat() + n_watchtowers - 1)
+            fee_upper =
+                Amount::from_sat(fee.to_sat() + stake_remainder.to_sat() + n_watchtowers - 1)
         );
 
         let tx = Transaction {
@@ -219,5 +214,86 @@ impl PresignedTx<{ Self::N_INPUTS }> for SlashTx {
 impl AsRef<Transaction> for SlashTx {
     fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{hashes::Hash, relative, Network};
+    use strata_bridge_test_utils::prelude::generate_keypair;
+
+    use super::*;
+    use crate::fee::slash_fee;
+
+    #[test]
+    fn watchtowers_split_the_floored_stake_and_the_remainder_goes_to_fees() {
+        const N_WATCHTOWERS: u64 = 3;
+        let stake = Amount::from_sat(100_000_000);
+        assert_ne!(
+            stake % N_WATCHTOWERS,
+            Amount::ZERO,
+            "the stake must not divide evenly among the watchtowers"
+        );
+
+        let n_of_n = generate_keypair().x_only_public_key().0;
+        let watchtower_descriptors: Vec<Descriptor> = (0..N_WATCHTOWERS)
+            .map(|_| {
+                Descriptor::new_p2tr(&generate_keypair().x_only_public_key().0.serialize())
+                    .expect("32-byte x-only key is a valid p2tr payload")
+            })
+            .collect();
+        let contest_slash_connector =
+            ContestSlashConnector::new(Network::Regtest, n_of_n, relative::Height::from_height(10));
+        let excess_input = contest_slash_connector.value();
+        let data = SlashData {
+            operator_idx: 0,
+            contest_txid: Txid::all_zeros(),
+            stake_outpoint: OutPoint::null(),
+            magic_bytes: (*b"ALPN").into(),
+        };
+
+        let slash = SlashTx::new(
+            data,
+            contest_slash_connector,
+            NOfNConnector::new(Network::Regtest, n_of_n, stake),
+            &watchtower_descriptors,
+        );
+
+        let fee_per_watchtower = Amount::from_sat(
+            slash_fee(N_WATCHTOWERS as u32)
+                .to_sat()
+                .div_ceil(N_WATCHTOWERS),
+        );
+        let floored_share = stake / N_WATCHTOWERS;
+        let other_extra = excess_input / N_WATCHTOWERS;
+        let first_extra = other_extra + excess_input % N_WATCHTOWERS;
+        let watchtower_outputs: Vec<Amount> = slash
+            .as_ref()
+            .output
+            .iter()
+            .skip(1)
+            .map(|output| output.value)
+            .collect();
+        assert_eq!(
+            watchtower_outputs,
+            [
+                floored_share + first_extra - fee_per_watchtower,
+                floored_share + other_extra - fee_per_watchtower,
+                floored_share + other_extra - fee_per_watchtower,
+            ],
+            "each watchtower must receive the floored share of the stake"
+        );
+
+        let value_out: Amount = slash
+            .as_ref()
+            .output
+            .iter()
+            .map(|output| output.value)
+            .sum();
+        assert_eq!(
+            stake + excess_input - value_out,
+            fee_per_watchtower * N_WATCHTOWERS + stake % N_WATCHTOWERS,
+            "the remainder of the stake must go to fees"
+        );
     }
 }
