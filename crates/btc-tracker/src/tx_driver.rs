@@ -39,6 +39,16 @@ pub enum DriveErr {
     /// Indicates that the transaction could not be published.
     #[error("could not publish transaction: {0}")]
     PublishFailed(ClientError),
+
+    /// Indicates that the transaction was evicted from the mempool and could not be rebroadcast.
+    #[error("transaction {txid} was evicted from the mempool and rebroadcast failed: {source}")]
+    Evicted {
+        /// The id of the evicted transaction.
+        txid: Txid,
+
+        /// The error returned by the rebroadcast attempt.
+        source: ClientError,
+    },
 }
 
 /// This is the minimal description of a request to drive a transaction.
@@ -106,6 +116,46 @@ impl From<TxDriveJob> for TxJobHeap {
         let mut heap = BTreeMap::new();
         heap.insert(job.tx.compute_txid(), vec![(job.condition, job.respond_on)]);
         TxJobHeap(heap)
+    }
+}
+
+/// Rebroadcasts an evicted transaction and fails its listeners if the rebroadcast fails.
+async fn resubmit(rpc_client: &BitcoinClient, tx: Transaction, active_jobs: &mut TxJobHeap) {
+    let txid = tx.compute_txid();
+    // A reorg evicts the transaction too, and bitcoind either re-adds it to the mempool or already
+    // has it in the new chain. The client reports the latter as success.
+    let Err(err) = rpc_client
+        .send_raw_transaction(&tx, broadcast_options(&tx))
+        .await
+    else {
+        info!(%txid, "resubmitted transaction successfully");
+        return;
+    };
+
+    // bitcoind only reports a confirmed transaction as already known while one of its outputs is
+    // unspent. Once they are all spent it reports the inputs as missing instead.
+    if err.is_rpc_verify_error()
+        && rpc_client
+            .get_raw_transaction_verbosity_one(&txid)
+            .await
+            .is_ok_and(|tx_data| tx_data.confirmations.unwrap_or(0) > 0)
+    {
+        debug!(%txid, %err, "transaction is already on chain");
+        return;
+    }
+
+    // TODO: <https://alpenlabs.atlassian.net/browse/STR-2690>
+    // Classify the remaining failure modes, such as a double-spent input versus a fee that does not
+    // replace a conflicting transaction.
+    error!(%txid, %err, "could not resubmit transaction");
+    for (_, respond_on) in active_jobs.remove(&txid).into_iter().flatten() {
+        let evicted = DriveErr::Evicted {
+            txid,
+            source: err.clone(),
+        };
+        if respond_on.send(Err(evicted)).is_err() {
+            error!(%txid, "could not send error response to job submitter");
+        }
     }
 }
 
@@ -240,26 +290,7 @@ impl TxDriver {
                         match event.status {
                             TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
-                                let options = broadcast_options(&event.rawtx);
-                                match rpc_client.send_raw_transaction(&event.rawtx, options).await {
-                                    Ok(txid) => {
-                                        /* NOOP, we good fam */
-                                        info!(%txid, "resubmitted transaction successfully");
-                                    }
-                                    Err(err) => {
-                                        error!(txid=%event.rawtx.compute_txid(), %err, "could not resubmit transaction");
-                                        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2690>
-                                        // Analyze the reported error and classify the submission
-                                        // failure mode.
-                                        //
-                                        // 1. It failed because one or more of the inputs is double
-                                        // spent.
-                                        // 2. It failed because the fee didn't exceed the purge
-                                        // rate.
-                                        // 3. If failed because the transaction has already
-                                        // re-entered the mempool automatically upon reorg.
-                                    }
-                                }
+                                resubmit(&rpc_client, event.rawtx, &mut active_jobs).await;
                             }
                             _ => {
                                 let txid = event.rawtx.compute_txid();
@@ -301,6 +332,10 @@ impl TxDriver {
     }
 
     /// Instructs the TxDriver to drive a new transaction to confirmation.
+    ///
+    /// Resolves with `Ok(())` once the transaction reaches a status accepted by `condition`. It
+    /// resolves with [`DriveErr::PublishFailed`] if the initial broadcast is rejected, and with
+    /// [`DriveErr::Evicted`] if the transaction later leaves the mempool and cannot be rebroadcast.
     pub async fn drive(
         &self,
         tx: Transaction,
@@ -374,7 +409,7 @@ mod tests {
 
 #[cfg(test)]
 mod e2e_tests {
-    use std::{collections::VecDeque, path::PathBuf, sync::Arc};
+    use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 
     use algebra::predicate;
     use bitcoin::{
@@ -383,7 +418,7 @@ mod e2e_tests {
     };
     use bitcoind_async_client::Client as BitcoinClient;
     use corepc_node::{client::client_sync::Auth, vtype::FundRawTransaction, CookieValues, Output};
-    use futures::join;
+    use futures::{join, TryFutureExt};
     use serial_test::serial;
     use strata_bridge_common::logging;
     use strata_bridge_test_utils::prelude::wait_for_height;
@@ -680,6 +715,237 @@ mod e2e_tests {
             .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
             .await?;
         info!("OP_RETURN burn transaction appeared in mempool");
+
+        Ok(())
+    }
+
+    // Spends `prevout` (worth `input_value`) back to `recipient` with RBF enabled, paying `fee`.
+    fn sign_rbf_spend(
+        bitcoind: &corepc_node::Node,
+        prevout: OutPoint,
+        input_value: Amount,
+        recipient: &bitcoin::Address,
+        fee: Amount,
+    ) -> Result<Transaction, Box<dyn std::error::Error>> {
+        let unsigned = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: prevout,
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::default(),
+            }],
+            output: vec![TxOut {
+                value: input_value - fee,
+                script_pubkey: recipient.script_pubkey(),
+            }],
+        };
+
+        Ok(bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&unsigned)?
+            .into_model()?
+            .tx)
+    }
+
+    // Mines 101 blocks to `address` and returns the first block's matured coinbase outpoint and
+    // value.
+    async fn mature_coinbase(
+        bitcoind: &corepc_node::Node,
+        address: &bitcoin::Address,
+    ) -> Result<(OutPoint, Amount), Box<dyn std::error::Error>> {
+        let blocks = bitcoind
+            .client
+            .generate_to_address(101, address)?
+            .into_model()?;
+        debug!("waiting for test funds to mature");
+        wait_for_height(bitcoind, 101).await?;
+        debug!("test funds matured");
+
+        let spendable_block = bitcoind.client.get_block(
+            *blocks
+                .0
+                .first()
+                .expect("generate_to_address must return mined block hashes"),
+        )?;
+        let coinbase_tx = spendable_block
+            .coinbase()
+            .expect("mined block must contain a coinbase transaction");
+
+        Ok((
+            OutPoint::new(coinbase_tx.compute_txid(), 0),
+            coinbase_tx.output[0].value,
+        ))
+    }
+
+    // An evicted transaction whose rebroadcast is rejected fails the drive job.
+    #[tokio::test]
+    #[serial]
+    async fn tx_drive_eviction() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init_from_env("tx_drive_eviction");
+
+        let (driver, bitcoind) = setup().await?;
+
+        let new_address = bitcoind.client.new_address()?;
+        let (prevout, input_value) = mature_coinbase(&bitcoind, &new_address).await?;
+
+        // Two conflicting spends of the same output. The first pays a low fee and signals RBF, the
+        // second pays enough more to replace it and knock the first out of the mempool.
+        let evicted_tx = sign_rbf_spend(
+            &bitcoind,
+            prevout,
+            input_value,
+            &new_address,
+            Amount::from_sat(1_000),
+        )?;
+        let replacement_tx = sign_rbf_spend(
+            &bitcoind,
+            prevout,
+            input_value,
+            &new_address,
+            Amount::from_sat(50_000),
+        )?;
+        let evicted_txid = evicted_tx.compute_txid();
+
+        info!(%evicted_txid, "driving low-fee transaction to burial");
+        let drive_to_buried = driver.drive(evicted_tx.clone(), TxStatus::is_buried);
+
+        let replace = async {
+            driver
+                .drive(evicted_tx.clone(), predicate::eq(TxStatus::Mempool))
+                .await?;
+            // Give the ZMQ client a moment to record the transaction's lifecycle. If the removal
+            // below were processed before the acceptance, no `Unknown` event would be emitted.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            info!(replacement_txid = %replacement_tx.compute_txid(), "broadcasting replacement");
+            bitcoind.client.send_raw_transaction(&replacement_tx)?;
+
+            Ok::<(), Box<dyn std::error::Error>>(())
+        };
+
+        let (drive_result, replace_result) = tokio::time::timeout(
+            Duration::from_secs(60),
+            futures::future::join(drive_to_buried, replace),
+        )
+        .await
+        .expect("drive must resolve after eviction");
+        replace_result?;
+
+        match drive_result {
+            Err(DriveErr::Evicted { txid, source }) => {
+                assert_eq!(txid, evicted_txid);
+                assert!(
+                    source.is_rpc_verify_rejected(),
+                    "rebroadcast of a replaced tx must be a policy rejection, got {source:?}"
+                );
+            }
+            other => panic!("expected an eviction error, got {other:?}"),
+        }
+
+        Ok(())
+    }
+
+    // A reorg that swaps the transaction's block for a sibling that also includes it evicts the
+    // transaction while it is still on chain. A child in both blocks spends its only output, so
+    // the rebroadcast is rejected for missing inputs and the drive job must survive until burial.
+    #[tokio::test]
+    #[serial]
+    async fn tx_drive_reorg_onto_sibling() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init_from_env("tx_drive_reorg_onto_sibling");
+
+        let (driver, bitcoind) = setup().await?;
+
+        let new_address = bitcoind.client.new_address()?;
+        let (prevout, input_value) = mature_coinbase(&bitcoind, &new_address).await?;
+
+        let fee = Amount::from_sat(10_000);
+        let signed = sign_rbf_spend(&bitcoind, prevout, input_value, &new_address, fee)?;
+        let txid = signed.compute_txid();
+
+        info!(%txid, "driving transaction to burial across a sibling reorg");
+        let drive_to_buried = driver
+            .drive(signed.clone(), TxStatus::is_buried)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>);
+
+        let reorg_then_bury = async {
+            driver
+                .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
+                .await?;
+            // The wallet can only sign the child once it knows the transaction it spends.
+            let child = sign_rbf_spend(
+                &bitcoind,
+                OutPoint::new(txid, 0),
+                input_value - fee,
+                &new_address,
+                fee,
+            )?;
+            bitcoind.client.send_raw_transaction(&child)?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            let first = bitcoind
+                .client
+                .generate_to_address(1, &new_address)?
+                .into_model()?
+                .0
+                .remove(0);
+            driver.drive(signed.clone(), TxStatus::is_mined).await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            // Move the transaction (and its child, which bitcoind re-adds with it) into a sibling
+            // of `first`. Regtest clamps block timestamps to median-time-past + 1 when blocks are
+            // mined this quickly, so the extra wallet transaction keeps the sibling from
+            // reproducing `first` exactly, which the node would reject.
+            bitcoind
+                .client
+                .call::<()>("invalidateblock", &[first.to_string().into()])?;
+            driver
+                .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
+                .await?;
+            bitcoind
+                .client
+                .send_to_address(&new_address, Amount::ONE_BTC)?;
+            let sibling = bitcoind
+                .client
+                .generate_to_address(1, &new_address)?
+                .into_model()?
+                .0
+                .remove(0);
+            driver.drive(signed.clone(), TxStatus::is_mined).await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            // Switch back to `first` in a single reorg: disconnecting `sibling` evicts the
+            // transaction, and connecting `first` confirms it again before the driver rebroadcasts.
+            info!(%first, %sibling, "reorging from the sibling back onto the first block");
+            bitcoind
+                .client
+                .call::<()>("reconsiderblock", &[first.to_string().into()])?;
+            bitcoind
+                .client
+                .call::<()>("preciousblock", &[first.to_string().into()])?;
+            assert_eq!(bitcoind.client.get_best_block_hash()?.block_hash()?, first);
+            let first_block = bitcoind.client.get_block(first)?;
+            assert!(first_block
+                .txdata
+                .iter()
+                .any(|tx| tx.compute_txid() == child.compute_txid()));
+            tokio::time::sleep(Duration::from_secs(1)).await;
+
+            for _ in 0..(crate::constants::DEFAULT_BURY_DEPTH + 2) {
+                bitcoind.client.generate_to_address(1, &new_address)?;
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+
+            Ok::<(), Box<dyn std::error::Error>>(())
+        };
+
+        tokio::time::timeout(
+            Duration::from_secs(90),
+            futures::future::try_join(drive_to_buried, reorg_then_bury),
+        )
+        .await
+        .expect("drive must resolve after the sibling reorg")?;
 
         Ok(())
     }
