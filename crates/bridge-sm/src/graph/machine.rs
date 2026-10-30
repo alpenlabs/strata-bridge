@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use bitcoin::Transaction;
+use bitcoin::{Transaction, Txid};
 use musig2::secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph::{
-    game_graph::{DepositParams, GameData, GameGraph},
+    game_graph::{DepositParams, GameConnectors, GameData, GameGraph},
     musig_functor::GameFunctor,
 };
 use zkaleido::ProofReceipt;
@@ -246,6 +246,29 @@ impl GraphSM {
             bridge_proof_tx: bridge_proof_tx.clone(),
             operator_table: self.context().operator_table().clone(),
         })
+    }
+}
+
+/// Builds the [`GraphDuty::GenerateAndPublishBridgeProof`] the graph owner emits to defend
+/// against a contest, anchoring the proof at `anchor_height`.
+pub(super) fn bridge_proof_duty(
+    ctx: &GraphSMCtx,
+    cfg: &GraphSMCfg,
+    graph_data: &DepositParams,
+    contest_txid: Txid,
+    anchor_height: BitcoinBlockHeight,
+) -> GraphDuty {
+    let setup_params = ctx.generate_setup_params(cfg, graph_data);
+    let connectors =
+        GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
+
+    GraphDuty::GenerateAndPublishBridgeProof {
+        graph_idx: ctx.graph_idx(),
+        anchor_height,
+        contest_txid,
+        game_index: graph_data.game_index,
+        contest_proof_connector: connectors.contest_proof,
+        operator_pubkey: ctx.owner_btc_x_only_key(),
     }
 }
 
