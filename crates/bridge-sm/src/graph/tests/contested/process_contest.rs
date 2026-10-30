@@ -63,7 +63,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishBridgeProof {
                 graph_idx: ctx.graph_idx(),
-                last_block_height: LATER_BLOCK_HEIGHT,
+                anchor_height: LATER_BLOCK_HEIGHT,
                 contest_txid: TEST_GRAPH_SUMMARY.contest,
                 game_index: deposit_params.game_index,
                 contest_proof_connector: connectors.contest_proof,
