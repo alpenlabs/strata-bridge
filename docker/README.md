@@ -356,6 +356,20 @@ keys must match the Docker bridge params.
 **Important:** Ensure that the network, magic bytes, deposit amount and recovery delay in
 `bin/dev-cli/params.toml` match those used in the Docker bridge params.
 
+### Bridge proof delay
+
+Each node can delay its own bridge proof with the optional top-level `bridge_proof_delay_blocks`
+key in its `config.toml`, placed before the first `[table]` like `max_active_deposits`. The graph
+owner then waits that many blocks after the contest transaction confirms before anchoring and
+generating the proof, so the proof commits more accumulated work. Absent or `0` anchors at the
+contest block itself. Keep the value plus `bury_depth` well below `proof_timelock`:
+proving and burial must fit in the remainder, or the proof timeout wins.
+
+Until a bridge proof confirms, the owner generates a fresh one, anchored at the then-current block,
+every `bridge_proof_retry_blocks` blocks after the last attempt (absent means `6`, `0` is
+rejected). Retry ticks do not regenerate the proof, so a node that restarts mid-proof waits out the
+rest of that interval.
+
 ### Deposit cap
 
 Each node can cap how many deposits it takes part in at once with the optional top-level
