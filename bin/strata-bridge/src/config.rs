@@ -5,7 +5,7 @@
 use std::{
     fmt,
     net::SocketAddr,
-    num::{NonZeroU32, NonZeroUsize},
+    num::{NonZeroU16, NonZeroU32, NonZeroUsize},
     path::PathBuf,
     time::Duration,
 };
@@ -82,6 +82,18 @@ pub(crate) struct Config {
     /// reimbursement process. The node will also not accept any requests for cooperative payouts
     /// from its peers in this case.
     pub cooperative_payout_timeout: u16,
+
+    /// Blocks the graph owner waits after the contest confirms before anchoring the bridge proof.
+    ///
+    /// Absent means `0`. Plus `bury_depth`, it must leave room to prove within `proof_timelock`.
+    #[serde(default)]
+    pub bridge_proof_delay_blocks: u16,
+
+    /// Blocks between the graph owner's bridge proof attempts until one confirms.
+    ///
+    /// Absent means `6`. Each attempt is a full proof.
+    #[serde(default = "default_bridge_proof_retry_blocks")]
+    pub bridge_proof_retry_blocks: NonZeroU16,
 
     /// The maximum fee rate for any transaction (in sats/vb). A wallet-funded duty refuses a
     /// market rate above it, and a CPFP bump clamps its target to it. The startup checks warn
@@ -481,6 +493,10 @@ pub(crate) struct MetricsConfig {
     pub prometheus_listener_addr: Option<SocketAddr>,
 }
 
+const fn default_bridge_proof_retry_blocks() -> NonZeroU16 {
+    NonZeroU16::new(6).expect("6 is non-zero")
+}
+
 /// Shared config fixture for tests.
 ///
 /// The Bitcoin RPC credentials are sentinels so `debug_redacts_btc_rpc_credentials` can search
@@ -497,6 +513,8 @@ pub(crate) fn test_config() -> Config {
             min_withdrawal_fulfillment_window = 143
             shutdown_timeout = { secs = 15, nanos = 0 }
             cooperative_payout_timeout = 144 # ~24 hours
+            bridge_proof_delay_blocks = 6
+            bridge_proof_retry_blocks = 3
             max_fee_rate = 10 # sats/vbyte
             max_active_deposits = 2
 
@@ -614,6 +632,40 @@ mod tests {
         let config = toml::from_str::<Config>(&without_cap).unwrap();
 
         assert_eq!(config.max_active_deposits, None);
+    }
+
+    fn test_config_without(key: &str) -> String {
+        toml::to_string(&test_config())
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with(key))
+            .map(|line| format!("{line}\n"))
+            .collect()
+    }
+
+    #[test]
+    fn bridge_proof_delay_blocks_absent_means_zero() {
+        assert_eq!(test_config().bridge_proof_delay_blocks, 6);
+
+        let config =
+            toml::from_str::<Config>(&test_config_without("bridge_proof_delay_blocks")).unwrap();
+
+        assert_eq!(config.bridge_proof_delay_blocks, 0);
+    }
+
+    #[test]
+    fn bridge_proof_retry_blocks_absent_means_six_and_rejects_zero() {
+        assert_eq!(test_config().bridge_proof_retry_blocks.get(), 3);
+
+        let config =
+            toml::from_str::<Config>(&test_config_without("bridge_proof_retry_blocks")).unwrap();
+        assert_eq!(config.bridge_proof_retry_blocks.get(), 6);
+
+        let zero_retry = toml::to_string(&test_config()).unwrap().replace(
+            "bridge_proof_retry_blocks = 3",
+            "bridge_proof_retry_blocks = 0",
+        );
+        assert!(toml::from_str::<Config>(&zero_retry).is_err());
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
