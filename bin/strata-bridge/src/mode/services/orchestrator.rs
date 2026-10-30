@@ -392,6 +392,8 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
             .collect(),
         bridge_proof_predicate: params.protocol.bridge_proof_predicate.clone(),
         counterproof_predicate: params.protocol.counterproof_predicate.clone(),
+        bridge_proof_delay_blocks: 0,
+        bridge_proof_retry_blocks: NonZero::new(6).expect("6 is non-zero"),
     };
 
     let stake_config = StakeSMCfg {

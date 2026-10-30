@@ -264,8 +264,7 @@ impl GraphSM {
     }
 }
 
-/// Builds the [`GraphDuty::GenerateAndPublishBridgeProof`] the graph owner emits to defend
-/// against a contest, anchoring the proof at `anchor_height`.
+/// The owner's [`GraphDuty::GenerateAndPublishBridgeProof`], anchored at `anchor_height`.
 pub(super) fn bridge_proof_duty(
     ctx: &GraphSMCtx,
     cfg: &GraphSMCfg,

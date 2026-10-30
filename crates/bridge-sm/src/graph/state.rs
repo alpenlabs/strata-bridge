@@ -288,6 +288,9 @@ pub enum GraphState {
         /// The block height at which the contest transaction was confirmed.
         contest_block_height: BitcoinBlockHeight,
 
+        /// Height of the owner's last bridge proof attempt, which paces its retries.
+        last_bridge_proof_attempt_height: Option<BitcoinBlockHeight>,
+
         /// Set when the stake outpoint is consumed by something other than
         /// this graph's slash.
         stake_spent: Option<Txid>,
@@ -394,6 +397,9 @@ pub enum GraphState {
 
         /// The txids of the counterproof NACK transactions submitted on chain.
         counterproof_nacks: BTreeMap<OperatorIdx, Txid>,
+
+        /// Height of the owner's last bridge proof attempt, which paces its retries.
+        last_bridge_proof_attempt_height: Option<BitcoinBlockHeight>,
 
         /// Set when the stake outpoint is consumed by something other than
         /// this graph's slash.

@@ -10,7 +10,7 @@ use crate::graph::{
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::RetryTickEvent,
-    machine::{GSMOutput, GraphSM, bridge_proof_duty, generate_game_graph},
+    machine::{GSMOutput, GraphSM, generate_game_graph},
     state::GraphState,
     watchtower::watchtower_slot_for_operator,
 };
@@ -96,20 +96,6 @@ impl GraphSM {
             } if self.context().operator_idx() != self.context().operator_table().pov_idx() => {
                 vec![self.publish_contest_duty(&cfg, graph_data, signatures)]
             }
-            GraphState::Contested {
-                last_block_height,
-                graph_data,
-                graph_summary,
-                ..
-            } if self.context().operator_idx() == self.context().operator_table().pov_idx() => {
-                vec![bridge_proof_duty(
-                    self.context(),
-                    &cfg,
-                    graph_data,
-                    graph_summary.contest,
-                    *last_block_height,
-                )]
-            }
             GraphState::BridgeProofPosted {
                 last_block_height,
                 graph_data,
@@ -133,7 +119,6 @@ impl GraphSM {
             GraphState::CounterProofPosted {
                 last_block_height,
                 graph_data,
-                graph_summary,
                 signatures,
                 refuted_bridge_proof,
                 counterproofs_and_confs,
@@ -151,48 +136,33 @@ impl GraphSM {
                         &setup_params,
                     );
 
-                    let mut duties: Vec<GraphDuty> = Vec::new();
+                    // Retry pending NACKs; `notify_new_block` paces the bridge proof.
+                    counterproofs_and_confs
+                        .iter()
+                        .filter(|(idx, _)| !counterproof_nacks.contains_key(idx))
+                        .filter_map(|(counterprover_idx, data)| {
+                            let watchtower_slot = watchtower_slot_for_operator(
+                                self.context().operator_table(),
+                                pov_idx,
+                                *counterprover_idx,
+                            )?;
+                            let counterproof_connector =
+                                connectors.counterproof.get(watchtower_slot)?;
 
-                    if refuted_bridge_proof.is_none() {
-                        duties.push(bridge_proof_duty(
-                            self.context(),
-                            &cfg,
-                            graph_data,
-                            graph_summary.contest,
-                            *last_block_height,
-                        ));
-                    }
+                            let nack_data = CounterproofNackData {
+                                counterproof_txid: data.txid,
+                            };
+                            let counterproof_nack_tx =
+                                CounterproofNackTx::new(nack_data, *counterproof_connector);
 
-                    // Retry NACKs for confirmed counterproofs that have not been NACK'd yet.
-                    duties.extend(
-                        counterproofs_and_confs
-                            .iter()
-                            .filter(|(idx, _)| !counterproof_nacks.contains_key(idx))
-                            .filter_map(|(counterprover_idx, data)| {
-                                let watchtower_slot = watchtower_slot_for_operator(
-                                    self.context().operator_table(),
-                                    pov_idx,
-                                    *counterprover_idx,
-                                )?;
-                                let counterproof_connector =
-                                    connectors.counterproof.get(watchtower_slot)?;
-
-                                let nack_data = CounterproofNackData {
-                                    counterproof_txid: data.txid,
-                                };
-                                let counterproof_nack_tx =
-                                    CounterproofNackTx::new(nack_data, *counterproof_connector);
-
-                                Some(GraphDuty::PublishCounterProofNack {
-                                    deposit_idx: self.context().deposit_idx(),
-                                    counterprover_idx: *counterprover_idx,
-                                    completed_signatures: data.completed_signatures,
-                                    counterproof_nack_tx,
-                                })
-                            }),
-                    );
-
-                    duties
+                            Some(GraphDuty::PublishCounterProofNack {
+                                deposit_idx: self.context().deposit_idx(),
+                                counterprover_idx: *counterprover_idx,
+                                completed_signatures: data.completed_signatures,
+                                counterproof_nack_tx,
+                            })
+                        })
+                        .collect()
                 } else {
                     // PoV operator is NOT the graph owner: re-emit the potential counterproof
                     // while a bridge proof exists and the PoV operator's counterproof has not
