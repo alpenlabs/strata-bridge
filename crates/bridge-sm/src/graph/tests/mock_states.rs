@@ -178,6 +178,15 @@ pub(super) fn contested_state_with(
     last_block_height: u64,
     signatures: Vec<schnorr::Signature>,
 ) -> GraphState {
+    contested_state_with_heights(last_block_height, LATER_BLOCK_HEIGHT, signatures)
+}
+
+/// Builds a mock `Contested` state with explicit last and contest block heights.
+pub(super) fn contested_state_with_heights(
+    last_block_height: u64,
+    contest_block_height: u64,
+    signatures: Vec<schnorr::Signature>,
+) -> GraphState {
     GraphState::Contested {
         last_block_height,
         graph_data: test_deposit_params(),
@@ -185,7 +194,7 @@ pub(super) fn contested_state_with(
         signatures,
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
-        contest_block_height: LATER_BLOCK_HEIGHT,
+        contest_block_height,
         stake_spent: None,
         payout_connector_spent: None,
     }
@@ -282,6 +291,25 @@ fn override_signatures(mut state: GraphState, signatures: Vec<Signature>) -> Gra
         panic!("expected CounterProofPosted state");
     };
     *slot = signatures;
+    state
+}
+
+/// Overrides `last_block_height` and `contest_block_height` on a mock `CounterProofPosted` state.
+pub(super) fn with_counter_proof_posted_heights(
+    mut state: GraphState,
+    last_block_height: u64,
+    contest_block_height: u64,
+) -> GraphState {
+    let GraphState::CounterProofPosted {
+        last_block_height: last_slot,
+        contest_block_height: contest_slot,
+        ..
+    } = &mut state
+    else {
+        panic!("expected CounterProofPosted state");
+    };
+    *last_slot = last_block_height;
+    *contest_slot = contest_block_height;
     state
 }
 

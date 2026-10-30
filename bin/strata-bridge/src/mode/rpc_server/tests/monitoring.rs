@@ -110,6 +110,7 @@ fn test_graph_cfg() -> GraphSMCfg {
         payout_descs: (0..3).map(|idx| (idx, random_p2tr_desc())).collect(),
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),
+        bridge_proof_delay_blocks: 0,
     }
 }
 

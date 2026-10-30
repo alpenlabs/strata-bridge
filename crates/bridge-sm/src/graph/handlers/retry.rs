@@ -10,7 +10,9 @@ use crate::graph::{
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::RetryTickEvent,
-    machine::{GSMOutput, GraphSM, bridge_proof_duty, generate_game_graph},
+    machine::{
+        GSMOutput, GraphSM, bridge_proof_delay_elapsed, bridge_proof_duty, generate_game_graph,
+    },
     state::GraphState,
     watchtower::watchtower_slot_for_operator,
 };
@@ -96,10 +98,13 @@ impl GraphSM {
             }
             GraphState::Contested {
                 last_block_height,
+                contest_block_height,
                 graph_data,
                 graph_summary,
                 ..
-            } if self.context().operator_idx() == self.context().operator_table().pov_idx() => {
+            } if self.context().operator_idx() == self.context().operator_table().pov_idx()
+                && bridge_proof_delay_elapsed(&cfg, *contest_block_height, *last_block_height) =>
+            {
                 vec![bridge_proof_duty(
                     self.context(),
                     &cfg,
@@ -130,6 +135,7 @@ impl GraphSM {
             }
             GraphState::CounterProofPosted {
                 last_block_height,
+                contest_block_height,
                 graph_data,
                 graph_summary,
                 signatures,
@@ -151,7 +157,13 @@ impl GraphSM {
 
                     let mut duties: Vec<GraphDuty> = Vec::new();
 
-                    if refuted_bridge_proof.is_none() {
+                    if refuted_bridge_proof.is_none()
+                        && bridge_proof_delay_elapsed(
+                            &cfg,
+                            *contest_block_height,
+                            *last_block_height,
+                        )
+                    {
                         duties.push(bridge_proof_duty(
                             self.context(),
                             &cfg,

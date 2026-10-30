@@ -14,7 +14,7 @@ use crate::graph::{
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::CounterProofConfirmedEvent,
-    machine::{GSMOutput, GraphSM},
+    machine::{GSMOutput, GraphSM, bridge_proof_delay_ends, bridge_proof_duty},
     state::{CounterproofData, GraphState},
 };
 
@@ -29,6 +29,7 @@ impl GraphSM {
 
         match self.state.clone() {
             GraphState::Contested {
+                last_block_height,
                 graph_data,
                 graph_summary,
                 signatures,
@@ -38,8 +39,29 @@ impl GraphSM {
                 payout_connector_spent,
                 ..
             } => {
-                let (nack_duties, completed_signatures) =
+                let (mut duties, completed_signatures) =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
+
+                // This transition absorbs the counterproof's block, so `notify_new_block` never
+                // sees it; emit the bridge proof here if that block ends the delay.
+                let is_own_graph =
+                    self.context().operator_idx() == self.context().operator_table().pov_idx();
+                if is_own_graph
+                    && bridge_proof_delay_ends(
+                        &cfg,
+                        contest_block_height,
+                        last_block_height,
+                        event.counterproof_block_height,
+                    )
+                {
+                    duties.push(bridge_proof_duty(
+                        self.context(),
+                        &cfg,
+                        &graph_data,
+                        graph_summary.contest,
+                        event.counterproof_block_height,
+                    ));
+                }
 
                 let mut counterproofs_and_confs = BTreeMap::new();
                 counterproofs_and_confs.insert(
@@ -65,7 +87,7 @@ impl GraphSM {
                     payout_connector_spent,
                 };
 
-                Ok(GSMOutput::with_duties(nack_duties))
+                Ok(GSMOutput::with_duties(duties))
             }
             GraphState::BridgeProofPosted {
                 last_block_height,

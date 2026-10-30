@@ -8,10 +8,10 @@ use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph::game_graph::{AdminMultisig, ProtocolParams};
 use strata_predicate::PredicateKey;
 
-/// Bridge-wide configuration shared across all graph state machines.
+/// Configuration shared across all graph state machines of this node.
 ///
-/// These configurations are static over the lifetime of the bridge protocol
-/// and apply uniformly to all graph state machine instances.
+/// Apart from [`Self::bridge_proof_delay_blocks`], which is local to this operator, these values
+/// are protocol-wide and static over the lifetime of the bridge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphSMCfg {
     /// Parameters of the Game Graph that are inherent to the protocol.
@@ -36,4 +36,12 @@ pub struct GraphSMCfg {
 
     /// Predicate key used to verify bridge counterproof.
     pub counterproof_predicate: PredicateKey,
+
+    /// Number of blocks the graph owner waits past the contest confirmation before anchoring and
+    /// generating the bridge proof.
+    ///
+    /// Operator-local: it may differ between operators and between restarts. `0` anchors at the
+    /// contest block itself. A larger value commits more accumulated work in
+    /// the proof; together with the bury depth it should stay well below `proof_timelock`.
+    pub bridge_proof_delay_blocks: u16,
 }

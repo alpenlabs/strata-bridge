@@ -10,7 +10,7 @@ use crate::graph::{
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::NewBlockEvent,
-    machine::{GSMOutput, GraphSM, unpack_game},
+    machine::{GSMOutput, GraphSM, bridge_proof_delay_ends, bridge_proof_duty, unpack_game},
     state::GraphState,
     watchtower::watchtower_slot_for_operator,
 };
@@ -117,9 +117,11 @@ impl GraphSM {
                 last_block_height,
                 contest_block_height,
                 graph_data,
+                graph_summary,
                 signatures,
                 ..
             } => {
+                let prev_block_height = *last_block_height;
                 *last_block_height = new_block_event.block_height;
                 let payout_timelock =
                     u64::from(cfg.game_graph_params.contested_payout_timelock.value());
@@ -145,6 +147,27 @@ impl GraphSM {
                     return Ok(GSMOutput::with_duties(vec![
                         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
                     ]));
+                }
+
+                // The graph owner must publish a bridge proof to defend against the contest,
+                // anchored at the first block that ends the configured delay. Emit once, on
+                // crossing; retry ticks cover re-emission.
+                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+                if is_own_graph
+                    && bridge_proof_delay_ends(
+                        &cfg,
+                        *contest_block_height,
+                        prev_block_height,
+                        new_block_event.block_height,
+                    )
+                {
+                    return Ok(GSMOutput::with_duties(vec![bridge_proof_duty(
+                        &graph_ctx,
+                        &cfg,
+                        graph_data,
+                        graph_summary.contest,
+                        new_block_event.block_height,
+                    )]));
                 }
 
                 Ok(GSMOutput::new())
@@ -210,6 +233,7 @@ impl GraphSM {
             GraphState::CounterProofPosted {
                 last_block_height,
                 graph_data,
+                graph_summary,
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
@@ -217,6 +241,7 @@ impl GraphSM {
                 counterproofs_and_confs,
                 ..
             } => {
+                let prev_block_height = *last_block_height;
                 *last_block_height = new_block_event.block_height;
 
                 if let Some(slash_duty) = check_slash_timeout(
@@ -262,6 +287,26 @@ impl GraphSM {
                     return Ok(GSMOutput::with_duties(vec![
                         GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx },
                     ]));
+                }
+
+                // A counterproof can land before the owner's bridge proof; the owner still emits
+                // the proof once the configured delay ends.
+                if is_own_graph
+                    && refuted_bridge_proof.is_none()
+                    && bridge_proof_delay_ends(
+                        &cfg,
+                        *contest_block_height,
+                        prev_block_height,
+                        new_block_event.block_height,
+                    )
+                {
+                    return Ok(GSMOutput::with_duties(vec![bridge_proof_duty(
+                        &graph_ctx,
+                        &cfg,
+                        graph_data,
+                        graph_summary.contest,
+                        new_block_event.block_height,
+                    )]));
                 }
 
                 // If the pov operator has NOT submitted a counterproof, return early with no

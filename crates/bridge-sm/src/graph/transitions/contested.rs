@@ -12,7 +12,7 @@ use crate::{
             BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
             CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, StakeSpentEvent,
         },
-        machine::{GSMOutput, GraphSM, bridge_proof_duty},
+        machine::{GSMOutput, GraphSM},
         state::{AbortReason, GraphState},
         watchtower::watchtower_slot_for_operator,
     },
@@ -24,13 +24,12 @@ use crate::{
 impl GraphSM {
     /// Processes the event where a contest transaction has been confirmed on-chain.
     ///
-    /// Only valid from the `Claimed` state transitions to `Contested` state.
-    /// Emits a
-    /// [`GraphDuty::GenerateAndPublishBridgeProof`](crate::graph::duties::GraphDuty::GenerateAndPublishBridgeProof)
-    /// duty if the current operator is the graph owner.
+    /// Only valid from the `Claimed` state transitions to `Contested` state. Emits no duty: the
+    /// graph owner's bridge proof is emitted by `notify_new_block` once the configured delay has
+    /// elapsed.
     pub(crate) fn process_contest(
         &mut self,
-        cfg: Arc<GraphSMCfg>,
+        _cfg: Arc<GraphSMCfg>,
         event: ContestConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
         match self.state.clone() {
@@ -65,21 +64,7 @@ impl GraphSM {
                     payout_connector_spent,
                 };
 
-                // The graph owner must publish a bridge proof to defend against the contest
-                let duties =
-                    if self.context().operator_idx() == self.context().operator_table().pov_idx() {
-                        vec![bridge_proof_duty(
-                            self.context(),
-                            &cfg,
-                            &graph_data,
-                            graph_summary.contest,
-                            last_block_height,
-                        )]
-                    } else {
-                        Vec::new()
-                    };
-
-                Ok(GSMOutput::with_duties(duties))
+                Ok(GSMOutput::new())
             }
             state @ GraphState::Contested { .. } => Err(GSMError::duplicate(state, event.into())),
             state => Err(GSMError::invalid_event(state, event.into(), None)),
