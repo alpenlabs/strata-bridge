@@ -109,7 +109,7 @@ impl GraphSM {
 
                 vec![GraphDuty::GenerateAndPublishBridgeProof {
                     graph_idx: self.context().graph_idx(),
-                    last_block_height: *last_block_height,
+                    anchor_height: *last_block_height,
                     contest_txid: graph_summary.contest,
                     game_index: graph_data.game_index,
                     contest_proof_connector: connectors.contest_proof,
@@ -162,7 +162,7 @@ impl GraphSM {
                     if refuted_bridge_proof.is_none() {
                         duties.push(GraphDuty::GenerateAndPublishBridgeProof {
                             graph_idx: self.context().graph_idx(),
-                            last_block_height: *last_block_height,
+                            anchor_height: *last_block_height,
                             contest_txid: graph_summary.contest,
                             game_index: graph_data.game_index,
                             contest_proof_connector: connectors.contest_proof,

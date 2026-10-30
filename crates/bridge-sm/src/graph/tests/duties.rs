@@ -120,7 +120,7 @@ mod tests {
             (
                 GraphDuty::GenerateAndPublishBridgeProof {
                     graph_idx,
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
+                    anchor_height: INITIAL_BLOCK_HEIGHT,
                     contest_txid: generate_txid(),
                     game_index: deposit_params.game_index,
                     contest_proof_connector: connectors.contest_proof,
