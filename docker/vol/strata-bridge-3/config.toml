@@ -8,6 +8,13 @@ max_fee_rate = 10
 # no new deposit. Deposit requests over the cap are registered as skipped and never acted on; the
 # depositor reclaims them after the recovery delay.
 # max_active_deposits = 100
+# Blocks the graph owner waits after a contest confirms before anchoring and generating the bridge
+# proof. Absent or 0 anchors at the contest block; together with bury_depth it should stay well
+# below proof_timelock.
+# bridge_proof_delay_blocks = 0
+# Blocks the graph owner waits after a bridge proof attempt before generating a fresh one, while
+# none has confirmed. Absent means 6; 0 is rejected.
+# bridge_proof_retry_blocks = 6
 
 [secret_service_client]
 server_addr = "secret-service-3:69"
