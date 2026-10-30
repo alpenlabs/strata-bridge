@@ -12,7 +12,7 @@ use crate::{
             BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
             CounterProofAckConfirmedEvent, CounterProofNackConfirmedEvent, StakeSpentEvent,
         },
-        machine::{GSMOutput, GraphSM, bridge_proof_duty},
+        machine::{GSMOutput, GraphSM},
         state::{AbortReason, GraphState},
         watchtower::watchtower_slot_for_operator,
     },
@@ -24,13 +24,11 @@ use crate::{
 impl GraphSM {
     /// Processes the event where a contest transaction has been confirmed on-chain.
     ///
-    /// Only valid from the `Claimed` state transitions to `Contested` state.
-    /// Emits a
-    /// [`GraphDuty::GenerateAndPublishBridgeProof`](crate::graph::duties::GraphDuty::GenerateAndPublishBridgeProof)
-    /// duty if the current operator is the graph owner.
+    /// Only valid from the `Claimed` state transitions to `Contested` state. Emits no duty; the
+    /// owner's bridge proof comes from `notify_new_block`.
     pub(crate) fn process_contest(
         &mut self,
-        cfg: Arc<GraphSMCfg>,
+        _cfg: Arc<GraphSMCfg>,
         event: ContestConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
         match self.state.clone() {
@@ -61,25 +59,12 @@ impl GraphSM {
                     fulfillment_txid,
                     fulfillment_block_height,
                     contest_block_height: event.contest_block_height,
+                    last_bridge_proof_attempt_height: None,
                     stake_spent,
                     payout_connector_spent,
                 };
 
-                // The graph owner must publish a bridge proof to defend against the contest
-                let duties =
-                    if self.context().operator_idx() == self.context().operator_table().pov_idx() {
-                        vec![bridge_proof_duty(
-                            self.context(),
-                            &cfg,
-                            &graph_data,
-                            graph_summary.contest,
-                            last_block_height,
-                        )]
-                    } else {
-                        Vec::new()
-                    };
-
-                Ok(GSMOutput::with_duties(duties))
+                Ok(GSMOutput::new())
             }
             state @ GraphState::Contested { .. } => Err(GSMError::duplicate(state, event.into())),
             state => Err(GSMError::invalid_event(state, event.into(), None)),
@@ -163,6 +148,7 @@ impl GraphSM {
                 refuted_bridge_proof,
                 counterproofs_and_confs,
                 counterproof_nacks,
+                last_bridge_proof_attempt_height,
                 stake_spent,
                 payout_connector_spent,
                 ..
@@ -209,6 +195,7 @@ impl GraphSM {
                     refuted_bridge_proof: Some((event.tx.clone(), bridge_proof)),
                     counterproofs_and_confs,
                     counterproof_nacks,
+                    last_bridge_proof_attempt_height,
                     stake_spent,
                     payout_connector_spent,
                 };
@@ -235,6 +222,7 @@ impl GraphSM {
                 fulfillment_txid,
                 fulfillment_block_height: _,
                 contest_block_height,
+                last_bridge_proof_attempt_height: _,
                 stake_spent,
                 payout_connector_spent: _,
             } => {
@@ -334,6 +322,7 @@ impl GraphSM {
                 refuted_bridge_proof,
                 counterproofs_and_confs,
                 mut counterproof_nacks,
+                last_bridge_proof_attempt_height,
                 stake_spent,
                 payout_connector_spent,
             } => {
@@ -408,6 +397,7 @@ impl GraphSM {
                         refuted_bridge_proof,
                         counterproofs_and_confs,
                         counterproof_nacks,
+                        last_bridge_proof_attempt_height,
                         stake_spent,
                         payout_connector_spent,
                     };

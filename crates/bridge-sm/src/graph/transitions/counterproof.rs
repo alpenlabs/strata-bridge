@@ -7,6 +7,7 @@ use strata_bridge_tx_graph::{
 };
 use strata_mosaic_client_api::types::{COUNTERPROOF_N_DATA, CompletedSignatures, Signature};
 
+use super::common::check_bridge_proof_attempt;
 use crate::graph::{
     config::GraphSMCfg,
     duties::GraphDuty,
@@ -32,12 +33,27 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
+                mut last_bridge_proof_attempt_height,
                 stake_spent,
                 payout_connector_spent,
                 ..
             } => {
-                let (nack_duties, completed_signatures) =
+                let (mut duties, completed_signatures) =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
+
+                // `notify_new_block` skips the block this transition absorbs, so attempt it here.
+                if let Some(duty) = check_bridge_proof_attempt(
+                    &cfg,
+                    self.context(),
+                    event.counterproof_block_height,
+                    contest_block_height,
+                    last_bridge_proof_attempt_height,
+                    &graph_data,
+                    graph_summary.contest,
+                ) {
+                    last_bridge_proof_attempt_height = Some(event.counterproof_block_height);
+                    duties.push(duty);
+                }
 
                 let mut counterproofs_and_confs = BTreeMap::new();
                 counterproofs_and_confs.insert(
@@ -59,11 +75,12 @@ impl GraphSM {
                     refuted_bridge_proof: None,
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
+                    last_bridge_proof_attempt_height,
                     stake_spent,
                     payout_connector_spent,
                 };
 
-                Ok(GSMOutput::with_duties(nack_duties))
+                Ok(GSMOutput::with_duties(duties))
             }
             GraphState::BridgeProofPosted {
                 last_block_height,
@@ -101,6 +118,7 @@ impl GraphSM {
                     refuted_bridge_proof: Some((bridge_proof_tx, proof)),
                     counterproofs_and_confs,
                     counterproof_nacks: BTreeMap::new(),
+                    last_bridge_proof_attempt_height: None,
                     stake_spent,
                     payout_connector_spent,
                 };
@@ -116,6 +134,7 @@ impl GraphSM {
                 contest_block_height,
                 refuted_bridge_proof,
                 counterproof_nacks,
+                mut last_bridge_proof_attempt_height,
                 stake_spent,
                 payout_connector_spent,
                 ..
@@ -124,8 +143,23 @@ impl GraphSM {
                     return Err(GSMError::duplicate(self.state.clone(), event.into()));
                 }
 
-                let (nack_duties, completed_signatures) =
+                let (mut duties, completed_signatures) =
                     self.validate_counterproof_and_nack(&cfg, &event, &graph_data, &graph_summary)?;
+
+                if refuted_bridge_proof.is_none()
+                    && let Some(duty) = check_bridge_proof_attempt(
+                        &cfg,
+                        self.context(),
+                        event.counterproof_block_height,
+                        contest_block_height,
+                        last_bridge_proof_attempt_height,
+                        &graph_data,
+                        graph_summary.contest,
+                    )
+                {
+                    last_bridge_proof_attempt_height = Some(event.counterproof_block_height);
+                    duties.push(duty);
+                }
 
                 counterproofs_and_confs.insert(
                     event.counterprover_idx,
@@ -146,11 +180,12 @@ impl GraphSM {
                     refuted_bridge_proof,
                     counterproofs_and_confs,
                     counterproof_nacks,
+                    last_bridge_proof_attempt_height,
                     stake_spent,
                     payout_connector_spent,
                 };
 
-                Ok(GSMOutput::with_duties(nack_duties))
+                Ok(GSMOutput::with_duties(duties))
             }
             state => Err(GSMError::invalid_event(state, event.into(), None)),
         }

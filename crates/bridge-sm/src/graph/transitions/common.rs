@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bitcoin::Txid;
 use musig2::secp256k1::schnorr::Signature;
 use strata_bridge_connectors::{Connector, ParentTx, prelude::MultiAnchor};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
@@ -11,7 +12,7 @@ use crate::graph::{
     duties::{GraphDuty, MultiAnchorSpend},
     errors::{GSMError, GSMResult},
     events::NewBlockEvent,
-    machine::{GSMOutput, GraphSM, unpack_game},
+    machine::{GSMOutput, GraphSM, bridge_proof_duty, unpack_game},
     state::GraphState,
     watchtower::{multi_anchor_spend_for_pov, watchtower_slot_for_operator},
 };
@@ -119,7 +120,9 @@ impl GraphSM {
                 last_block_height,
                 contest_block_height,
                 graph_data,
+                graph_summary,
                 signatures,
+                last_bridge_proof_attempt_height,
                 ..
             } => {
                 *last_block_height = new_block_event.block_height;
@@ -158,6 +161,19 @@ impl GraphSM {
                             cpfp_anchor,
                         },
                     ]));
+                }
+
+                if let Some(duty) = check_bridge_proof_attempt(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    *last_bridge_proof_attempt_height,
+                    graph_data,
+                    graph_summary.contest,
+                ) {
+                    *last_bridge_proof_attempt_height = Some(new_block_event.block_height);
+                    return Ok(GSMOutput::with_duties(vec![duty]));
                 }
 
                 Ok(GSMOutput::new())
@@ -223,11 +239,13 @@ impl GraphSM {
             GraphState::CounterProofPosted {
                 last_block_height,
                 graph_data,
+                graph_summary,
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
                 refuted_bridge_proof,
                 counterproofs_and_confs,
+                last_bridge_proof_attempt_height,
                 ..
             } => {
                 *last_block_height = new_block_event.block_height;
@@ -280,6 +298,22 @@ impl GraphSM {
                             cpfp_anchor,
                         },
                     ]));
+                }
+
+                // A counterproof can confirm before the owner's bridge proof, which is still owed.
+                if refuted_bridge_proof.is_none()
+                    && let Some(duty) = check_bridge_proof_attempt(
+                        &cfg,
+                        &graph_ctx,
+                        new_block_event.block_height,
+                        *contest_block_height,
+                        *last_bridge_proof_attempt_height,
+                        graph_data,
+                        graph_summary.contest,
+                    )
+                {
+                    *last_bridge_proof_attempt_height = Some(new_block_event.block_height);
+                    return Ok(GSMOutput::with_duties(vec![duty]));
                 }
 
                 // If the pov operator has NOT submitted a counterproof, return early with no
@@ -409,6 +443,28 @@ impl GraphSM {
             )),
         }
     }
+}
+
+/// If the POV operator owns the graph, the delay past the contest has elapsed and the last attempt
+/// is at least the retry interval old, returns a [`GraphDuty::GenerateAndPublishBridgeProof`]
+/// anchored at `block_height`. With a delay of `0` this fires on the contest block.
+pub(super) fn check_bridge_proof_attempt(
+    cfg: &GraphSMCfg,
+    graph_ctx: &GraphSMCtx,
+    block_height: BitcoinBlockHeight,
+    contest_block_height: BitcoinBlockHeight,
+    last_attempt_height: Option<BitcoinBlockHeight>,
+    graph_data: &DepositParams,
+    contest_txid: Txid,
+) -> Option<GraphDuty> {
+    let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+    let delay_elapsed =
+        block_height >= contest_block_height + u64::from(cfg.bridge_proof_delay_blocks);
+    let retry_due = last_attempt_height
+        .is_none_or(|last| block_height >= last + u64::from(cfg.bridge_proof_retry_blocks.get()));
+
+    (is_own_graph && delay_elapsed && retry_due)
+        .then(|| bridge_proof_duty(graph_ctx, cfg, graph_data, contest_txid, block_height))
 }
 
 /// If the payout timelock has expired and the POV operator does not own the graph,

@@ -1,6 +1,6 @@
 //! Configuration of graph state machines.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, num::NonZeroU16};
 
 use bitcoin::Amount;
 use bitcoin_bosd::Descriptor;
@@ -10,6 +10,8 @@ use strata_bridge_tx_graph::game_graph::{AdminMultisig, ProtocolParams};
 use strata_predicate::PredicateKey;
 
 /// Configuration for a graph state machine.
+///
+/// The `bridge_proof_*` fields are operator-local; the rest are protocol-wide.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphSMCfg {
     /// Parameters of the Game Graph that are inherent to the protocol.
@@ -34,6 +36,12 @@ pub struct GraphSMCfg {
 
     /// Predicate key used to verify bridge counterproof.
     pub counterproof_predicate: PredicateKey,
+
+    /// Blocks past the contest block before the owner anchors its first bridge proof attempt.
+    pub bridge_proof_delay_blocks: u16,
+
+    /// Blocks between the owner's bridge proof attempts until one confirms.
+    pub bridge_proof_retry_blocks: NonZeroU16,
 }
 
 #[cfg(test)]
@@ -77,6 +85,8 @@ mod tests {
             payout_descs: BTreeMap::from([(0, random_p2tr_desc()), (1, random_p2tr_desc())]),
             bridge_proof_predicate: PredicateKey::always_accept(),
             counterproof_predicate: PredicateKey::always_accept(),
+            bridge_proof_delay_blocks: 2,
+            bridge_proof_retry_blocks: NonZeroU16::new(6).unwrap(),
         };
 
         let bytes = postcard::to_allocvec(&cfg).expect("config must serialize");
