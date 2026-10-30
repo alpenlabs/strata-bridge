@@ -13,6 +13,7 @@ use std::{
 
 use bitcoin::{
     absolute,
+    bip32::Xpriv,
     hashes::{sha256, Hash},
     hex::FromHex,
     secp256k1::{Keypair, SECP256K1},
@@ -23,6 +24,7 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use corepc_node::{Conf, Node};
 use serde_json::{json, Value};
 use strata_bridge_connectors::{prelude::ClaimPayoutConnector, Connector};
+use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys};
 
 fn public_key(byte: u8) -> bitcoin::XOnlyPublicKey {
     Keypair::from_seckey_slice(SECP256K1, &[byte; 32])
@@ -98,7 +100,13 @@ fn inspect_sign_assemble_and_publish_with_separate_funding() {
     let blocks = rpc.generate_to_address(101, &address).unwrap();
     let coinbase = rpc.get_block(&blocks[0]).unwrap().txdata[0].clone();
     let hash = sha256::Hash::hash(&[5; 32]);
-    let admin_keys: Vec<_> = (1..=3).map(public_key).collect();
+    let operator_seed = [42; 32];
+    let master = Xpriv::new_master(Network::Regtest, &operator_seed).unwrap();
+    let operator_keys = OperatorKeys::new(&master).unwrap();
+    let mut admin_keys: Vec<_> = (1..=3).map(public_key).collect();
+    admin_keys[0] = Musig2Keys::derive(operator_keys.base_xpriv())
+        .unwrap()
+        .pubkey();
     let connector =
         ClaimPayoutConnector::new(Network::Regtest, public_key(4), admin_keys.clone(), 2, hash);
     let claim = Transaction {
@@ -176,6 +184,14 @@ unstaking_timelock = 2_016
     );
 
     fs::write(&params, &params_text).unwrap();
+    let seed_file = directory.path().join("operator-seed");
+    fs::write(&seed_file, operator_seed).unwrap();
+
+    let wrong_seed_file = directory.path().join("wrong-operator-seed");
+    fs::write(&wrong_seed_file, [43; 32]).unwrap();
+    let mut wrong_seed = command(&config, &params, claim_txid, hash, "sign");
+    wrong_seed.arg("--operator-seed-file").arg(&wrong_seed_file);
+    assert_failure(wrong_seed.output().unwrap(), "is not in the admin set");
 
     // Inspection works without any private key file and reports the matched connector.
     let inspected = run(&config, &params, claim_txid, hash, None);
@@ -205,10 +221,15 @@ unstaking_timelock = 2_016
     let mempool_before = rpc.get_raw_mempool().unwrap();
     let mut signatures = Vec::new();
     for (index, admin_key) in admin_keys.iter().enumerate().take(2) {
-        let key = directory.path().join(format!("admin-{}", index + 1));
-        fs::write(&key, format!("{:02x}", index + 1).repeat(32)).unwrap();
-
-        let signed = run(&config, &params, claim_txid, hash, Some(&key));
+        let signed = if index == 0 {
+            let mut sign = command(&config, &params, claim_txid, hash, "sign");
+            sign.arg("--operator-seed-file").arg(&seed_file);
+            sign.output().unwrap()
+        } else {
+            let key = directory.path().join(format!("admin-{}", index + 1));
+            fs::write(&key, format!("{:02x}", index + 1).repeat(32)).unwrap();
+            run(&config, &params, claim_txid, hash, Some(&key))
+        };
 
         assert!(
             signed.status.success(),

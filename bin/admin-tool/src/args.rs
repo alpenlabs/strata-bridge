@@ -31,8 +31,15 @@ pub(crate) enum Command {
         #[command(flatten)]
         claim: ClaimArgs,
         /// Existing admin private key file: 64 hex characters, with optional whitespace.
+        #[arg(
+            long,
+            required_unless_present = "operator_seed_file",
+            conflicts_with = "operator_seed_file"
+        )]
+        signer_file: Option<PathBuf>,
+        /// Operator seed file: exactly 32 raw bytes; derives the operator's covenant key.
         #[arg(long)]
-        signer_file: PathBuf,
+        operator_seed_file: Option<PathBuf>,
     },
     /// Verify shared admin signatures and print a transaction for external funding.
     Assemble {
@@ -64,4 +71,35 @@ pub(crate) struct ClaimArgs {
     /// Public SHA-256 hash in the unstaking script; no secret preimage is needed.
     #[arg(long)]
     pub unstaking_hash: sha256::Hash,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sign_requires_exactly_one_key_source() {
+        let claim = "11".repeat(32);
+        let hash = "22".repeat(32);
+        let args = [
+            "admin-tool",
+            "sign",
+            "--claim-txid",
+            &claim,
+            "--unstaking-hash",
+            &hash,
+        ];
+
+        assert!(Cli::try_parse_from(args).is_err());
+        for flag in ["--signer-file", "--operator-seed-file"] {
+            assert!(Cli::try_parse_from(args.into_iter().chain([flag, "key-file"])).is_ok());
+        }
+        assert!(Cli::try_parse_from(args.into_iter().chain([
+            "--signer-file",
+            "admin-key",
+            "--operator-seed-file",
+            "operator-seed",
+        ]))
+        .is_err());
+    }
 }

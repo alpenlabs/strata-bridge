@@ -11771,6 +11771,7 @@ dependencies = [
  "serde_json",
  "strata-bridge-common",
  "strata-bridge-connectors",
+ "strata-bridge-key-deriv",
  "strata-bridge-tx-graph",
  "tempfile",
  "tokio",

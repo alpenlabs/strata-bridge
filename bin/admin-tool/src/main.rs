@@ -38,9 +38,20 @@ async fn main() -> Result<()> {
         Command::Inspect(_) => {
             write_summary(&mut io::stdout(), params.network, &request, confirmations)?;
         }
-        Command::Sign { signer_file, .. } => {
-            let signer = FileAdminSigner::from_path(&signer_file)
-                .context("could not load the admin private key file")?;
+        Command::Sign {
+            signer_file,
+            operator_seed_file,
+            ..
+        } => {
+            let signer = match (signer_file, operator_seed_file) {
+                (Some(path), None) => FileAdminSigner::from_path(&path)
+                    .context("could not load the admin private key file")?,
+                (None, Some(path)) => {
+                    FileAdminSigner::from_operator_seed_path(&path, params.network)
+                        .context("could not load the operator seed file")?
+                }
+                _ => unreachable!("clap requires exactly one signing key source"),
+            };
             let public_key = signer.public_key().await?;
 
             let mut summary = io::stderr();

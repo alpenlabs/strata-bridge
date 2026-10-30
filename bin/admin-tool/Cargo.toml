@@ -21,6 +21,7 @@ hex.workspace = true
 serde.workspace = true
 strata-bridge-common.workspace = true
 strata-bridge-connectors.workspace = true
+strata-bridge-key-deriv.workspace = true
 strata-bridge-tx-graph.workspace = true
 tokio.workspace = true
 toml.workspace = true

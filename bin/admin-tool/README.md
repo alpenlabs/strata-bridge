@@ -46,7 +46,12 @@ It prints the claim outpoint, confirmation count, ordered admin keys, threshold,
 
 ## 2. Sign
 
-Supply an existing admin private key file containing 64 hex characters, with optional surrounding whitespace. The key must correspond to one of the configured admin public keys. This format is a private key, not a seed, mnemonic, or WIF; the tool does not generate keys or derive them from seeds.
+Use exactly one signing input:
+
+- `--signer-file`: an admin private key as 64 hex characters, with optional surrounding whitespace.
+- `--operator-seed-file`: exactly 32 raw seed bytes, as used by the bridge secret service. The tool derives the operator's covenant key using the shared key-derivation library. Use this when an operator's covenant public key is also a configured admin key, as in staging.
+
+Both inputs must resolve to one of the configured admin public keys. Hex-encoded seeds, mnemonics, and WIF are not accepted as operator seed files. The derived private key stays in memory; the tool does not export a key file.
 
 ```bash
 ./target/debug/admin-tool sign \
@@ -55,6 +60,12 @@ Supply an existing admin private key file containing 64 hex characters, with opt
   --unstaking-hash <UNSTAKING_HASH> \
   --signer-file /path/to/admin-key \
   > alice.sig
+```
+
+For an operator seed file, replace `--signer-file` with:
+
+```bash
+  --operator-seed-file /path/to/operator-seed
 ```
 
 Signing repeats validation independently of any earlier inspection. The review summary, signing digest, and admin public key go to stderr; stdout contains only the signature hex for sharing. The returned signature is verified before export.
@@ -102,7 +113,7 @@ That flexibility also allows funding substitution: an attacker can reuse the pub
 
 The publisher can rebroadcast the original burn, but a delay could let the operator's reimbursement confirm first. Monitor confirmation and retry as needed; broadcasting alone does not complete the intervention. One eviction-and-recovery cycle has been demonstrated locally, but sustained-attack costs and reliability have not been measured.
 
-The `AdminSigner` interface exposes public-key identification and digest signing. The current backend reads a private key file; future S2 or HSM backends can keep private material inside the backend.
+The `AdminSigner` interface exposes public-key identification and digest signing. The current backend loads a private key file or derives a key from an operator seed file; future S2 or HSM backends can keep private material inside the backend.
 
 None of the commands fund or broadcast a transaction. All require a live RPC connection. They report confirmations but impose no minimum confirmation count; unspent status is checked at the time of the request.
 
@@ -114,4 +125,4 @@ With `bitcoind` available on `PATH`:
 cargo test --locked -p strata-bridge-admin-tool
 ```
 
-The integration test runs the real CLI against a temporary Bitcoin Core regtest node, collects two independent admin signatures, assembles the burn through the CLI, adds funding through an external Core wallet, and mines the resulting spend.
+The integration test runs the real CLI against a temporary Bitcoin Core regtest node, collects admin signatures using both a private key file and an operator seed file, assembles the burn through the CLI, adds funding through an external Core wallet, and mines the resulting spend.

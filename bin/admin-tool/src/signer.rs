@@ -3,7 +3,12 @@
 use std::{fmt, fs::File, io::Read, path::Path};
 
 use anyhow::{anyhow, ensure, Context, Result};
-use bitcoin::secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
+use bitcoin::{
+    bip32::Xpriv,
+    secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1},
+    Network,
+};
+use strata_bridge_key_deriv::{Musig2Keys, OperatorKeys};
 use zeroize::Zeroizing;
 
 /// Async interface for file, S2, or HSM backends; signing uses the untweaked admin key.
@@ -13,7 +18,7 @@ pub(super) trait AdminSigner: Send + Sync {
     async fn sign_digest(&self, digest: [u8; 32]) -> Result<schnorr::Signature>;
 }
 
-/// Contents of existing private key file: 64 hex characters
+/// In-memory signing key loaded from a private key file or derived from an operator seed file.
 pub(super) struct FileAdminSigner {
     /// Untweaked signing key, kept inside this backend.
     keypair: Keypair,
@@ -36,6 +41,25 @@ impl FileAdminSigner {
             .context("invalid admin private key")?;
 
         Ok(Self { keypair })
+    }
+
+    pub(super) fn from_operator_seed_path(path: &Path, network: Network) -> Result<Self> {
+        let mut seed = Zeroizing::new(Vec::new());
+        File::open(path)?.take(33).read_to_end(&mut seed)?;
+        ensure!(
+            seed.len() == 32,
+            "operator seed file must contain exactly 32 raw bytes, not hex or a mnemonic"
+        );
+
+        let mut master = Xpriv::new_master(network, &seed)?;
+        let operator_keys = OperatorKeys::new(&master);
+        master.private_key.non_secure_erase();
+        let operator_keys = operator_keys?;
+        let keys = Musig2Keys::derive(operator_keys.base_xpriv())?;
+
+        Ok(Self {
+            keypair: *keys.keypair,
+        })
     }
 }
 
