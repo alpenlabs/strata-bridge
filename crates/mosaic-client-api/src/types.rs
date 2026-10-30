@@ -40,10 +40,14 @@ pub type DepositInputs = [u8; N_DEPOSIT_INPUT_WIRES];
 /// Inputs for withdrawal input wires. Corresponds to counterproof.
 pub type WithdrawalInputs = [u8; N_WITHDRAWAL_INPUT_WIRES];
 
+/// Number of counterproof data bytes, one per deposit and withdrawal input wire: the deposit idx
+/// followed by the compressed Groth16 proof.
+pub const COUNTERPROOF_N_DATA: usize = N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES;
+
 /// Txn sighashes to be used in adaptor signatures.
-pub type DepositSighashes = [Sighash; N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES];
+pub type DepositSighashes = [Sighash; COUNTERPROOF_N_DATA];
 /// Completed adaptor signatures corresponding to the [`DepositSighashes`].
-pub type CompletedSignatures = [Signature; N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES];
+pub type CompletedSignatures = [Signature; COUNTERPROOF_N_DATA];
 
 /// Raw Groth16 proof bytes.
 #[derive(Debug, Clone, Copy)]

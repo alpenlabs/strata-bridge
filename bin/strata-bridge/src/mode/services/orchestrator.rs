@@ -31,7 +31,7 @@ use strata_bridge_tx_graph::{
     game_graph::{AdminMultisig, ProtocolParams as TxGraphProtocolParams},
     stake_graph::ProtocolParams as StakeGraphProtocolParams,
 };
-use strata_mosaic_client_api::MosaicClientApi;
+use strata_mosaic_client_api::{MosaicClientApi, types::COUNTERPROOF_N_DATA};
 use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{
@@ -257,9 +257,6 @@ fn orchestrator_stale_after(config: &Config) -> Duration {
 }
 
 pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMConfig {
-    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2665>
-    // Import this from the counterproof module once it exists.
-    const COUNTERPROOF_N_DATA: usize = 128 + 4; // proof bytes (groth16) + deposit_idx (4 bytes)
     let network = params.network;
     let magic_bytes = params.protocol.magic_bytes;
     let deposit_amount = params.protocol.deposit_amount;
