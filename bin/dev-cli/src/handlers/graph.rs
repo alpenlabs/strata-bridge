@@ -4,6 +4,7 @@ use bitcoin::relative;
 use strata_bridge_common::params::Params;
 use strata_bridge_rpc::types::RpcGraphData;
 use strata_bridge_tx_graph::game_graph::{GameConnectors, GameData, GameGraph, ProtocolParams};
+use strata_mosaic_client_api::types::COUNTERPROOF_N_DATA;
 
 /// Reconstructs the game graph from protocol params and graph data fetched from the bridge node.
 pub(crate) fn build_game_graph(
@@ -20,10 +21,7 @@ pub(crate) fn build_game_graph(
         contested_payout_timelock: relative::Height::from(
             params.protocol.contested_payout_timelock,
         ),
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2945>
-        // use the COUNTERPROOF_N_DATA constant in a future refactor
-        // proof bytes (groth16) + deposit_idx (4 bytes)
-        counterproof_n_data: NonZero::new(128 + 4).expect("non-zero"),
+        counterproof_n_data: NonZero::new(COUNTERPROOF_N_DATA).expect("non-zero"),
         deposit_amount: params.protocol.deposit_amount,
         stake_amount: params.protocol.stake_amount,
     };

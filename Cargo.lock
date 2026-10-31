@@ -3932,6 +3932,7 @@ dependencies = [
  "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.3)",
  "strata-l1-envelope-fmt",
  "strata-l1-txfmt",
+ "strata-mosaic-client-api",
  "strata-ol-bridge-types",
  "strata-test-utils-arb",
  "tokio",

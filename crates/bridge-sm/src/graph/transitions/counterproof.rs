@@ -5,9 +5,7 @@ use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors, GameGraphSummary},
     transactions::prelude::{CounterproofNackData, CounterproofNackTx},
 };
-use strata_mosaic_client_api::types::{
-    CompletedSignatures, N_DEPOSIT_INPUT_WIRES, N_WITHDRAWAL_INPUT_WIRES, Signature,
-};
+use strata_mosaic_client_api::types::{COUNTERPROOF_N_DATA, CompletedSignatures, Signature};
 
 use crate::graph::{
     config::GraphSMCfg,
@@ -230,10 +228,9 @@ impl GraphSM {
         counterproof_tx: &Transaction,
         event: &CounterProofConfirmedEvent,
     ) -> GSMResult<CompletedSignatures> {
-        const N: usize = N_DEPOSIT_INPUT_WIRES + N_WITHDRAWAL_INPUT_WIRES;
         // `+ 3` accounts for the trailing n-of-n signature, leaf script, and control block
         // that follow the per-byte operator signatures in the counterproof witness.
-        const WANT: usize = N + 3;
+        const WANT: usize = COUNTERPROOF_N_DATA + 3;
 
         let witness_len = counterproof_tx.input[0].witness.len();
         if witness_len != WANT {
