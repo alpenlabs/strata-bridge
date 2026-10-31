@@ -5,7 +5,8 @@ mod tests {
 
     use crate::{
         deposit::tests::*,
-        prop_deterministic, prop_no_silent_acceptance, prop_terminal_states_reject,
+        prop_deterministic, prop_no_silent_acceptance, prop_terminal_states_ignore_ticks,
+        prop_terminal_states_reject,
         signals::{DepositSignal, DepositToGraph},
         testing::transition::EventSequence,
     };
@@ -27,22 +28,27 @@ mod tests {
         get_state,
         test_deposit_sm_cfg(),
         any::<DepositState>(),
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2674>
-        // Replace `arb_handled_events()` with `any::<DepositEvent>()` once all STFs are
-        // implemented.
-        arb_handled_events()
+        prop_oneof![arb_stf_events(), arb_nag_received_events()]
     );
 
     // Property: Terminal states reject all events
     prop_terminal_states_reject!(
         DepositSM,
         create_sm,
+        get_state,
         test_deposit_sm_cfg(),
         arb_terminal_state(),
-        // TODO: <https://alpenlabs.atlassian.net/browse/STR-2674>
-        // Replace `arb_handled_events()` with `any::<DepositEvent>()` once all STFs are
-        // implemented.
-        arb_handled_events()
+        prop_oneof![arb_stf_events(), arb_nag_received_events()]
+    );
+
+    // Property: Terminal states ignore ticks
+    prop_terminal_states_ignore_ticks!(
+        DepositSM,
+        create_sm,
+        get_state,
+        test_deposit_sm_cfg(),
+        arb_terminal_state(),
+        arb_tick_events()
     );
 
     #[derive(Debug, Clone, Copy)]

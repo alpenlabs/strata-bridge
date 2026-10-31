@@ -177,13 +177,14 @@ mod tests {
 
     #[test]
     fn test_retry_tick_noop_in_fulfilled_for_nonpov_graph() {
-        // Non-POV graph should not emit claim even if coop payout failed
+        // Non-POV graph should not emit claim even if coop payout failed and the owner is the
+        // assignee
         let state = GraphState::Fulfilled {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             graph_data: test_deposit_params(),
             graph_summary: test_graph_summary(),
             coop_payout_failed: true,
-            assignee: TEST_ASSIGNEE,
+            assignee: TEST_POV_IDX,
             signatures: Default::default(),
             fulfillment_txid: generate_txid(),
             fulfillment_block_height: FULFILLMENT_BLOCK_HEIGHT,
@@ -308,9 +309,10 @@ mod tests {
 
     #[test]
     fn test_retry_tick_noop_in_claimed_with_valid_fulfillment() {
+        // A watchtower only contests a claim that has no fulfillment behind it
         let state = claimed_state(LATER_BLOCK_HEIGHT, generate_txid(), Default::default());
 
-        test_pov_owned_handler_output(
+        test_nonpov_owned_handler_output(
             test_graph_sm_cfg(),
             GraphHandlerOutput {
                 state,

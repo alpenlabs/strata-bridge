@@ -109,7 +109,7 @@ fn event_rejected_invalid_operator_idx() {
             counterproof_ack_block_height: ACK_BLOCK_HEIGHT,
             counterprover_idx: u32::MAX,
         }),
-        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        expected_error: |e| matches!(e, GSMError::Rejected { reason, .. } if reason.contains("not in operator table")),
     });
 }
 

@@ -3,15 +3,17 @@
 use bitcoin::Transaction;
 use proptest::prelude::*;
 use strata_bridge_connectors::prelude::UnstakingIntentWitness;
+use strata_bridge_p2p_types::NagRequestPayload;
 
 use super::*;
 use crate::{
-    prop_deterministic, prop_no_silent_acceptance, prop_terminal_states_reject,
+    prop_deterministic, prop_no_silent_acceptance, prop_terminal_states_ignore_ticks,
+    prop_terminal_states_reject,
     stake::{
         events::{
-            NewBlockEvent, PreimageRevealedEvent, StakeConfirmedEvent, StakeDataReceivedEvent,
-            StakeEvent, UnstakingConfirmedEvent, UnstakingNoncesReceivedEvent,
-            UnstakingPartialsReceivedEvent,
+            NagReceivedEvent, NagTickEvent, NewBlockEvent, PreimageRevealedEvent, RetryTickEvent,
+            SlashConfirmedEvent, StakeConfirmedEvent, StakeDataReceivedEvent, StakeEvent,
+            UnstakingConfirmedEvent, UnstakingNoncesReceivedEvent, UnstakingPartialsReceivedEvent,
         },
         state::StakeState,
     },
@@ -41,9 +43,20 @@ prop_no_silent_acceptance!(
 prop_terminal_states_reject!(
     StakeSM,
     create_state_machine,
+    get_state,
     TEST_CFG.clone(),
     any_terminal_state(),
     any_event()
+);
+
+// Property: Terminal states should ignore ticks.
+prop_terminal_states_ignore_ticks!(
+    StakeSM,
+    create_state_machine,
+    get_state,
+    TEST_CFG.clone(),
+    any_terminal_state(),
+    any_tick_event()
 );
 
 impl Arbitrary for StakeState {
@@ -52,29 +65,44 @@ impl Arbitrary for StakeState {
 
     fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         let last_block_height = 0u64..1_000u64;
+        // The collecting states are generated both complete and still waiting on one operator,
+        // so the collecting branch of the nonce and partial handlers is reached.
+        let missing_operator = proptest::option::of(0..TEST_N_OPERATORS as u32);
 
         prop_oneof![
             last_block_height
                 .clone()
                 .prop_map(|last_block_height| StakeState::Created { last_block_height }),
-            last_block_height.clone().prop_map(|last_block_height| {
-                StakeState::StakeGraphGenerated {
-                    last_block_height,
-                    stake_data: TEST_STAKE_DATA.clone(),
-                    summary: *TEST_GRAPH_SUMMARY,
-                    pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+            (last_block_height.clone(), missing_operator.clone()).prop_map(
+                |(last_block_height, missing_operator)| {
+                    let mut pub_nonces = TEST_PUB_NONCES_MAP.clone();
+                    if let Some(idx) = missing_operator {
+                        pub_nonces.remove(&idx);
+                    }
+                    StakeState::StakeGraphGenerated {
+                        last_block_height,
+                        stake_data: TEST_STAKE_DATA.clone(),
+                        summary: *TEST_GRAPH_SUMMARY,
+                        pub_nonces,
+                    }
                 }
-            }),
-            last_block_height.clone().prop_map(|last_block_height| {
-                StakeState::UnstakingNoncesCollected {
-                    last_block_height,
-                    stake_data: TEST_STAKE_DATA.clone(),
-                    summary: *TEST_GRAPH_SUMMARY,
-                    pub_nonces: TEST_PUB_NONCES_MAP.clone(),
-                    agg_nonces: TEST_AGG_NONCES.clone().boxed(),
-                    partial_signatures: TEST_PARTIAL_SIGS_MAP.clone(),
+            ),
+            (last_block_height.clone(), missing_operator).prop_map(
+                |(last_block_height, missing_operator)| {
+                    let mut partial_signatures = TEST_PARTIAL_SIGS_MAP.clone();
+                    if let Some(idx) = missing_operator {
+                        partial_signatures.remove(&idx);
+                    }
+                    StakeState::UnstakingNoncesCollected {
+                        last_block_height,
+                        stake_data: TEST_STAKE_DATA.clone(),
+                        summary: *TEST_GRAPH_SUMMARY,
+                        pub_nonces: TEST_PUB_NONCES_MAP.clone(),
+                        agg_nonces: TEST_AGG_NONCES.clone().boxed(),
+                        partial_signatures,
+                    }
                 }
-            }),
+            ),
             last_block_height
                 .clone()
                 .prop_map(|last_block_height| StakeState::UnstakingSigned {
@@ -109,15 +137,33 @@ impl Arbitrary for StakeState {
 }
 
 fn any_terminal_state() -> impl Strategy<Value = StakeState> {
-    Just(StakeState::Unstaked {
-        preimage: TEST_UNSTAKING_PREIMAGE,
-        unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
-    })
+    prop_oneof![
+        Just(StakeState::Unstaked {
+            preimage: TEST_UNSTAKING_PREIMAGE,
+            unstaking_txid: TEST_GRAPH_SUMMARY.unstaking,
+        }),
+        Just(StakeState::Slashed {
+            summary: *TEST_GRAPH_SUMMARY,
+            slash_txid: slash_tx().compute_txid(),
+            preimage: None,
+        }),
+        Just(StakeState::Slashed {
+            summary: *TEST_GRAPH_SUMMARY,
+            slash_txid: slash_tx().compute_txid(),
+            preimage: Some(TEST_UNSTAKING_PREIMAGE),
+        }),
+    ]
 }
 
-// `impl Arbitrary for StakeEvent` without handlers:
-// - `StakeEvent::NagTick`
-// - `StakeEvent::RetryTick`
+/// The tick events, which terminal states ignore rather than reject.
+fn any_tick_event() -> impl Strategy<Value = StakeEvent> {
+    prop_oneof![
+        Just(StakeEvent::NagTick(NagTickEvent)),
+        Just(StakeEvent::RetryTick(RetryTickEvent)),
+    ]
+}
+
+/// `impl Arbitrary for StakeEvent` without the ticks, which [`any_tick_event`] covers.
 fn any_event() -> impl Strategy<Value = StakeEvent> {
     let block_height = 0u64..1_000u64;
     let operator_idx = 0..TEST_N_OPERATORS as u32;
@@ -134,7 +180,7 @@ fn any_event() -> impl Strategy<Value = StakeEvent> {
                 pub_nonces: TEST_PUB_NONCES_MAP[&operator_idx].clone().into(),
             })
         }),
-        operator_idx.prop_map(|operator_idx| {
+        operator_idx.clone().prop_map(|operator_idx| {
             StakeEvent::UnstakingPartialsReceived(UnstakingPartialsReceivedEvent {
                 operator_idx,
                 partial_signatures: TEST_PARTIAL_SIGS_MAP[&operator_idx],
@@ -152,7 +198,18 @@ fn any_event() -> impl Strategy<Value = StakeEvent> {
         Just(StakeEvent::UnstakingConfirmed(UnstakingConfirmedEvent {
             tx: signed_unstaking_tx(),
         })),
+        Just(StakeEvent::SlashConfirmed(SlashConfirmedEvent {
+            tx: slash_tx()
+        })),
         block_height.prop_map(|block_height| StakeEvent::NewBlock(NewBlockEvent { block_height })),
+        operator_idx.prop_map(|sender_operator_idx| {
+            StakeEvent::NagReceived(NagReceivedEvent {
+                payload: NagRequestPayload::UnstakingData {
+                    stake_key: TEST_CTX.stake_key(),
+                },
+                sender_operator_idx,
+            })
+        }),
     ]
 }
 

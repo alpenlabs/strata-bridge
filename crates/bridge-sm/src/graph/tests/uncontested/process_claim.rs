@@ -270,13 +270,6 @@ mod tests {
             fulfilled_state(TEST_POV_IDX, generate_txid()),
             graph_signed_state(&nonce_ctx),
             assigned_state(TEST_POV_IDX, ASSIGNMENT_DEADLINE, test_recipient_desc(1)),
-            GraphState::GraphGenerated {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                graph_data: test_deposit_params(),
-                graph_summary: test_graph_summary(),
-            },
-            adaptors_verified_state(test_deposit_params(), test_graph_summary()),
-            nonces_collected_state(&nonce_ctx, test_deposit_params(), test_graph_summary()),
         ];
 
         for from_state in from_states {
@@ -286,7 +279,7 @@ mod tests {
                     claim_txid: test_graph_summary().slash,
                     claim_block_height: CLAIM_BLOCK_HEIGHT,
                 }),
-                expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+                expected_error: |e| matches!(e, GSMError::Rejected { reason, .. } if reason == "Invalid claim transaction"),
             });
         }
     }

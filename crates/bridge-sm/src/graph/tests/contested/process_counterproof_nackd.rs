@@ -299,7 +299,7 @@ fn event_rejected_invalid_operator_idx() {
     test_graph_invalid_transition(GraphInvalidTransition {
         from_state: counter_proof_posted_state_with_nacks(&[]),
         event: GraphEvent::CounterProofNackConfirmed(event),
-        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
+        expected_error: |e| matches!(e, GSMError::Rejected { reason, .. } if reason.contains("not in operator table")),
     });
 }
 
