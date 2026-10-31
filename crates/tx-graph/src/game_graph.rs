@@ -637,7 +637,7 @@ impl GameConnectors {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, transaction::Version, TxOut};
+    use bitcoin::{hashes::Hash, taproot, transaction::Version, TapSighashType, TxOut};
     use secp256k1::{rand::random, Keypair, SECP256K1};
     use strata_bridge_connectors::{
         prelude::{AdminSignature, ContestCounterproofWitness},
@@ -922,7 +922,10 @@ mod tests {
                 .take(ADMIN_THRESHOLD)
                 .map(|(pubkey_index, keypair)| AdminSignature {
                     pubkey_index,
-                    signature: signing_info.sign(keypair),
+                    signature: taproot::Signature {
+                        signature: signing_info.sign(keypair),
+                        sighash_type: TapSighashType::Default,
+                    },
                 })
                 .collect();
             let admin_burn = admin_burn.finalize_partial(admin_signatures);

@@ -11901,6 +11901,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-admin-tool"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "clap",
+ "corepc-node",
+ "hex",
+ "serde",
+ "serde_json",
+ "strata-bridge-common",
+ "strata-bridge-connectors",
+ "strata-bridge-key-deriv",
+ "strata-bridge-tx-graph",
+ "tempfile",
+ "tokio",
+ "toml 0.8.23",
+ "zeroize",
+]
+
+[[package]]
 name = "strata-bridge-asm-events"
 version = "0.1.0"
 dependencies = [
