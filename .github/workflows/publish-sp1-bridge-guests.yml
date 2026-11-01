@@ -126,7 +126,7 @@ jobs:
           rustup default "$RUST_NIGHTLY"
 
       - name: Rust cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           cache-on-failure: true
 
@@ -186,7 +186,7 @@ jobs:
         run: python3 .github/scripts/guest_publish.py summarize
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@d979d5b3a71173a29b74b5b88418bfda9437d885 # v6.1.1
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::496607027995:role/github-actions-strata-bridge-circuit-s3
           aws-region: ${{ env.AWS_REGION }}
@@ -200,7 +200,7 @@ jobs:
         run: python3 .github/scripts/guest_publish.py upload
 
       - name: Upload elfs/ as workflow artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sp1-bridge-guests-${{ inputs.env }}-asm-${{ inputs.asm_tag }}-moho-${{ inputs.moho_tag }}-${{ github.run_id }}
           path: guest-builder/sp1/elfs/
