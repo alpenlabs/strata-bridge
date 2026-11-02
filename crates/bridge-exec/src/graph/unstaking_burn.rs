@@ -1,14 +1,14 @@
 //! Executor for the unstaking burn transaction.
 
 use bitcoin::{FeeRate, OutPoint, ScriptBuf, Transaction, TxIn, TxOut};
-use btc_tracker::event::TxStatus;
+use btc_tracker::cpfp::DeadlineClass;
 use operator_wallet::{FundingInput, LeaseOwner, OperatorWallet, SqliteStore};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
 use tracing::{debug, info, warn};
 
 use crate::{
-    chain::{self, ConnectorFunding},
+    chain::{self, ConnectorFunding, CpfpKind},
     config::ExecutionConfig,
     errors::ExecutorError,
     fees::burn_fee_rate,
@@ -50,6 +50,7 @@ pub(super) async fn publish_unstaking_burn(
         input,
         lease,
         change,
+        fee,
     } = {
         let mut wallet = output_handles.wallet.write().await;
         select_funding(
@@ -70,11 +71,16 @@ pub(super) async fn publish_unstaking_burn(
             .await?;
 
     info!(%graph_idx, txid = %signed_tx.compute_txid(), "publishing unstaking burn transaction");
+    // The change at vout 0 is above dust, so a child can spend it.
     chain::publish_leased_transaction(
         output_handles,
         &signed_tx,
         "unstaking burn",
-        TxStatus::is_buried,
+        CpfpKind::PayoutCombined {
+            payout_vout: 0,
+            parent_fee: chain::ParentFee::Exact(fee),
+            deadline: DeadlineClass::NoDeadline,
+        },
         lease,
     )
     .await

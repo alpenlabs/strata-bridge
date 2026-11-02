@@ -1,5 +1,7 @@
 //! Unit tests for [`StakeSM::process_unstaking_partials_received`].
 
+use strata_bridge_connectors::{Connector, ParentTx};
+
 use super::*;
 use crate::stake::{errors::SSMError, events::UnstakingPartialsReceivedEvent, state::StakeState};
 
@@ -92,6 +94,7 @@ fn accept_partials_all_collected_pov() {
         expected_duties: vec![StakeDuty::PublishStake {
             operator_idx: 0,
             tx: TEST_GRAPH.stake.as_ref().clone(),
+            anchor_key: TEST_GRAPH.stake.cpfp_connector().internal_key(),
         }],
         expected_signals: vec![],
     });

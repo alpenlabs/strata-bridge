@@ -9,7 +9,7 @@ use bitcoin::{
     secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
 };
-use btc_tracker::event::TxStatus;
+use btc_tracker::cpfp::DeadlineClass;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
 use operator_wallet::{GeneralUtxoPolicy, LeaseOwner, LeasedPsbt, OperatorWallet, SqliteStore};
@@ -28,7 +28,7 @@ use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::pre
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::{self, publish_signed_transaction},
+    chain::{self, CpfpKind, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     fees::direct_funding_fee_rate,
@@ -60,11 +60,20 @@ pub(crate) async fn publish_stake_data(
         &reservation.prevouts,
     )
     .await?;
+    // Stake funding pays the next-block rate, and its first bump waits for a trigger, so a child
+    // appears only while the funding stays unconfirmed below the ladder target. The child spends
+    // the general-wallet change output, because the reserved-wallet output at
+    // vout 0 belongs to the stake transaction. `InferGeneralPayout` finds that change output. A
+    // fresh selection always leaves one. A replayed row at a higher rate can leave none, and then
+    // the publish path finds no output and publishes without CPFP.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "stake funding tx",
-        TxStatus::is_buried,
+        CpfpKind::InferGeneralPayout {
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
 
@@ -154,7 +163,7 @@ async fn read_or_create_stake_funding(
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
     // `candidate` holds the inputs that the wallet selected. Each path below that does not
     // become the stored reservation drops it, which returns those inputs to the pool.
-    let candidate = select_stake_funding(&mut wallet, fee_rate, funding_amount)?;
+    let candidate = select_stake_funding(&mut wallet, fee_rate, funding_amount, cfg.bury_depth)?;
     let (candidate_psbt, candidate_lease) = candidate.into_parts();
     let reservation = reservation_from_psbt(&candidate_psbt);
 
@@ -191,21 +200,24 @@ async fn read_or_create_stake_funding(
     }
 }
 
-/// Funds one reserved-wallet output of `funding_amount` from confirmed general-wallet outputs.
+/// Funds one reserved-wallet output of `funding_amount` from buried general-wallet outputs.
 ///
 /// The funding transaction is v3, and TRUC rejects a v3 transaction with an unconfirmed non-v3
-/// parent, so an unconfirmed input can make it unrelayable.
+/// parent, so an unconfirmed input can make it unrelayable. The reservation row names the inputs
+/// for the life of the stake, so a reorg no deeper than `bury_depth` must not be able to remove
+/// one.
 fn select_stake_funding(
     wallet: &mut OperatorWallet<SqliteStore>,
     fee_rate: FeeRate,
     funding_amount: Amount,
+    bury_depth: u32,
 ) -> Result<LeasedPsbt, ExecutorError> {
     wallet
         .create_reserved_utxos(
             fee_rate,
             funding_amount,
             1,
-            GeneralUtxoPolicy::ConfirmedOnly,
+            GeneralUtxoPolicy::BuriedOnly { bury_depth },
             LeaseOwner::StakeFunding,
         )
         .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))
@@ -363,6 +375,7 @@ pub(crate) async fn publish_stake(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     tx: &Transaction,
+    anchor_key: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
@@ -402,10 +415,15 @@ pub(crate) async fn publish_stake(
 
     info!(%stake_txid, "publishing signed stake transaction");
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "stake tx",
-        TxStatus::is_buried,
+        CpfpKind::AnchorAt {
+            anchor_vout: StakeTx::CPFP_VOUT,
+            anchor_key,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
     info!(%stake_txid, "stake transaction confirmed on-chain");
@@ -473,8 +491,9 @@ mod tests {
 
         let fee_rate = FeeRate::from_sat_per_vb(2).expect("valid rate");
         let amount = Amount::from_sat(50_000);
+        let bury_depth = 1;
         assert!(
-            select_stake_funding(&mut wallet, fee_rate, amount).is_err(),
+            select_stake_funding(&mut wallet, fee_rate, amount, bury_depth).is_err(),
             "a mempool credit must not fund the stake"
         );
 
@@ -484,8 +503,18 @@ mod tests {
             .expect("confirm the credit");
         wallet.sync().await.expect("sync sees the block");
         assert!(
-            select_stake_funding(&mut wallet, fee_rate, amount).is_ok(),
-            "a confirmed output funds the stake"
+            select_stake_funding(&mut wallet, fee_rate, amount, bury_depth).is_err(),
+            "an unburied output must not fund the stake"
+        );
+
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("bury the credit");
+        wallet.sync().await.expect("sync sees the block");
+        assert!(
+            select_stake_funding(&mut wallet, fee_rate, amount, bury_depth).is_ok(),
+            "a buried output funds the stake"
         );
     }
 
