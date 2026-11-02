@@ -71,12 +71,12 @@ pub(crate) async fn bootstrap(
     if config.dev {
         warn!("dev mode: skipping bridge startup consistency checks");
     } else {
-        startup_checks::verify(
+        startup_checks::verify_predicates(&params, &bridge_proof_host, &counterproof_host)?;
+        startup_checks::verify_external_components(
             &params,
             &config,
             &asm_rpc_client,
             &mosaic_rpc_client,
-            &bridge_proof_host,
             &counterproof_host,
         )
         .await?;
@@ -85,6 +85,9 @@ pub(crate) async fn bootstrap(
     debug!("initializing bitcoin client");
     let btc_rpc_client = init_btc_rpc_client(&config)?;
     verify_btc_network(&btc_rpc_client, params.network).await?;
+    if !config.dev {
+        startup_checks::verify_bitcoin_node(&btc_rpc_client).await?;
+    }
     let cur_height = btc_rpc_client.get_block_count().await?;
     info!(%cur_height, network = %params.network, "bitcoin client initialized and synced");
     health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "network_and_block_count_verified");
@@ -103,9 +106,12 @@ pub(crate) async fn bootstrap(
     health_registry.mark_ok(COMPONENT_S2, "operator_table_loaded");
 
     debug!("initializing operator wallet");
-    let operator_wallet = Arc::new(RwLock::new(
-        init_operator_wallet(&config, &params, &s2_client, &db, &btc_rpc_client).await?,
-    ));
+    let operator_wallet =
+        init_operator_wallet(&config, &params, &s2_client, &db, &btc_rpc_client).await?;
+    if !config.dev {
+        startup_checks::verify_wallet(&params, &s2_client, pov_idx, &operator_wallet).await?;
+    }
+    let operator_wallet = Arc::new(RwLock::new(operator_wallet));
     info!("operator wallet initialized");
     health_registry.mark_ok(COMPONENT_WALLET, "wallet_initialized");
 
@@ -113,7 +119,7 @@ pub(crate) async fn bootstrap(
     let sync_wallet = operator_wallet.clone();
     // Sync the wallet on a best-effort basis in the background.
     // This is just to speed up syncing when we actually need to use the funds.
-    tokio::spawn(async move { spawn_initial_operator_wallet_sync(sync_wallet).await });
+    tokio::spawn(spawn_initial_operator_wallet_sync(sync_wallet));
     info!("initial operator wallet sync task spawned");
 
     debug!("initializing p2p client");

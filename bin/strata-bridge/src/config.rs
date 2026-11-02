@@ -16,10 +16,17 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
-use strata_bridge_exec::fees::FeeSourceConfig;
+use strata_bridge_exec::fees::{FeeSourceConfig, QUOTE_TTL};
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 use strata_bridge_primitives::types::OperatorIdx;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
+
+/// Default cadence for the CPFP bump-check timer — see [`Config::cpfp_bump_check_interval`]. The
+/// default must exceed [`QUOTE_TTL`], so that each tick of an idle node reads a new quote.
+const fn default_cpfp_bump_check_interval() -> Duration {
+    Duration::from_secs(30)
+}
+const _: () = assert!(default_cpfp_bump_check_interval().as_secs() > QUOTE_TTL.as_secs());
 
 /// Default CPFP fee premium (percent) — see [`Config::cpfp_fee_premium_percent`].
 const fn default_cpfp_fee_premium_percent() -> u32 {
@@ -104,6 +111,14 @@ pub(crate) struct Config {
     /// Default 10. The cap wins over a floor above it; the startup checks warn on that.
     #[serde(default = "default_cpfp_min_package_fee_rate")]
     pub cpfp_min_package_fee_rate: u64,
+
+    /// Cadence at which the CPFP bump loop reads the fee rate and attempts an RBF bump of any
+    /// active CPFP parent whose current package rate is below the new target. Defaults to 30
+    /// seconds. Set higher to reduce wallet-lock contention. A configured value below
+    /// [`QUOTE_TTL`] gains nothing, because a tick inside the TTL sees the same rate. Must not be
+    /// zero: the startup checks reject it.
+    #[serde(default = "default_cpfp_bump_check_interval")]
+    pub cpfp_bump_check_interval: Duration,
 
     /// Source of fee-rate estimates for bridge transactions. Defaults to Bitcoin Core, whose
     /// `estimatesmartfee(1)` is a lagging two-block economical estimate. Operators on networks
@@ -392,7 +407,7 @@ pub(crate) struct RpcConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OperatorWalletConfig {
     /// The size of the claim funding pool, i.e., the number of UTXOs to generate for funding claim
-    /// transactions when they run out.
+    /// transactions when they run out. One v3 refill transaction creates the whole pool.
     pub claim_funding_pool_size: usize,
 
     /// Directory holding the persisted chain state of the general and reserved wallets, one SQLite
@@ -466,14 +481,13 @@ pub(crate) struct MetricsConfig {
     pub prometheus_listener_addr: Option<SocketAddr>,
 }
 
-/// Shared config fixture for tests.
+/// Shared config fixture for tests: everything except the `[operator_wallet]` table, which
+/// [`OPERATOR_WALLET_TOML`] holds, so a test can append a different custody.
 ///
 /// The Bitcoin RPC credentials are sentinels so `debug_redacts_btc_rpc_credentials` can search
 /// rendered output for them without matching field names or other values.
 #[cfg(test)]
-pub(crate) fn test_config() -> Config {
-    toml::from_str(
-        r#"
+pub(crate) const BASE_TOML: &str = r#"
             num_threads = 4
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             is_faulty = false
@@ -539,12 +553,6 @@ pub(crate) fn test_config() -> Config {
             rawtx_connection_string = "tcp://127.0.0.1:28335"
             sequence_connection_string = "tcp://127.0.0.1:28336"
 
-            [operator_wallet]
-            claim_funding_pool_size = 32
-            data_dir = "wallet-data"
-            bootstrap_height = 101
-            bootstrap_block_hash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
-
             [mosaic]
             rpc_url = "http://localhost:7500"
             retry_delay = { secs = 2, nanos = 0 }
@@ -565,18 +573,34 @@ pub(crate) fn test_config() -> Config {
 
             [metrics]
             prometheus_listener_addr = "127.0.0.1:9615"
-        "#,
-    )
-    .expect("valid test config")
+        "#;
+
+/// The `[operator_wallet]` table of the test config, with secret-service custody.
+#[cfg(test)]
+pub(crate) const OPERATOR_WALLET_TOML: &str = r#"
+            [operator_wallet]
+            claim_funding_pool_size = 32
+            data_dir = "wallet-data"
+            bootstrap_height = 101
+            bootstrap_block_hash = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+        "#;
+
+/// A full parsed test config with secret-service operator-wallet custody. Startup-check tests
+/// and config tests share this constructor.
+#[cfg(test)]
+pub(crate) fn test_config() -> Config {
+    toml::from_str(&format!("{BASE_TOML}\n{OPERATOR_WALLET_TOML}")).expect("valid test config")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_config_serde_toml() {
-        let config = test_config();
+    /// Parses `toml_str` and asserts a serde round-trip preserves every field, returning the
+    /// parsed config.
+    fn assert_roundtrips(toml_str: &str) -> Config {
+        let config = toml::from_str::<Config>(toml_str)
+            .unwrap_or_else(|e| panic!("must deserialize config from toml: {e}"));
         let serialized = toml::to_string(&config).unwrap();
         let reparsed = toml::from_str::<Config>(&serialized).unwrap();
         let reserialized = toml::to_string(&reparsed).unwrap();
@@ -584,6 +608,12 @@ mod tests {
             reserialized, serialized,
             "serde round-trip must preserve every field"
         );
+        config
+    }
+
+    #[test]
+    fn test_config_serde_toml() {
+        assert_roundtrips(&format!("{BASE_TOML}\n{OPERATOR_WALLET_TOML}"));
     }
 
     #[test]

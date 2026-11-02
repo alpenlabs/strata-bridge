@@ -16,6 +16,14 @@ use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_exec::{
     config::ExecutionConfig,
+    cpfp::{
+        adapters::{
+            BitcoindCpfpMempool, OperatorWalletCpfpAdapter, build_anchor_input_signer,
+            build_multi_anchor_signer, build_wallet_input_signer,
+        },
+        ladder::CpfpContext,
+        observability,
+    },
     fees::{FeeQuoteMemo, FeeTargetPolicy},
     output_handles::OutputHandles,
 };
@@ -175,20 +183,62 @@ where
         pending_asm_events: VecDeque::new(),
     };
 
-    // One fee quote memo serves the executors. Its first read happens on the first use, so a
-    // source that does not answer stops nothing at boot.
+    let btc_rpc_arc = Arc::new(btc_rpc_client.clone());
+
+    // One fee quote memo serves the executors and the CPFP bump loop below. Its first read happens
+    // on the first use, so a source that does not answer stops nothing at boot.
     let fee_source = config
         .fee_source
-        .build(Arc::new(btc_rpc_client.clone()))
+        .build(btc_rpc_arc.clone())
         .map_err(|e| anyhow!("failed to construct fee source from config: {e}"))?;
     let fee_quotes = Arc::new(FeeQuoteMemo::new(fee_source));
+
     let fee_target = FeeTargetPolicy {
         premium_percent: config.cpfp_fee_premium_percent,
         min_package_fee_rate: fee_limits.min_package_fee_rate,
         max_fee_rate: fee_limits.max_fee_rate,
     };
-    let exec_cfg = build_exec_config(params, config, fee_target, &sm_config, fee_quotes);
-    let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
+    let exec_cfg = build_exec_config(params, config, fee_target, &sm_config, fee_quotes.clone());
+
+    // CPFP wiring: bundle the wallet / shared fee-source / mempool / anchor-signer
+    // adapters into a `CpfpContext` the tx-driver consumes for its bumps.
+    //
+    // `OutputHandles` carries the musig2 key to validate named anchors.
+    let operator_musig2_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
+
+    let cpfp_wallet = Arc::new(OperatorWalletCpfpAdapter::new(wallet.clone()));
+    let cpfp_mempool = Arc::new(BitcoindCpfpMempool::new(btc_rpc_arc.clone()));
+    // Two distinct signers, bound to two distinct keys:
+    //   - anchor inputs use the musig2-signer pubkey (the bridge tx-graph keys every KeyedAnchor to
+    //     this pubkey — see `bridge-sm::graph::context::generate_key_data`).
+    //   - wallet funding inputs use the general-wallet-signer pubkey (the key of
+    //     `GeneralCustody::SecretService`). On a Fireblocks node the vault signs its own inputs
+    //     first (`CpfpWallet::sign_owned_inputs`), and this signer takes only the inputs the wallet
+    //     leaves unsigned, which is none unless an output pays the secret-service key.
+    let anchor_input_signer = build_anchor_input_signer(s2_client.clone());
+    // Script-path variant for `MultiAnchor` anchors (contest, bridge-proof-timeout): same
+    // musig2 key, signed untweaked because the leaf is satisfied directly.
+    let multi_anchor_signer = build_multi_anchor_signer(s2_client.clone());
+    let wallet_input_signer = build_wallet_input_signer(s2_client.clone());
+    observability::describe_metrics();
+    let cpfp_ctx = CpfpContext {
+        wallet: cpfp_wallet,
+        fee_source: fee_quotes,
+        anchor_input_signer,
+        multi_anchor_signer,
+        wallet_input_signer,
+        // The executors read the same policy, so a parent funded at the target needs no child
+        // until the target rises.
+        policy: fee_target,
+        mempool: cpfp_mempool,
+    };
+    let tx_driver = TxDriver::with_cpfp(
+        zmq_client,
+        btc_rpc_client.clone(),
+        Arc::new(cpfp_ctx),
+        config.cpfp_bump_check_interval,
+    )
+    .await;
     let tx_driver_health = tx_driver.health_handle();
     health_registry.mark_ok(COMPONENT_TX_DRIVER, "driver_initialized");
     spawn_tx_driver_probe(
@@ -196,16 +246,10 @@ where
         DEFAULT_HEALTH_PROBE_INTERVAL,
         health_registry.clone(),
     );
-    // `OutputHandles` carries the musig2 key to validate named anchors, and the general script
-    // that the publish path reads for an owned payout.
-    let operator_musig2_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
     let general_script_pubkey = wallet.read().await.general().script_pubkey();
     let output_handles = OutputHandles {
         wallet,
         claim_funding_refill: Mutex::new(()),
-        operator_musig2_pubkey,
-        network: params.network,
-        general_script_pubkey,
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client.clone(),
@@ -215,6 +259,9 @@ where
         mosaic_client,
         bridge_proof_host,
         counterproof_host,
+        operator_musig2_pubkey,
+        network: params.network,
+        general_script_pubkey,
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 
