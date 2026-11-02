@@ -163,6 +163,7 @@ pub async fn execute_graph_duty(
             operator_pubkey,
         } => {
             generate_and_publish_bridge_proof(
+                &cfg,
                 &output_handles,
                 graph_idx.deposit,
                 graph_idx.operator,
@@ -174,8 +175,12 @@ pub async fn execute_graph_duty(
             )
             .await
         }
-        GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx } => {
-            publish_bridge_proof_timeout(&output_handles, signed_timeout_tx).await
+        GraphDuty::PublishBridgeProofTimeout {
+            signed_timeout_tx,
+            cpfp_anchor,
+        } => {
+            publish_bridge_proof_timeout(&output_handles, signed_timeout_tx, cpfp_anchor.as_ref())
+                .await
         }
         GraphDuty::PotentialCounterProof {
             graph_idx,
@@ -204,7 +209,11 @@ pub async fn execute_graph_duty(
         }
         GraphDuty::PublishCounterProofAck {
             signed_counter_proof_ack_tx,
-        } => publish_counterproof_ack(&output_handles, signed_counter_proof_ack_tx).await,
+            anchor_key,
+        } => {
+            publish_counterproof_ack(&output_handles, signed_counter_proof_ack_tx, *anchor_key)
+                .await
+        }
         GraphDuty::PublishCounterProofNack {
             deposit_idx,
             counterprover_idx,

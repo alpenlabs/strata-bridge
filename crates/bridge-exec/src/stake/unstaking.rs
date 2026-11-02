@@ -4,13 +4,15 @@
 //! transaction itself.
 
 use bitcoin::{OutPoint, Transaction, secp256k1::schnorr};
-use btc_tracker::event::TxStatus;
-use strata_bridge_connectors::prelude::UnstakingIntentWitness;
-use strata_bridge_tx_graph::transactions::prelude::UnstakingIntentTx;
+use btc_tracker::cpfp::DeadlineClass;
+use strata_bridge_connectors::{Connector, ParentTx, prelude::UnstakingIntentWitness};
+use strata_bridge_tx_graph::transactions::{prelude::UnstakingIntentTx, unstaking::UnstakingTx};
 use tracing::info;
 
 use crate::{
-    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
+    chain::{self, CpfpKind, publish_signed_transaction},
+    errors::ExecutorError,
+    output_handles::OutputHandles,
     stake::utils::get_preimage,
 };
 
@@ -28,14 +30,22 @@ pub(crate) async fn publish_unstaking_intent(
         unstaking_preimage: preimage,
     };
 
+    // Read the anchor key before `finalize` consumes the transaction.
+    let anchor_key = unstaking_intent_tx.cpfp_connector().internal_key();
     let signed_unstaking_intent_tx = unstaking_intent_tx.finalize(&unstaking_intent_witness);
     let unstaking_intent_txid = signed_unstaking_intent_tx.compute_txid();
     info!(%unstaking_intent_txid, "publishing unstaking intent transaction");
+    // The unstaking intent carries a keyed anchor at a fixed vout.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_unstaking_intent_tx,
         "unstaking intent tx",
-        TxStatus::is_buried,
+        CpfpKind::AnchorAt {
+            anchor_vout: UnstakingIntentTx::CPFP_VOUT,
+            anchor_key,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
     info!(%unstaking_intent_txid, "unstaking intent transaction confirmed on-chain");
@@ -48,11 +58,16 @@ pub(crate) async fn publish_unstaking_tx(
 ) -> Result<(), ExecutorError> {
     let unstaking_txid = signed_tx.compute_txid();
     info!(%unstaking_txid, "publishing unstaking transaction");
+    // The unstaking tx has no keyed anchor, so the child spends the operator's output.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         signed_tx,
         "unstaking tx",
-        TxStatus::is_buried,
+        CpfpKind::PayoutCombined {
+            payout_vout: UnstakingTx::OPERATOR_VOUT,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
     info!(%unstaking_txid, "unstaking transaction confirmed on-chain");

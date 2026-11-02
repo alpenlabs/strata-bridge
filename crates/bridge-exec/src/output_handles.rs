@@ -2,6 +2,7 @@
 
 use std::{fmt, sync::Arc};
 
+use bitcoin::{Network, ScriptBuf, XOnlyPublicKey};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
@@ -69,6 +70,24 @@ pub struct OutputHandles {
 
     /// Host used to generate bridge counterproofs.
     pub counterproof_host: BridgeCounterproofHost,
+
+    /// Operator's musig2-signer x-only pubkey (the "btc key" from the operator table).
+    /// Every bridge tx that participates in CPFP carries a keyed-Taproot anchor keyed
+    /// to this pubkey (see `KeyData::operator_pubkey` in `bridge-sm`, fed from
+    /// `OperatorTable::idx_to_btc_key`). Cached at orchestrator startup so
+    /// `chain::checked_anchor_spend` can validate a named anchor vout without an RPC
+    /// hop. Counterproof and ack transactions key their anchors to the watchtower keys, which
+    /// `GraphSMCtx::watchtower_pubkeys` reads from the same operator table column, so they are
+    /// this key too.
+    pub operator_musig2_pubkey: XOnlyPublicKey,
+
+    /// Bitcoin network — needed alongside [`Self::operator_musig2_pubkey`] to derive the
+    /// expected anchor `script_pubkey` for CPFP-strategy inference.
+    pub network: Network,
+
+    /// The receive script of the general wallet. Read once at startup, so a publish that infers
+    /// its CPFP output from it takes no wallet guard.
+    pub general_script_pubkey: ScriptBuf,
 }
 
 impl fmt::Debug for OutputHandles {

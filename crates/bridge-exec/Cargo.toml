@@ -9,7 +9,6 @@ workspace = true
 
 [dependencies]
 algebra.workspace = true
-async-trait.workspace = true
 btc-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
@@ -34,6 +33,7 @@ strata-mosaic-client-api.workspace = true
 zkaleido.workspace = true
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 
+async-trait.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoind-async-client.workspace = true
@@ -58,9 +58,9 @@ strata-bridge-test-utils.workspace = true
 strata-crypto.workspace = true
 
 bdk_bitcoind_rpc.workspace = true
+proptest.workspace = true
 corepc-node.workspace = true
 operator-wallet = { workspace = true, features = ["test-utils"] }
-proptest.workspace = true
 serial_test.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }

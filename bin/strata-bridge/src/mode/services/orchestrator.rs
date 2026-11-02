@@ -196,9 +196,16 @@ where
         DEFAULT_HEALTH_PROBE_INTERVAL,
         health_registry.clone(),
     );
+    // `OutputHandles` carries the musig2 key to validate named anchors, and the general script
+    // that the publish path reads for an owned payout.
+    let operator_musig2_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
+    let general_script_pubkey = wallet.read().await.general().script_pubkey();
     let output_handles = OutputHandles {
         wallet,
         claim_funding_refill: Mutex::new(()),
+        operator_musig2_pubkey,
+        network: params.network,
+        general_script_pubkey,
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client.clone(),
