@@ -18,3 +18,6 @@ pub mod fees;
 pub mod graph;
 pub mod output_handles;
 pub mod stake;
+
+#[cfg(test)]
+use serial_test as _;
