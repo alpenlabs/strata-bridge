@@ -14,6 +14,26 @@ use tracing::{debug, error, info, warn};
 
 use crate::{errors::ExecutorError, output_handles::OutputHandles};
 
+/// Reads the outputs that `tx` spends, in input order.
+pub(crate) async fn fetch_prevouts(
+    bitcoind_rpc_client: &BitcoinClient,
+    tx: &Transaction,
+) -> Result<Vec<TxOut>, ClientError> {
+    let mut prevouts = Vec::with_capacity(tx.input.len());
+    for input in &tx.input {
+        let outpoint = input.previous_output;
+        let prev_tx = bitcoind_rpc_client
+            .get_raw_transaction_verbosity_zero(&outpoint.txid)
+            .await?
+            .0;
+        let prevout = prev_tx.output.get(outpoint.vout as usize).ok_or_else(|| {
+            ClientError::MalformedResponse(format!("{outpoint} is out of bounds"))
+        })?;
+        prevouts.push(prevout.clone());
+    }
+    Ok(prevouts)
+}
+
 /// The fee of `tx` once one wallet input of `wallet_input` size is added, at `fee_rate`. `None`
 /// when the fee does not fit an [`Amount`].
 ///
