@@ -1,13 +1,22 @@
-//! Startup consistency checks between the bridge and its external components.
+//! Startup consistency checks.
+//!
+//! The checks over local config ([`verify_timelock_ordering`], [`parse_fee_limits`]) always run.
+//! The other checks do not run in dev mode.
 use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
-use anyhow::{Context, Result, anyhow};
-use bitcoin::{Amount, FeeRate};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use bitcoin::{Address, Amount, FeeRate, Script, secp256k1::SECP256K1};
+use bitcoin_bosd::Descriptor;
+use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use jsonrpsee::http_client::HttpClient;
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcCircuitInfoEntry;
+use operator_wallet::{OperatorWallet, REPLACEMENT_INCREMENT_SAT_PER_VB, SqliteStore};
 use secp256k1::XOnlyPublicKey;
+use secret_service_client::SecretServiceClient;
+use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use serde::Deserialize;
 use strata_asm_params::AsmParams;
 use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -22,17 +31,200 @@ use tracing::warn;
 
 use crate::config::{Config, MosaicConfig};
 
-/// Runs every startup consistency check; a failure aborts node startup.
-pub(in crate::mode) async fn verify(
+/// Oldest Bitcoin Core the bridge runs against, in `getnetworkinfo.version` form. The RPC client
+/// parses v30 response shapes, and v30 raised the `OP_RETURN` size that the bridge proof needs.
+/// TRUC and package relay, which the CPFP path depends on, date from v28.
+const MIN_CORE_VERSION: u32 = 300_000;
+
+/// The replacement increment of the child fee planner, as sat per kvB. Core rejects a replacement
+/// that pays less than its own `incrementalfee`, so a node above this value refuses small bumps.
+/// Those rejections read as a lost anchor race and log at debug only.
+const ASSUMED_INCREMENTAL_FEE: Amount = Amount::from_sat(REPLACEMENT_INCREMENT_SAT_PER_VB * 1_000);
+
+/// Required `maxdatacarriersize`: Core v30's default. The bridge proof is one OP_RETURN with no
+/// size bound in the protocol, so the check asks for the default and not for a guessed proof size.
+const MIN_DATA_CARRIER_BYTES: u64 = 100_000;
+
+/// The fields of `getnetworkinfo` that the bridge depends on.
+#[derive(Debug, Deserialize)]
+struct NodeNetworkInfo {
+    version: u32,
+    /// Core reports this in BTC per kvB. It is held here as the amount per kvB.
+    #[serde(rename = "incrementalfee", with = "bitcoin::amount::serde::as_btc")]
+    incremental_fee: Amount,
+}
+
+/// The field of `getindexinfo` that the bridge depends on. Core lists an index only if it is on.
+#[derive(Debug, Deserialize)]
+struct NodeIndexInfo {
+    txindex: Option<NodeIndexStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeIndexStatus {
+    synced: bool,
+}
+
+/// Compares the covenant payout descriptor with the wallet's own, and returns the recovery note of
+/// a cross-type mismatch.
+///
+/// The presigned graph pays this operator's covenant `payout_descriptor` (a params-file value the
+/// peers signed against), while gossip-built payouts and every spend go through the wallet's own
+/// `payout_descriptor()`. A registered descriptor cannot change, so a mismatch of the same type
+/// means that the wallet key differs from the registration. Graph payouts (uncontested/contested
+/// payout, counterproof nack) then land on an output this wallet neither tracks nor can sign,
+/// which is unspendable by this operator, so this is an error.
+///
+/// Params validation pins every covenant payout descriptor to P2TR, and the Fireblocks custody
+/// has a P2WPKH vault address, so under that custody the scripts can never match. That is
+/// structural and not key drift, so it is not an error. The note names the secret-service general
+/// key only when the covenant descriptor is the tap-tweaked P2TR of that key.
+fn check_payout_descriptor(
+    covenant: &Descriptor,
+    wallet: &Descriptor,
+    general_key_script: &Script,
+) -> Result<Option<&'static str>> {
+    let covenant_script = covenant.to_script();
+    if covenant_script == wallet.to_script() {
+        return Ok(None);
+    }
+    if covenant.type_tag() != wallet.type_tag() {
+        return Ok(Some(if covenant_script == *general_key_script {
+            "those outputs stay recoverable through the secret-service general key"
+        } else {
+            "those outputs are recoverable only by whoever controls the key behind the params \
+             descriptor"
+        }));
+    }
+    bail!(
+        "params covenant payout_descriptor {covenant} does not match the wallet's payout \
+         descriptor {wallet}; presigned-graph payouts would be unspendable and unbumpable by this \
+         operator"
+    )
+}
+
+/// Checks the loaded wallet against params. A same-type payout descriptor mismatch aborts; a
+/// cross-type mismatch warns, because a vault-custodied wallet cannot hold the P2TR payout.
+pub(in crate::mode) async fn verify_wallet(
+    params: &Params,
+    s2_client: &SecretServiceClient,
+    pov_idx: OperatorIdx,
+    wallet: &OperatorWallet<SqliteStore>,
+) -> Result<()> {
+    let general_pubkey = s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await
+        .map_err(|e| anyhow!("failed to fetch operator general wallet pubkey from s2: {e:?}"))?;
+    let own_covenant = params
+        .keys
+        .operators
+        .get(pov_idx)
+        .ok_or_else(|| anyhow!("operator {pov_idx:?} is not in the operator table"))?;
+
+    let wallet_descriptor = wallet
+        .descriptor()
+        .map_err(|e| anyhow!("the general wallet script is not a payout descriptor: {e}"))?;
+    let general_key_script =
+        Address::p2tr(SECP256K1, general_pubkey, None, params.network).script_pubkey();
+    let recovery = check_payout_descriptor(
+        own_covenant.payout_descriptor(),
+        &wallet_descriptor,
+        &general_key_script,
+    )?;
+    if let Some(recovery) = recovery {
+        warn!(
+            covenant_descriptor = %own_covenant.payout_descriptor(),
+            %wallet_descriptor,
+            "the general-wallet custody cannot receive presigned-graph payouts (descriptor types \
+             differ); {recovery}, and this wallet will not track or bump them"
+        );
+    }
+    Ok(())
+}
+
+/// Reports the Core release, relay policy and transaction index of the connected node against
+/// what the bridge's transactions depend on. A node without a transaction index aborts startup:
+/// the CPFP parent fee lookups read confirmed prevouts through it, and without it every parent
+/// loses its bump path. The other findings are warnings, because each shows itself again when a
+/// transaction fails to publish. The version comes first, because older nodes omit fields that the
+/// later reads need.
+pub(in crate::mode) async fn verify_bitcoin_node(client: &BitcoinClient) -> Result<()> {
+    let network = client
+        .call_raw("getnetworkinfo", &[])
+        .await
+        .map_err(|e| anyhow!("could not read getnetworkinfo from the bitcoin node: {e:?}"))?;
+    if let Err(finding) = check_network_info(&network) {
+        warn!(%finding, "bitcoin node policy differs from what the bridge assumes");
+    }
+    let mempool = client
+        .get_mempool_info()
+        .await
+        .map_err(|e| anyhow!("could not read getmempoolinfo from the bitcoin node: {e:?}"))?;
+    if let Err(finding) = check_data_carrier_size(mempool.max_data_carrier_size) {
+        warn!(%finding, "bitcoin node policy differs from what the bridge assumes");
+    }
+    let indexes = client
+        .call_raw("getindexinfo", &[])
+        .await
+        .map_err(|e| anyhow!("could not read getindexinfo from the bitcoin node: {e:?}"))?;
+    if let Some(finding) = check_index_info(&indexes)? {
+        warn!(%finding, "bitcoin node transaction index is not ready");
+    }
+    Ok(())
+}
+
+fn check_network_info(network: &NodeNetworkInfo) -> Result<()> {
+    ensure!(
+        network.version >= MIN_CORE_VERSION,
+        "bitcoin node version {} is below the required {MIN_CORE_VERSION} (Core v30)",
+        network.version
+    );
+    ensure!(
+        network.incremental_fee <= ASSUMED_INCREMENTAL_FEE,
+        "bitcoin node incrementalfee {} per kvB exceeds the {} per kvB that the CPFP replacement \
+         fee assumes; lower -incrementalrelayfee",
+        network.incremental_fee,
+        ASSUMED_INCREMENTAL_FEE
+    );
+    Ok(())
+}
+
+fn check_data_carrier_size(max_data_carrier_size: Option<u64>) -> Result<()> {
+    let size = max_data_carrier_size
+        .ok_or_else(|| anyhow!("bitcoin node does not report maxdatacarriersize"))?;
+    ensure!(
+        size >= MIN_DATA_CARRIER_BYTES,
+        "bitcoin node maxdatacarriersize {size} is below the {MIN_DATA_CARRIER_BYTES} bytes that \
+         the bridge requires for a proof; raise -datacarriersize",
+    );
+    Ok(())
+}
+
+/// A missing index is an error. An index that is still building is returned as a finding.
+fn check_index_info(indexes: &NodeIndexInfo) -> Result<Option<String>> {
+    match &indexes.txindex {
+        None => bail!(
+            "bitcoin node has no transaction index, which CPFP parent fee lookups need; set \
+             txindex=1"
+        ),
+        Some(status) if status.synced => Ok(None),
+        Some(_) => Ok(Some(
+            "bitcoin node's transaction index is still building, so CPFP parent fee lookups \
+             fail until it syncs"
+                .to_string(),
+        )),
+    }
+}
+
+/// Runs the consistency checks against ASM and Mosaic; a failure aborts node startup.
+pub(in crate::mode) async fn verify_external_components(
     params: &Params,
     config: &Config,
     asm_rpc_client: &HttpClient,
     mosaic_rpc_client: &HttpClient,
-    bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
 ) -> Result<()> {
-    verify_predicates(params, bridge_proof_host, counterproof_host)?;
-
     let asm_params = fetch_asm_params(asm_rpc_client, &config.asm_rpc)
         .await
         .context("fetching ASM params for startup consistency check")?;
@@ -71,9 +263,15 @@ pub(in crate::mode) struct FeeLimits {
 
 /// Parses the fee config. A package floor above the cap, or a fixed source rate above the cap,
 /// warns here once: the cap wins over both, and a node with such a config starts and bumps at the
-/// cap. The duties refuse a fixed rate above the cap. A bad fee source config otherwise surfaces
-/// only after every service has started.
+/// cap. The duties refuse a fixed rate above the cap.
+///
+/// A zero bump interval panics `tokio::time::interval` inside the tx driver's task, and a bad
+/// fee source config otherwise surfaces only after every service has started.
 pub(in crate::mode) fn parse_fee_limits(config: &Config) -> Result<FeeLimits> {
+    ensure!(
+        !config.cpfp_bump_check_interval.is_zero(),
+        "cpfp_bump_check_interval must not be zero"
+    );
     config
         .fee_source
         .validate()
@@ -159,7 +357,7 @@ async fn fetch_mosaic_circuit_defs(
 }
 
 /// Each proof host's loaded guest ELF matches its corresponding verification predicate.
-fn verify_predicates(
+pub(in crate::mode) fn verify_predicates(
     params: &Params,
     bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
@@ -287,6 +485,7 @@ fn ensure_eq<T: PartialEq + Debug>(label: &str, bridge_value: T, peer_value: T) 
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::ScriptBuf;
     use mosaic_rpc_types::{RpcByte32, RpcCircuitInfo};
     use strata_asm_params::{BridgeInitConfig, SubprotocolInstance};
     use strata_bridge_common::params::TimelockOrderingError;
@@ -298,6 +497,126 @@ mod tests {
     use crate::{config::test_config, mode::services::test_fixtures::test_params};
 
     const ASSIGNMENT_DURATION: u16 = 144;
+
+    fn node_network(version: u32, incremental_sat_per_kvb: u64) -> NodeNetworkInfo {
+        NodeNetworkInfo {
+            version,
+            incremental_fee: Amount::from_sat(incremental_sat_per_kvb),
+        }
+    }
+
+    fn node_indexes(synced: Option<bool>) -> NodeIndexInfo {
+        NodeIndexInfo {
+            txindex: synced.map(|synced| NodeIndexStatus { synced }),
+        }
+    }
+
+    #[test]
+    fn a_default_core_v30_node_passes() {
+        check_network_info(&node_network(300_200, 100)).expect("v30 at default policy");
+        check_data_carrier_size(Some(100_000)).expect("the v30 default");
+        assert_eq!(
+            check_index_info(&node_indexes(Some(true))).expect("a synced txindex"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_node_below_core_v30_is_reported() {
+        let err = check_network_info(&node_network(299_999, 100)).expect_err("below v30");
+        assert!(err.to_string().contains("Core v30"), "got: {err}");
+    }
+
+    #[test]
+    fn an_incremental_fee_above_the_planner_increment_is_reported() {
+        check_network_info(&node_network(300_000, 1_000)).expect("the increment itself is valid");
+        let err = check_network_info(&node_network(300_000, 1_001))
+            .expect_err("a higher increment refuses small bumps");
+        assert!(err.to_string().contains("incrementalfee"), "got: {err}");
+    }
+
+    #[test]
+    fn a_data_carrier_limit_below_the_v30_default_is_reported() {
+        let err = check_data_carrier_size(Some(83))
+            .expect_err("a v30 node at -datacarriersize=83 refuses a bridge proof");
+        assert!(err.to_string().contains("datacarriersize"), "got: {err}");
+    }
+
+    #[test]
+    fn a_node_without_txindex_is_rejected() {
+        let err = check_index_info(&node_indexes(None)).expect_err("fee lookups need txindex");
+        assert!(err.to_string().contains("txindex=1"), "got: {err}");
+    }
+
+    #[test]
+    fn a_transaction_index_still_building_is_reported() {
+        let finding = check_index_info(&node_indexes(Some(false)))
+            .expect("a building index is not an error")
+            .expect("an index behind the tip is reported");
+        assert!(finding.contains("still building"), "got: {finding}");
+    }
+
+    #[test]
+    fn node_rpc_answers_parse_into_the_checked_fields() {
+        let network: NodeNetworkInfo = serde_json::from_value(serde_json::json!({
+            "version": 300200,
+            "subversion": "/Satoshi:30.2.0/",
+            "incrementalfee": 0.00000100,
+            "relayfee": 0.00000100,
+        }))
+        .unwrap();
+        assert_eq!(network.version, 300_200);
+        assert_eq!(network.incremental_fee, Amount::from_sat(100));
+
+        let indexed: NodeIndexInfo = serde_json::from_value(serde_json::json!({
+            "txindex": { "synced": true, "best_block_height": 7 },
+        }))
+        .unwrap();
+        assert!(indexed.txindex.is_some_and(|status| status.synced));
+
+        let unindexed: NodeIndexInfo = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(unindexed.txindex.is_none());
+    }
+
+    fn p2tr_descriptor(byte: u8) -> Descriptor {
+        Descriptor::new_p2tr(&[byte; 32]).expect("valid x-only payload")
+    }
+
+    fn p2wpkh_descriptor(byte: u8) -> Descriptor {
+        Descriptor::new_p2wpkh(&[byte; 20])
+    }
+
+    #[test]
+    fn a_matching_payout_descriptor_passes() {
+        let descriptor = p2tr_descriptor(1);
+        assert_eq!(
+            check_payout_descriptor(&descriptor, &descriptor, &ScriptBuf::new()).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn a_same_type_payout_descriptor_mismatch_aborts_startup() {
+        let err =
+            check_payout_descriptor(&p2tr_descriptor(1), &p2tr_descriptor(2), &ScriptBuf::new())
+                .expect_err("a same-type mismatch is key drift");
+        assert!(err.to_string().contains("payout_descriptor"), "got: {err}");
+    }
+
+    #[test]
+    fn a_cross_type_mismatch_names_the_general_key_only_when_it_can_recover() {
+        let covenant = p2tr_descriptor(1);
+        let wallet = p2wpkh_descriptor(2);
+        let recoverable = check_payout_descriptor(&covenant, &wallet, &covenant.to_script())
+            .unwrap()
+            .expect("a cross-type mismatch carries a note");
+        assert!(recoverable.contains("secret-service general key"));
+
+        let other_key = check_payout_descriptor(&covenant, &wallet, &ScriptBuf::new())
+            .unwrap()
+            .expect("a cross-type mismatch carries a note");
+        assert!(!other_key.contains("secret-service general key"));
+    }
 
     #[test]
     fn a_fixed_fee_rate_above_the_cap_is_accepted() {
@@ -311,6 +630,13 @@ mod tests {
     fn an_invalid_fee_source_config_is_rejected() {
         let mut config = test_config();
         config.fee_source = FeeSourceConfig::Fixed { fee_rate: u64::MAX };
+        assert!(parse_fee_limits(&config).is_err());
+    }
+
+    #[test]
+    fn a_zero_bump_interval_is_rejected() {
+        let mut config = test_config();
+        config.cpfp_bump_check_interval = std::time::Duration::ZERO;
         assert!(parse_fee_limits(&config).is_err());
     }
 

@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 algebra.workspace = true
+bitcoin-bosd.workspace = true
 btc-tracker.workspace = true
 mosaic-rpc-api.workspace = true
 mosaic-rpc-types.workspace = true
@@ -65,7 +66,6 @@ memory_pprof = { workspace = true, optional = true }
 tikv-jemallocator = "0.6"
 
 [dev-dependencies]
-bitcoin-bosd.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 strata-bridge-connectors.workspace = true
 strata-bridge-test-utils.workspace = true

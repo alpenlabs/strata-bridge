@@ -187,12 +187,33 @@ pub(in crate::mode) fn spawn_s2_probe(
     });
 }
 
+/// The reason string of the wallet verdict, which is always ok: the tip height, the outcome and
+/// age of the last sync, and the count of confirmed general-wallet UTXOs that a CPFP child can
+/// draw on. `None` means no sync has run yet, which is the state briefly after startup.
+///
+/// The tip comes from the reserved wallet and keeps advancing while the general wallet fails its
+/// syncs (each wallet has its own store). A sync does not reach the signer, so nothing here covers
+/// a Fireblocks outage.
+fn wallet_reason(height: u32, last_sync: Option<(bool, Duration)>, fee_utxos: usize) -> String {
+    match last_sync {
+        None => format!("awaiting_first_sync_at_height_{height}"),
+        Some((true, age)) => format!(
+            "wallet_view_age_{}s_fee_utxos_{fee_utxos}_at_height_{height}",
+            age.as_secs()
+        ),
+        Some((false, age)) => format!(
+            "wallet_sync_failed_{}s_ago_fee_utxos_{fee_utxos}_at_height_{height}",
+            age.as_secs()
+        ),
+    }
+}
+
 /// Starts a periodic operator-wallet liveness probe.
 ///
-/// Reads the wallet's local chain tip through a shared read lock — a non-mutating, in-memory
+/// Reads the wallet's local state through a shared read lock — a non-mutating, in-memory
 /// check. It deliberately does not call `sync()`: syncing takes the exclusive write lock and
-/// drives backend I/O, which would let a slow or stuck backend serialize wallet-dependent
-/// duties. The read-lock acquisition is bounded so a stuck writer cannot leave the component
+/// drives node I/O, which would let a slow or stuck node serialize wallet-dependent duties.
+/// The read-lock acquisition is bounded so a stuck writer cannot leave the component
 /// reporting a stale `ok` state.
 pub(in crate::mode) fn spawn_wallet_probe(
     wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
@@ -207,8 +228,15 @@ pub(in crate::mode) fn spawn_wallet_probe(
             match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, wallet.read()).await {
                 Ok(guard) => {
                     let height = guard.local_chain_tip_height();
+                    let last_sync = guard
+                        .last_sync()
+                        .map(|sync| (sync.succeeded, sync.at.elapsed()));
+                    let fee_utxos = guard.free_confirmed_general_utxo_count();
                     drop(guard);
-                    health_registry.mark_ok(COMPONENT_WALLET, format!("synced_to_height_{height}"));
+                    health_registry.mark_ok(
+                        COMPONENT_WALLET,
+                        wallet_reason(height, last_sync, fee_utxos),
+                    );
                 }
                 Err(_) => {
                     health_registry.mark_unhealthy(COMPONENT_WALLET, "probe_timed_out");
@@ -293,5 +321,20 @@ async fn run_external_probe<T, E, F>(
             health_registry.mark_unhealthy(component, "probe_timed_out");
             error!(component, probe_name, "health probe timed out");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FRESH: Duration = Duration::from_secs(60);
+
+    #[test]
+    fn a_synced_wallet_reports_its_view_age_and_fee_utxos() {
+        assert_eq!(
+            wallet_reason(7, Some((true, FRESH)), 3),
+            "wallet_view_age_60s_fee_utxos_3_at_height_7"
+        );
     }
 }
