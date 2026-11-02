@@ -176,6 +176,7 @@ where
         mosaic_client,
         bridge_proof_host,
         counterproof_host,
+        counterproof_anchors: Default::default(),
     };
     let duty_dispatcher = DutyDispatcher::new(exec_cfg.into(), output_handles.into());
 

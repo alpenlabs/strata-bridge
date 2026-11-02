@@ -1,8 +1,10 @@
 //! Executor for the counterproof transaction.
 
-use std::num::NonZero;
+use std::{collections::HashMap, num::NonZero, sync::MutexGuard};
 
-use bitcoin::{Amount, Network, ScriptBuf, Transaction, XOnlyPublicKey, consensus, relative};
+use bitcoin::{
+    Amount, BlockHash, Network, ScriptBuf, Transaction, XOnlyPublicKey, consensus, relative,
+};
 use bitcoind_async_client::{error::ClientError, traits::Reader};
 use btc_tracker::event::TxStatus;
 use metrics::counter;
@@ -19,10 +21,10 @@ use strata_bridge_counterproof::{
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     proof::verify_bridge_proof,
-    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_proof::{
-    BridgeProofOutput, MerkleProofB32, MohoRecursiveOutput, MohoState, RecursiveMohoProof,
+    BridgeProofOutput, MerkleProofB32, MohoRecursiveOutput, RecursiveMohoProof,
 };
 use strata_bridge_proof_common::prove;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
@@ -117,7 +119,13 @@ pub(super) async fn evaluate_and_publish_counterproof(
         operator_table,
         mode,
     )
-    .await
+    .await?;
+
+    counterproof_anchors(output_handles).remove(&GraphIdx {
+        deposit: deposit_idx,
+        operator: operator_idx,
+    });
+    Ok(())
 }
 
 /// Generates the counterproof or reuses already-completed adaptor signatures, assembles the
@@ -357,11 +365,12 @@ async fn fetch_counterproof_input(
 
 /// Checks whether our canonical ASM view is a strictly heavier chain that contradicts the
 /// operator's bridge proof, returning the [`HeavierChainProof`] witness to counter with, or
-/// `None` when there is nothing to challenge.
+/// `None` when there is nothing to challenge yet.
 ///
-/// The ASM prover builds the Moho state and proof asynchronously, so neither is guaranteed to
-/// exist at `last_block_height` yet. That's fine: a missing one just errors out, and the duty
-/// keeps getting re-emitted on retry ticks until the ASM catches up.
+/// The anchor follows the tip until the canonical chain there outweighs the operator's, then stays
+/// pinned so retries wait for its Moho proof instead of chasing a tip the ASM has not proven yet.
+/// A restart drops the pin and re-pins at the tip. Missing Moho data skips this attempt and the
+/// next retry tick tries again.
 async fn detect_heavier_chain(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
@@ -375,8 +384,36 @@ async fn detect_heavier_chain(
         ExecutorError::InvalidTxStructure(format!("decode bridge proof output ssz: {e:?}"))
     })?;
 
-    let (anchor_hash, moho_state) =
-        fetch_canonical_moho_state(output_handles, last_block_height).await?;
+    let graph_idx = GraphIdx {
+        deposit: deposit_idx,
+        operator: operator_idx,
+    };
+    let bitcoind = &output_handles.bitcoind_rpc_client;
+    let pinned = counterproof_anchors(output_handles)
+        .get(&graph_idx)
+        .copied();
+    // A reorg can replace the pinned block or shorten the chain below it.
+    let (anchor_height, anchor_hash) = if let Some((height, hash)) = pinned
+        && height <= last_block_height
+        && bitcoind.get_block_hash(height).await? == hash
+    {
+        (height, hash)
+    } else {
+        (
+            last_block_height,
+            bitcoind.get_block_hash(last_block_height).await?,
+        )
+    };
+
+    let Some(moho_state) = output_handles
+        .asm_rpc_client
+        .get_moho_state(anchor_hash)
+        .await
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
+    else {
+        warn!(%deposit_idx, %operator_idx, %anchor_height, "moho state not yet available at anchor; retrying at the next tick");
+        return Ok(None);
+    };
 
     let container = moho_state
         .export_state()
@@ -389,13 +426,16 @@ async fn detect_heavier_chain(
 
     // Skip the challenge if the canonical chain has less PoW than the claimant's chain.
     if leq_little_endian(container.extra_data(), &operator_commitment.total_pow) {
+        counterproof_anchors(output_handles).remove(&graph_idx);
         warn!(
             %deposit_idx,
             %operator_idx,
+            %anchor_height,
             "canonical chain is not heavier than the operator chain; cannot challenge",
         );
         return Ok(None);
     }
+    counterproof_anchors(output_handles).insert(graph_idx, (anchor_height, anchor_hash));
 
     let claim_unlock = OperatorClaimUnlockV1::new(deposit_idx, operator_pubkey);
 
@@ -421,7 +461,10 @@ async fn detect_heavier_chain(
         inclusion_proof
     };
 
-    let moho_proof = fetch_moho_proof(output_handles, anchor_hash).await?;
+    let Some(moho_proof) = fetch_moho_proof(output_handles, anchor_hash).await? else {
+        warn!(%deposit_idx, %operator_idx, %anchor_height, "moho proof not yet available at anchor; retrying at the same anchor");
+        return Ok(None);
+    };
     Ok(Some(HeavierChainProof::new(
         moho_state,
         moho_proof,
@@ -430,32 +473,19 @@ async fn detect_heavier_chain(
     )))
 }
 
-/// Resolves the canonical block hash at the given anchor height and fetches the decoded
-/// [`MohoState`] at it.
-async fn fetch_canonical_moho_state(
+fn counterproof_anchors(
     output_handles: &OutputHandles,
-    last_block_height: BitcoinBlockHeight,
-) -> Result<(bitcoin::BlockHash, MohoState), ExecutorError> {
-    let block_hash = output_handles
-        .bitcoind_rpc_client
-        .get_block_hash(last_block_height)
-        .await?;
-    let moho_state = output_handles
-        .asm_rpc_client
-        .get_moho_state(block_hash)
-        .await
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_state: {e}")))?
-        .ok_or_else(|| {
-            ExecutorError::AsmRpcErr(format!("moho state unavailable at {block_hash}"))
-        })?;
-
-    Ok((block_hash, moho_state))
+) -> MutexGuard<'_, HashMap<GraphIdx, (BitcoinBlockHeight, BlockHash)>> {
+    output_handles
+        .counterproof_anchors
+        .lock()
+        .expect("counterproof anchors lock poisoned")
 }
 
 /// Fetches the inclusion proof for the given claim unlock in the canonical export MMR.
 async fn fetch_canonical_inclusion_proof(
     output_handles: &OutputHandles,
-    anchor_hash: bitcoin::BlockHash,
+    anchor_hash: BlockHash,
     claim_unlock: &OperatorClaimUnlockV1,
 ) -> Result<MerkleProofB32, ExecutorError> {
     let inclusion_bytes = output_handles
@@ -473,28 +503,29 @@ async fn fetch_canonical_inclusion_proof(
 }
 
 /// Fetches the recursive Moho proof for `block_hash` from the ASM and rebuilds the
-/// [`RecursiveMohoProof`] the same way the bridge proof assembles its input.
+/// [`RecursiveMohoProof`] the same way the bridge proof assembles its input, or `None` if the ASM
+/// has not proven that block yet.
 async fn fetch_moho_proof(
     output_handles: &OutputHandles,
-    block_hash: bitcoin::BlockHash,
-) -> Result<RecursiveMohoProof, ExecutorError> {
-    let raw_moho_proof = output_handles
+    block_hash: BlockHash,
+) -> Result<Option<RecursiveMohoProof>, ExecutorError> {
+    let Some(raw_moho_proof) = output_handles
         .asm_rpc_client
         .get_moho_proof(block_hash)
         .await
         .map_err(|e| ExecutorError::AsmRpcErr(format!("get_moho_proof: {e}")))?
-        .ok_or_else(|| {
-            ExecutorError::AsmRpcErr(format!("moho proof unavailable at {block_hash}"))
-        })?;
+    else {
+        return Ok(None);
+    };
     let receipt = raw_moho_proof.0.receipt();
     let moho_output = MohoRecursiveOutput::from_ssz_bytes(receipt.public_values().as_bytes())
         .map_err(|e| {
             ExecutorError::AsmRpcErr(format!("decode moho recursive output ssz: {e:?}"))
         })?;
-    Ok(RecursiveMohoProof::new(
+    Ok(Some(RecursiveMohoProof::new(
         moho_output.attestation().clone(),
         receipt.proof().as_bytes().to_vec(),
-    ))
+    )))
 }
 
 fn counterproof_operator_keys(

@@ -1,7 +1,12 @@
 //! The handles for external services that need to be accessed by the executors.
 
-use std::{fmt, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    sync::{Arc, Mutex},
+};
 
+use bitcoin::BlockHash;
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
@@ -10,6 +15,7 @@ use secret_service_client::SecretServiceClient;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
+use strata_bridge_primitives::types::{BitcoinBlockHeight, GraphIdx};
 use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
 use tokio::sync::RwLock;
@@ -71,6 +77,9 @@ pub struct OutputHandles {
 
     /// Host used to generate bridge counterproofs.
     pub counterproof_host: BridgeCounterproofHost,
+
+    /// Block each heavier-chain counterproof is pinned to until its Moho proof exists.
+    pub counterproof_anchors: Mutex<HashMap<GraphIdx, (BitcoinBlockHeight, BlockHash)>>,
 }
 
 impl fmt::Debug for OutputHandles {
@@ -86,6 +95,7 @@ impl fmt::Debug for OutputHandles {
             .field("mosaic_client", &"<dyn MosaicClientApi>")
             .field("bridge_proof_host", &"<BridgeProofHost>")
             .field("counterproof_host", &"<BridgeCounterproofHost>")
+            .field("counterproof_anchors", &self.counterproof_anchors)
             .finish()
     }
 }
