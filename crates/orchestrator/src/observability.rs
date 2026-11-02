@@ -412,6 +412,7 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
         ExecutorError::ProofErr(_) => "proof_generation",
         ExecutorError::InvalidTxStructure(_) => "invalid_transaction_structure",
         ExecutorError::FeeRateTooHigh { .. } => "fee_rate_too_high",
+        ExecutorError::NoDutyFeeRate(_) => "no_duty_fee_rate",
     }
 }
 

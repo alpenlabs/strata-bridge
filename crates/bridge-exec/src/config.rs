@@ -2,9 +2,11 @@
 
 use std::sync::Arc;
 
-use bitcoin::{Amount, FeeRate, Network};
+use bitcoin::{Amount, Network};
 use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
+
+use crate::fees::{FeeQuoteMemo, FeeTargetPolicy};
 
 /// The static configuration for the duty executors.
 #[derive(Debug, Clone)]
@@ -19,9 +21,9 @@ pub struct ExecutionConfig {
     /// Magic bytes for bridge identification in SPS-50 headers.
     pub magic_bytes: MagicBytes,
 
-    /// Maximum fee rate for broadcasting transactions. If the estimated fee rate exceeds this,
-    /// the transaction will not be broadcast.
-    pub maximum_fee_rate: FeeRate,
+    /// Fee target policy: the premium, the floor and the maximum fee rate. No transaction pays
+    /// more than [`FeeTargetPolicy::max_fee_rate`]. The CPFP ladder applies the same policy.
+    pub fee_target: FeeTargetPolicy,
 
     /// The fee charged by an operator for processing a withdrawal.
     pub operator_fee: Amount,
@@ -42,4 +44,9 @@ pub struct ExecutionConfig {
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
     /// and static keys consistent across graph construction paths.
     pub graph_sm_cfg: Arc<GraphSMCfg>,
+
+    /// Fee quote memo shared with the tx-driver's CPFP bump loop. Executors read it through
+    /// [`FeeQuoteMemo::duty_rates`] per tx-build. A frozen quote fails the duty, which retries
+    /// after the source recovers.
+    pub fee_source: Arc<FeeQuoteMemo>,
 }

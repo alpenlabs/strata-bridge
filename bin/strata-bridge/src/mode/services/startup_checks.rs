@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
 use anyhow::{Context, Result, anyhow};
-use bitcoin::Amount;
+use bitcoin::{Amount, FeeRate};
 use jsonrpsee::http_client::HttpClient;
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcCircuitInfoEntry;
@@ -13,6 +13,7 @@ use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::BridgeCounterproofHost;
+use strata_bridge_exec::fees::FeeSourceConfig;
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_proof::BridgeProofHost;
 use strata_predicate::PredicateKey;
@@ -57,6 +58,61 @@ pub(in crate::mode) fn verify_timelock_ordering(params: &Params, config: &Config
         .protocol
         .validate_timelock_ordering()
         .context("unsafe params timelocks")
+}
+
+/// The fee limits of this node, checked against each other.
+#[derive(Debug)]
+pub(in crate::mode) struct FeeLimits {
+    /// The true maximum rate of every transaction.
+    pub(in crate::mode) max_fee_rate: FeeRate,
+    /// The lowest package rate that the CPFP ladder targets.
+    pub(in crate::mode) min_package_fee_rate: FeeRate,
+}
+
+/// Parses the fee config. A package floor above the cap, or a fixed source rate above the cap,
+/// warns here once: the cap wins over both, and a node with such a config starts and bumps at the
+/// cap. The duties refuse a fixed rate above the cap. A bad fee source config otherwise surfaces
+/// only after every service has started.
+pub(in crate::mode) fn parse_fee_limits(config: &Config) -> Result<FeeLimits> {
+    config
+        .fee_source
+        .validate()
+        .context("invalid fee_source config")?;
+    let max_fee_rate = FeeRate::from_sat_per_vb(config.max_fee_rate).ok_or_else(|| {
+        anyhow!(
+            "max_fee_rate = {} sat/vB is not a valid fee rate",
+            config.max_fee_rate
+        )
+    })?;
+    let min_package_fee_rate = FeeRate::from_sat_per_vb(config.cpfp_min_package_fee_rate)
+        .ok_or_else(|| {
+            anyhow!(
+                "cpfp_min_package_fee_rate = {} sat/vB is not a valid fee rate",
+                config.cpfp_min_package_fee_rate
+            )
+        })?;
+    if min_package_fee_rate > max_fee_rate {
+        warn!(
+            cpfp_min_package_fee_rate = config.cpfp_min_package_fee_rate,
+            max_fee_rate = config.max_fee_rate,
+            "cpfp_min_package_fee_rate exceeds max_fee_rate; every CPFP bump prices at the cap"
+        );
+    }
+    let fixed_above_cap = match config.fee_source {
+        FeeSourceConfig::Fixed { fee_rate } if fee_rate > config.max_fee_rate => Some(fee_rate),
+        _ => None,
+    };
+    if let Some(fee_rate) = fixed_above_cap {
+        warn!(
+            fee_rate,
+            max_fee_rate = config.max_fee_rate,
+            "fee_source fixed rate exceeds max_fee_rate; every wallet-funded duty refuses"
+        );
+    }
+    Ok(FeeLimits {
+        max_fee_rate,
+        min_package_fee_rate,
+    })
 }
 
 async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<AsmParams> {
@@ -242,6 +298,29 @@ mod tests {
     use crate::{config::test_config, mode::services::test_fixtures::test_params};
 
     const ASSIGNMENT_DURATION: u16 = 144;
+
+    #[test]
+    fn a_fixed_fee_rate_above_the_cap_is_accepted() {
+        let mut config = test_config();
+        config.max_fee_rate = 10;
+        config.fee_source = FeeSourceConfig::Fixed { fee_rate: 11 };
+        parse_fee_limits(&config).expect("the rate is a warning, and the duties refuse");
+    }
+
+    #[test]
+    fn an_invalid_fee_source_config_is_rejected() {
+        let mut config = test_config();
+        config.fee_source = FeeSourceConfig::Fixed { fee_rate: u64::MAX };
+        assert!(parse_fee_limits(&config).is_err());
+    }
+
+    #[test]
+    fn a_package_floor_above_the_fee_cap_is_accepted() {
+        let mut config = test_config();
+        config.max_fee_rate = 10;
+        config.cpfp_min_package_fee_rate = 11;
+        parse_fee_limits(&config).expect("the floor is a warning, and the cap wins");
+    }
 
     /// Arbitrary [`AsmParams`] with every *compared* field overwritten from `params`; the
     /// uncompared fields stay arbitrary on purpose — they must not affect the verdict.
