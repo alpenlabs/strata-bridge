@@ -2562,7 +2562,7 @@ checksum = "0b47c4ab7a93edb0c7198c5535ed9b52b63095f4e9b45279c6736cec4b856baf"
 [[package]]
 name = "bitcoin-script"
 version = "0.4.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script#519088c7e5e89769910dabcb1b663fa48a21a645"
+source = "git+https://github.com/BitVM/rust-bitcoin-script#1e7097335fc4887312852f0ade90d88629ddcac4"
 dependencies = [
  "bitcoin",
  "script-macro",
@@ -3731,7 +3731,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -9678,7 +9678,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "script-macro"
 version = "0.4.0"
-source = "git+https://github.com/BitVM/rust-bitcoin-script#519088c7e5e89769910dabcb1b663fa48a21a645"
+source = "git+https://github.com/BitVM/rust-bitcoin-script#1e7097335fc4887312852f0ade90d88629ddcac4"
 dependencies = [
  "bitcoin",
  "proc-macro-error",
