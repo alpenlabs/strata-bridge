@@ -266,6 +266,33 @@ async fn process_connected_block(
     tx_events
 }
 
+/// Sends `diff` to the matching subscribers, and removes each closed subscriber with its filter.
+///
+/// A subscriber can close with no further match, for example a transaction that is buried. The
+/// check on the channel removes that subscriber on the next message. Without it, its filter runs
+/// on every later mempool transaction and block transaction for the life of the process.
+fn deliver_tx_events(
+    subs: &mut Vec<TxSubscriptionDetails>,
+    sm: &mut BtcNotifySM,
+    diff: &[TxEvent],
+) {
+    subs.retain(|sub| {
+        let delivered = !sub.outbox.is_closed()
+            && diff
+                .iter()
+                .filter(|event| (sub.predicate)(&event.rawtx))
+                .all(|msg| {
+                    trace!(?msg, "notifying subscriber");
+                    sub.outbox.send(msg.clone()).is_ok()
+                });
+        if !delivered {
+            debug!("removing closed subscriber");
+            sm.rm_filter(&sub.predicate);
+        }
+        delivered
+    });
+}
+
 // Implementation for Disconnected state
 impl BtcNotifyClient<Disconnected> {
     /// Creates a new disconnected client.
@@ -468,21 +495,7 @@ impl BtcNotifyClient<Disconnected> {
                     }
                 };
 
-                tx_subs_thread.lock().await.retain(|sub| {
-                    for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
-                        // Now we send the diff to the relevant subscribers.
-                        // If we ever encounter a send error,
-                        // it means the receiver has been dropped.
-                        trace!(?msg, "notifying subscriber");
-
-                        if let Err(e) = sub.outbox.send(msg.clone()) {
-                            debug!(%e, "failed to notify subscriber");
-                            sm.rm_filter(&sub.predicate);
-                            return false;
-                        }
-                    }
-                    true
-                });
+                deliver_tx_events(&mut *tx_subs_thread.lock().await, &mut sm, &diff);
             }
 
             if let Some(observer) = &health_observer {
@@ -544,6 +557,9 @@ impl BtcNotifyClient<Connected> {
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Transaction`] and
     /// [`TxStatus`](crate::event::TxStatus)
     /// every time a transaction's status changes due to block or mempool events.
+    ///
+    /// Dropping the [`Subscription`] ends it. The client removes the sender and the filter on
+    /// the next ZMQ message.
     ///
     /// Only available when the client is in the Connected state.
     pub async fn subscribe_transactions(
@@ -633,6 +649,50 @@ mod tests {
 
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::BlockStatus};
+
+    /// Adds one subscriber that matches every transaction to `subs` and to `sm`.
+    fn subscribe_all(
+        subs: &mut Vec<TxSubscriptionDetails>,
+        sm: &mut BtcNotifySM,
+    ) -> mpsc::UnboundedReceiver<TxEvent> {
+        let (outbox, receiver) = mpsc::unbounded_channel();
+        let predicate: TxPredicate = Arc::new(|_| true);
+        sm.add_filter(predicate.clone());
+        subs.push(TxSubscriptionDetails { predicate, outbox });
+        receiver
+    }
+
+    #[test]
+    fn a_closed_subscriber_and_its_filter_go_with_no_matching_event() {
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let mut subs = Vec::new();
+        let closed = subscribe_all(&mut subs, &mut sm);
+        let _open = subscribe_all(&mut subs, &mut sm);
+        drop(closed);
+
+        deliver_tx_events(&mut subs, &mut sm, &[]);
+
+        assert_eq!(subs.len(), 1, "the closed subscriber must go");
+        let mut expected = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        expected.add_filter(subs[0].predicate.clone());
+        assert_eq!(sm, expected, "only the filter of the open subscriber stays");
+    }
+
+    #[test]
+    fn an_open_subscriber_hears_the_matching_events() {
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let mut subs = Vec::new();
+        let mut open = subscribe_all(&mut subs, &mut sm);
+        let event = TxEvent {
+            rawtx: test_block(1, BlockHash::all_zeros(), 1).txdata[0].clone(),
+            status: crate::event::TxStatus::Mempool,
+        };
+
+        deliver_tx_events(&mut subs, &mut sm, std::slice::from_ref(&event));
+
+        assert_eq!(subs.len(), 1);
+        assert_eq!(open.try_recv().ok(), Some(event));
+    }
 
     #[derive(Clone)]
     struct StaticFetcher {
