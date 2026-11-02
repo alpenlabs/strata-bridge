@@ -29,6 +29,10 @@ pub type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TxLifecycle {
     /// The full transaction data of the lifecycle we are tracking.
+    ///
+    /// The map key is the txid, so a block can hold another witness of this transaction. Each
+    /// [`TxStatus::Mined`] and [`TxStatus::Buried`] event carries the variant in the block. This
+    /// field keeps the variant first seen, and it survives until the lifecycle ends.
     raw: Transaction,
     /// An optional [`bitcoin::BlockHash`] that will be populated once the transaction has
     /// been included in a block.
@@ -121,7 +125,7 @@ impl BtcNotifySM {
         self.tx_filters.push(pred);
     }
 
-    /// Takes a [`TxPredicate`] that was previously added via [`BtcNotifySM::add_filter`].
+    /// Removes a [`TxPredicate`] that was previously added via [`BtcNotifySM::add_filter`].
     pub(crate) fn rm_filter(&mut self, pred: &TxPredicate) {
         trace!("removing predicate filter from a ZMQ state machine");
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, pred)) {
@@ -899,6 +903,33 @@ mod prop_tests {
 
             let diff = sm.process_tx(tx.clone());
             prop_assert_eq!(diff, vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
+        }
+
+        // Ensures that a filter on the txid reports Mined and Buried for a block that holds another
+        // witness of the transaction that the mempool holds.
+        #[test]
+        fn a_txid_filter_tracks_a_block_variant_with_another_witness(
+            chain in arb_chain(17, Hash::all_zeros(), 7),
+        ) {
+            let oldest = chain.back().expect("the chain has blocks");
+            let mined = oldest.txdata[0].clone();
+            let txid = mined.compute_txid();
+            let mut variant = mined.clone();
+            variant.input[0].witness.push([0xab]);
+            prop_assert_ne!(&variant, &mined);
+            prop_assert_eq!(variant.compute_txid(), txid);
+
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            sm.add_filter(Arc::new(move |tx: &Transaction| tx.compute_txid() == txid));
+            sm.process_tx(variant);
+
+            let mut diff = Vec::new();
+            for block in chain.into_iter().rev() {
+                diff.extend(sm.process_block(block).0);
+            }
+
+            prop_assert!(diff.iter().any(|event| event.status.is_mined() && event.rawtx == mined));
+            prop_assert!(diff.iter().any(|event| event.status.is_buried() && event.rawtx == mined));
         }
 
         // Ensures that removing a filter after adding it results in an identical state machine.
