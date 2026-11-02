@@ -10,6 +10,7 @@ workspace = true
 bdk_bitcoind_rpc.workspace = true
 bdk_wallet = { workspace = true, features = ["rusqlite"] }
 bitcoin-bosd.workspace = true
+rand.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

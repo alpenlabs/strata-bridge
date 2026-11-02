@@ -20,7 +20,12 @@
 
 pub mod config;
 pub mod general;
+// The wallet of the next change in this stack consumes the planner and the lease set.
+#[allow(dead_code)]
+pub mod leases;
 pub mod persist;
+#[allow(dead_code)]
+mod plan;
 pub mod sync;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -39,9 +44,11 @@ use thiserror::Error;
 pub use crate::{
     config::{OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS},
     general::{native::NativeGeneralWallet, FundedPsbt, GeneralWallet, UtxoInfo},
+    leases::{Lease, LeaseOwner},
     persist::{
         load_or_create, BlockId, InitError, SqliteStore, SqliteStoreError, WalletKind, WalletStore,
     },
+    plan::{FundingInput, IncumbentChild, REPLACEMENT_INCREMENT_SAT_PER_VB},
     sync::SyncError,
     wallet::{GeneralUtxoPolicy, OperatorWallet},
 };
