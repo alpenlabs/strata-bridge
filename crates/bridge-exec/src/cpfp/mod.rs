@@ -1,5 +1,6 @@
 //! The CPFP fee-bump implementation behind [`btc_tracker::cpfp::CpfpBumper`].
 
+pub mod adapters;
 pub mod ladder;
 pub mod observability;
 pub mod submitpackage;
