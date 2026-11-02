@@ -45,6 +45,7 @@ metrics.workspace = true
 musig2.workspace = true
 reqwest.workspace = true
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 ssz.workspace = true
 terrors.workspace = true
 thiserror.workspace = true
@@ -60,7 +61,7 @@ bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
 operator-wallet = { workspace = true, features = ["test-utils"] }
 proptest.workspace = true
-serde_json.workspace = true
+serial_test.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }
 toml.workspace = true

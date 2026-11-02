@@ -12301,6 +12301,7 @@ dependencies = [
  "secret-service-proto",
  "serde",
  "serde_json",
+ "serial_test",
  "ssz",
  "strata-asm-proto-bridge",
  "strata-asm-proto-bridge-txs",
