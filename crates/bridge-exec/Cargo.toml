@@ -33,7 +33,6 @@ strata-mosaic-client-api.workspace = true
 zkaleido.workspace = true
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 
-bdk_wallet.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoind-async-client.workspace = true
@@ -56,6 +55,7 @@ strata-crypto.workspace = true
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
 operator-wallet = { workspace = true, features = ["test-utils"] }
+serde_json.workspace = true
 tempfile.workspace = true
 
 [features]

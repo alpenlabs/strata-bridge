@@ -1,21 +1,22 @@
 //! Provides operator wallet initialization.
 
-use std::{sync::Arc, time::Instant};
+use std::{future::Future, sync::Arc, time::Instant};
 
 use anyhow::{Context, anyhow, ensure};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
+use btc_tracker::event::{BlockEvent, BlockStatus};
+use futures::{FutureExt, Stream, StreamExt, future::ready};
 use operator_wallet::{
-    BlockId, DEFAULT_PERSIST_EVERY_BLOCKS, NativeGeneralWallet, OperatorWallet,
-    OperatorWalletConfig, SqliteStore, WalletKind, sync::Backend,
+    BlockId, DEFAULT_PERSIST_EVERY_BLOCKS, GeneralCustody, OperatorWallet, OperatorWalletConfig,
+    SqliteStore, WalletKind, sync::Backend,
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
-use strata_bridge_exec::output_handles::NativeWallet;
-use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
+use strata_bridge_primitives::{constants::SEGWIT_MIN_AMOUNT, subscription::Subscription};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -27,7 +28,7 @@ pub(in crate::mode) async fn init_operator_wallet(
     s2_client: &SecretServiceClient,
     db_client: &FdbClient,
     btc_rpc_client: &BitcoinClient,
-) -> anyhow::Result<NativeWallet> {
+) -> anyhow::Result<OperatorWallet<SqliteStore>> {
     info!("fetching leased utxos from database");
     let leased_outpoints = db_client
         .get_all_funds()
@@ -47,21 +48,17 @@ pub(in crate::mode) async fn init_operator_wallet(
     );
     debug!(?bitcoin_rpc_client, "bitcoin rpc client");
 
-    let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    info!(%general_key, "operator wallet general key");
     let reserved_key = s2_client.reserved_wallet_signer().pubkey().await?;
     info!(%reserved_key, "operator wallet reserved key");
     let persist_every_blocks = config
         .operator_wallet
         .persist_every_blocks
         .unwrap_or(DEFAULT_PERSIST_EVERY_BLOCKS);
-    let operator_wallet_config = OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, params.network)
-        .with_persist_every_blocks(persist_every_blocks);
+    let bury_depth = u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32");
+    let operator_wallet_config =
+        OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, bury_depth, params.network)
+            .with_persist_every_blocks(persist_every_blocks);
     debug!(?operator_wallet_config, "operator wallet config");
-
-    let general_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
-    let reserved_sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
-    debug!(?general_sync_backend, "operator wallet sync backend");
 
     // Resolved before the stores are opened: opening creates the files, and a rejected checkpoint
     // must leave none behind.
@@ -73,29 +70,26 @@ pub(in crate::mode) async fn init_operator_wallet(
         SqliteStore::open_in_dir(data_dir, kind)
             .with_context(|| format!("opening {kind} wallet store"))
     };
-    let general_store = open_store(WalletKind::General)?;
     let reserved_store = open_store(WalletKind::Reserved)?;
 
-    let general_wallet = NativeGeneralWallet::load_or_create(
+    let general_key = s2_client.general_wallet_signer().pubkey().await?;
+    info!(%general_key, "operator wallet general key");
+    let custody = GeneralCustody::SecretService {
         general_key,
-        &operator_wallet_config,
-        general_sync_backend,
-        general_store,
-        bootstrap_checkpoint,
-    )
-    .await
-    .context("loading general wallet")?;
+        store: open_store(WalletKind::General)?,
+    };
+
     let wallet = OperatorWallet::load_or_create(
-        general_wallet,
+        custody,
         reserved_key,
         operator_wallet_config,
-        reserved_sync_backend,
+        Backend::BitcoinCore(bitcoin_rpc_client),
         reserved_store,
         bootstrap_checkpoint,
         leased_outpoints,
     )
     .await
-    .context("loading reserved wallet")?;
+    .context("loading operator wallet")?;
     debug!("operator wallet initialized");
 
     Ok(wallet)
@@ -218,27 +212,91 @@ async fn resolve_bootstrap_checkpoint(
     Ok(seed_below(height, parent))
 }
 
-/// Performs a one-shot sync of the operator wallet against its backend.
+/// Performs a one-shot sync of the operator wallet against the node.
 ///
 /// Intended to run as a background task at startup so the wallet has a head start before its
 /// first on-demand use. A sync failure is logged and swallowed: callers must still sync the wallet
 /// before use, so a failed initial sync must not crash the node.
-pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(wallet: Arc<RwLock<NativeWallet>>) {
+pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(
+    wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
+) {
     info!("starting initial operator wallet sync");
     let start = Instant::now();
-    match wallet.write().await.sync().await {
+    // Bind the result so the write guard (a temporary in this expression) drops here.
+    let result = wallet.write().await.sync().await;
+    match result {
         Ok(()) => info!(time_spent=?start.elapsed(), "initial operator wallet sync complete"),
         Err(e) => {
-            warn!(?e, time_spent=?start.elapsed(), "initial operator wallet sync failed, first use might be slow")
+            warn!(?e, time_spent=?start.elapsed(), "initial operator wallet sync failed, first use might be slow");
         }
+    }
+}
+
+/// Syncs the operator wallet once for each new block, for as long as `blocks` yields.
+///
+/// A bump selects from the view of the last sync, so this bounds the age of that view to one block
+/// on an active chain. The task takes the exclusive guard for each sync, as any duty does, and it
+/// is the only sync that a node with no running duty sees. A failed sync waits for the next block.
+pub(in crate::mode) async fn sync_wallet_on_new_blocks(
+    wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
+    blocks: Subscription<BlockEvent>,
+) {
+    let mined = blocks.filter(|event| ready(event.status == BlockStatus::Mined));
+    run_for_each_batch(Box::pin(mined), || async {
+        // Bind the result so the write guard (a temporary in this expression) drops here.
+        let result = wallet.write().await.sync().await;
+        if let Err(e) = result {
+            warn!(
+                ?e,
+                "wallet sync on a new block failed; the next block retries"
+            );
+        }
+    })
+    .await;
+}
+
+/// Calls `action` once for each batch of items that `items` has ready. A sync reads the whole
+/// chain tip, so the replay at startup and a burst of blocks cost one call each.
+async fn run_for_each_batch<T, F, Fut>(mut items: impl Stream<Item = T> + Unpin, action: F)
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = ()>,
+{
+    while items.next().await.is_some() {
+        while let Some(Some(_)) = items.next().now_or_never() {}
+        action().await;
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use bitcoin::hashes::Hash;
+    use futures::channel::mpsc;
 
     use super::*;
+
+    /// Items that arrive while an earlier batch runs form one later batch.
+    #[tokio::test]
+    async fn ready_items_form_one_batch_each() {
+        let (sender, receiver) = mpsc::unbounded();
+        for item in 0..3 {
+            sender.unbounded_send(item).expect("open channel");
+        }
+        let calls = Cell::new(0);
+        run_for_each_batch(receiver, || async {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                sender.unbounded_send(3).expect("open channel");
+                sender.unbounded_send(4).expect("open channel");
+            } else {
+                sender.close_channel();
+            }
+        })
+        .await;
+        assert_eq!(calls.get(), 2);
+    }
 
     fn hash(byte: u8) -> BlockHash {
         BlockHash::from_byte_array([byte; 32])

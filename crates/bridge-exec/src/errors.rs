@@ -1,6 +1,5 @@
 //! Error types for the bridge-exec executors.
 
-use bdk_wallet::error::CreateTxError;
 use bitcoin::{Amount, FeeRate, OutPoint, Txid};
 use foundationdb::FdbBindingError;
 use strata_bridge_db::fdb::errors::LayerError;
@@ -34,10 +33,6 @@ pub enum ExecutorError {
     #[error("wallet error: {0}")]
     WalletErr(String),
 
-    /// Error related to creation of [`Psbt`](bitcoin::psbt::Psbt).
-    #[error("psbt error: {0}")]
-    PsbtErr(#[from] CreateTxError),
-
     /// Failed to aggregate partial signatures into final Schnorr signature.
     #[error("signature aggregation failed: {0}")]
     SignatureAggregationFailed(String),
@@ -55,9 +50,14 @@ pub enum ExecutorError {
     #[error("stake outpoint {0} already spent on chain")]
     StakeOutPointAlreadySpent(OutPoint),
 
-    /// The claim funding outpoint is not among the reserved wallet's unspent outputs.
+    /// The claim funding outpoint is not among the reserved wallet's unspent outputs, and the node
+    /// does not know its transaction.
     #[error("claim funding outpoint {0} not found in wallet")]
     ClaimFundingOutPointMissing(OutPoint),
+
+    /// The transaction that creates the claim-funding output is not confirmed.
+    #[error("claim funding outpoint {0} is not confirmed")]
+    ClaimFundingUnconfirmed(OutPoint),
 
     /// The claim-funding reservation recorded for a graph does not hold the amount its claim
     /// needs.

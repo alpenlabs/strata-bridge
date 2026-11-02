@@ -7786,6 +7786,7 @@ dependencies = [
  "operator-wallet",
  "rand 0.8.8",
  "serial_test",
+ "strata-bridge-primitives",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -12026,7 +12027,6 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "bdk_bitcoind_rpc",
- "bdk_wallet",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
@@ -12041,6 +12041,7 @@ dependencies = [
  "operator-wallet",
  "secret-service-client",
  "secret-service-proto",
+ "serde_json",
  "ssz",
  "strata-asm-proto-bridge",
  "strata-asm-proto-bridge-txs",

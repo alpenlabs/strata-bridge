@@ -13,7 +13,7 @@ use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
-use operator_wallet::GeneralUtxoPolicy;
+use operator_wallet::{GeneralUtxoPolicy, LeaseOwner, LeasedPsbt, OperatorWallet, SqliteStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::prelude::UnstakingIntentOutput;
 use strata_bridge_db::{
@@ -29,8 +29,11 @@ use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::pre
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
-    output_handles::OutputHandles, stake::utils::get_preimage,
+    chain::{self, publish_signed_transaction},
+    config::ExecutionConfig,
+    errors::ExecutorError,
+    output_handles::OutputHandles,
+    stake::utils::get_preimage,
 };
 
 pub(crate) async fn publish_stake_data(
@@ -50,7 +53,13 @@ pub(crate) async fn publish_stake_data(
     };
 
     info!(%operator_idx, %stake_funding_txid, "submitting stake funding transaction");
-    let signed_tx = sign_reservation(output_handles, &reservation).await?;
+    let signed_tx = chain::sign_general_inputs(
+        output_handles,
+        &reservation.unsigned_tx,
+        &(0..reservation.unsigned_tx.input.len()).collect::<Vec<_>>(),
+        &reservation.prevouts,
+    )
+    .await?;
     publish_signed_transaction(
         &output_handles.tx_driver,
         &signed_tx,
@@ -65,6 +74,9 @@ pub(crate) async fn publish_stake_data(
     info!(%unstaking_image, "fetched unstaking intent preimage and computed the unstaking image");
 
     info!("constructing the unstaking output descriptor");
+    // Custody-aware receive destination: where this operator gets its unstaking funds, so the
+    // funds land somewhere it can actually spend — the wallet's own receive script for the
+    // secret-service custody, the vault P2WPKH for Fireblocks.
     let output_desc = output_handles
         .wallet
         .read()
@@ -97,7 +109,6 @@ async fn read_or_create_stake_funding(
 ) -> Result<StakeFundingReservation, ExecutorError> {
     let operator_idx = stake_key.operator;
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
-
     let mut wallet = output_handles.wallet.write().await;
 
     match wallet.sync().await {
@@ -125,7 +136,10 @@ async fn read_or_create_stake_funding(
             .iter()
             .map(|txin| txin.previous_output)
             .collect();
-        wallet.lease(&inputs);
+        // The database row keeps this reservation across restarts, so the lease has no owning
+        // value to drop. Startup rehydration holds the same outpoints. This call covers the case
+        // where the row was written after startup read the funds.
+        wallet.lease_committed(inputs, LeaseOwner::StakeFunding);
         return Ok(reservation);
     }
 
@@ -133,26 +147,11 @@ async fn read_or_create_stake_funding(
     let fee_rate = estimate_funding_fee_rate(cfg, output_handles).await?;
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
-    // Stake funding is one reserved-wallet UTXO of `funding_amount`. The reserved-utxo API
-    // takes denomination + quantity uniformly (claim-funding pool uses larger quantity
-    // with a smaller per-UTXO value); for the stake-funding case it's always quantity 1.
-    let funded = wallet
-        .create_reserved_utxos(
-            fee_rate,
-            funding_amount,
-            1,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
-        )
-        .await
-        .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))?;
-    let reservation = reservation_from_psbt(&funded.psbt);
-
-    let candidate_inputs: Vec<OutPoint> = reservation
-        .unsigned_tx
-        .input
-        .iter()
-        .map(|txin| txin.previous_output)
-        .collect();
+    // `candidate` holds the inputs that the wallet selected. Each path below that does not
+    // become the stored reservation drops it, which returns those inputs to the pool.
+    let candidate = select_stake_funding(&mut wallet, fee_rate, funding_amount)?;
+    let (candidate_psbt, candidate_lease) = candidate.into_parts();
+    let reservation = reservation_from_psbt(&candidate_psbt);
 
     info!(%operator_idx, "persisting stake funding reservation");
     let assignment = output_handles
@@ -161,33 +160,29 @@ async fn read_or_create_stake_funding(
         .await;
 
     match assignment {
-        Ok(FundingAssignment::Created(reservation)) => Ok(reservation),
+        Ok(FundingAssignment::Created(reservation)) => {
+            candidate_lease.commit();
+            Ok(reservation)
+        }
         Ok(FundingAssignment::Existing(reservation)) => {
             info!(%operator_idx, "using existing stake funding reservation saved by another duty");
+            // The candidate's inputs return to the pool; the stored row names the inputs to hold.
+            drop(candidate_lease);
+            validate_reservation(
+                &reservation,
+                &wallet.reserved_script_pubkey(),
+                funding_amount,
+            )?;
             let assigned_inputs: Vec<OutPoint> = reservation
                 .unsigned_tx
                 .input
                 .iter()
                 .map(|txin| txin.previous_output)
                 .collect();
-            let stale_candidate_inputs: Vec<_> = candidate_inputs
-                .iter()
-                .copied()
-                .filter(|outpoint| !assigned_inputs.contains(outpoint))
-                .collect();
-            wallet.release(&stale_candidate_inputs);
-            validate_reservation(
-                &reservation,
-                &wallet.reserved_script_pubkey(),
-                funding_amount,
-            )?;
-            wallet.lease(&assigned_inputs);
+            wallet.lease_committed(assigned_inputs, LeaseOwner::StakeFunding);
             Ok(reservation)
         }
-        Err(err) => {
-            wallet.release(&candidate_inputs);
-            Err(err.into())
-        }
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -218,6 +213,26 @@ async fn estimate_funding_fee_rate(
     }
 
     Ok(fee_rate)
+}
+
+/// Funds one reserved-wallet output of `funding_amount` from confirmed general-wallet outputs.
+///
+/// The funding transaction is v3, and TRUC rejects a v3 transaction with an unconfirmed non-v3
+/// parent, so an unconfirmed input can make it unrelayable.
+fn select_stake_funding(
+    wallet: &mut OperatorWallet<SqliteStore>,
+    fee_rate: FeeRate,
+    funding_amount: Amount,
+) -> Result<LeasedPsbt, ExecutorError> {
+    wallet
+        .create_reserved_utxos(
+            fee_rate,
+            funding_amount,
+            1,
+            GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::StakeFunding,
+        )
+        .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))
 }
 
 fn validate_reservation(
@@ -258,61 +273,12 @@ fn validate_reservation(
 }
 
 fn reservation_from_psbt(psbt: &Psbt) -> StakeFundingReservation {
-    let prevouts = psbt
-        .inputs
-        .iter()
-        .map(|input| {
-            input
-                .witness_utxo
-                .as_ref()
-                .expect("stake funding PSBT input must have a witness utxo")
-                .clone()
-        })
-        .collect();
-    // The stake funding PSBT is built with `TxOrdering::Untouched` and a single recipient at
-    // index 0; change (if any) is appended after.
+    // The stake funding PSBT has a single recipient at index 0; change (if any) follows it.
     StakeFundingReservation {
         unsigned_tx: psbt.unsigned_tx.clone(),
-        prevouts,
+        prevouts: chain::psbt_prevouts(psbt),
         stake_output_vout: 0,
     }
-}
-
-async fn sign_reservation(
-    output_handles: &OutputHandles,
-    reservation: &StakeFundingReservation,
-) -> Result<Transaction, ExecutorError> {
-    let prevouts = Prevouts::All(&reservation.prevouts);
-
-    const DEFAULT_SIGHASH_TYPE: TapSighashType = TapSighashType::Default;
-
-    let mut sighash_cache = SighashCache::new(&reservation.unsigned_tx);
-    let sighashes = (0..reservation.unsigned_tx.input.len()).map(|input_index| {
-        create_key_spend_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            DEFAULT_SIGHASH_TYPE,
-            input_index,
-        )
-        .expect("must be able to create key spend hash")
-    });
-
-    let s2_signer = output_handles.s2_client.general_wallet_signer();
-    let mut signatures = Vec::with_capacity(reservation.unsigned_tx.input.len());
-    for sighash in sighashes {
-        let signature = s2_signer
-            .sign(sighash.as_ref(), None)
-            .await
-            .map_err(ExecutorError::SecretServiceErr)?;
-        signatures.push(signature);
-    }
-
-    let mut signed_tx = reservation.unsigned_tx.clone();
-    for (input, signature) in signed_tx.input.iter_mut().zip(signatures) {
-        input.witness.push(signature.serialize());
-    }
-
-    Ok(signed_tx)
 }
 
 pub(crate) async fn publish_unstaking_nonces(
@@ -490,4 +456,96 @@ fn stake_funding_amount(network: Network, stake_amount: Amount) -> Amount {
         fee::unstaking_intent_surcharge(),
     );
     StakeTx::stake_funds_required(stake_amount, &unstaking_intent_output)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeSet, sync::Arc};
+
+    use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
+    use bitcoin::{
+        Address, Amount, FeeRate, Network,
+        secp256k1::{Keypair, SECP256K1},
+    };
+    use corepc_node::{Conf, Node};
+    use operator_wallet::{
+        GeneralCustody, OperatorWallet, OperatorWalletConfig, SqliteStore, WalletKind,
+        sync::Backend,
+    };
+
+    use super::select_stake_funding;
+
+    /// Stake funding is v3, so a zero-confirmation general output must not fund it.
+    #[tokio::test]
+    async fn stake_funding_refuses_an_unconfirmed_general_output() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let data_dir = tempfile::tempdir().expect("temp dir");
+        let mut wallet = test_wallet(&bitcoind, &data_dir).await;
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let general_address =
+            Address::from_script(&wallet.general().script_pubkey(), Network::Regtest)
+                .expect("general address");
+        bitcoind
+            .client
+            .send_to_address(&general_address, Amount::from_sat(100_000))
+            .expect("fund the general wallet");
+        wallet.sync().await.expect("sync sees the mempool credit");
+
+        let fee_rate = FeeRate::from_sat_per_vb(2).expect("valid rate");
+        let amount = Amount::from_sat(50_000);
+        assert!(
+            select_stake_funding(&mut wallet, fee_rate, amount).is_err(),
+            "a mempool credit must not fund the stake"
+        );
+
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm the credit");
+        wallet.sync().await.expect("sync sees the block");
+        assert!(
+            select_stake_funding(&mut wallet, fee_rate, amount).is_ok(),
+            "a confirmed output funds the stake"
+        );
+    }
+
+    fn test_key(seed: u8) -> bitcoin::XOnlyPublicKey {
+        Keypair::from_seckey_slice(SECP256K1, &[seed; 32])
+            .expect("valid secret key")
+            .x_only_public_key()
+            .0
+    }
+
+    async fn test_wallet(
+        bitcoind: &Node,
+        data_dir: &tempfile::TempDir,
+    ) -> OperatorWallet<SqliteStore> {
+        let core_client = || {
+            let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
+            Arc::new(CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core client"))
+        };
+        let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest);
+        let general_store =
+            SqliteStore::open_in_dir(data_dir.path(), WalletKind::General).expect("general store");
+        let reserved_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::Reserved)
+            .expect("reserved store");
+        OperatorWallet::load_or_create(
+            GeneralCustody::SecretService {
+                general_key: test_key(1),
+                store: general_store,
+            },
+            test_key(2),
+            config,
+            Backend::BitcoinCore(core_client()),
+            reserved_store,
+            None,
+            BTreeSet::new(),
+        )
+        .await
+        .expect("operator wallet")
+    }
 }

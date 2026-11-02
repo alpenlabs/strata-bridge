@@ -5,25 +5,14 @@ use std::{fmt, sync::Arc};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
-use operator_wallet::{NativeGeneralWallet, OperatorWallet, SqliteStore};
+use operator_wallet::{OperatorWallet, SqliteStore};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
-use tokio::sync::RwLock;
-
-/// Store for the general and reserved wallets' chain state.
-pub type NativeWalletStore = SqliteStore;
-
-/// General-wallet backend of [`NativeWallet`].
-pub type NativeGeneralWalletBackend = NativeGeneralWallet<NativeWalletStore>;
-
-/// Concrete operator-wallet type used by bridge-exec. Today the only general-wallet backend in
-/// use is [`NativeGeneralWallet`]; Fireblocks support (STR-3437) will add a sibling impl and
-/// the binary will pick between them at startup.
-pub type NativeWallet = OperatorWallet<NativeGeneralWalletBackend, NativeWalletStore>;
+use tokio::sync::{Mutex, RwLock};
 
 /// The handles for external services that need to be accessed by the executors.
 ///
@@ -32,10 +21,19 @@ pub type NativeWallet = OperatorWallet<NativeGeneralWalletBackend, NativeWalletS
 pub struct OutputHandles {
     /// Handle for accessing operator funds.
     ///
-    /// Methods on [`OperatorWallet`] take `&mut self`. The outer `RwLock` also lets executors
-    /// span multi-step critical sections (e.g. DB-lookup-then-fund-then-persist) without
-    /// races between concurrent duties.
-    pub wallet: Arc<RwLock<NativeWallet>>,
+    /// Selection takes the exclusive guard, which makes the read of the held outpoints, the
+    /// choice, and the lease one step. A duty may keep that guard across a multi-step critical
+    /// section (e.g. sync-then-DB-lookup-then-fund-then-persist). Signing never runs under
+    /// either guard: a duty takes [`OperatorWallet::general_signer`], releases the guard, and then
+    /// signs, so a wait on an external signer stalls no other duty.
+    pub wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
+
+    /// Allows one claim-funding refill at a time.
+    ///
+    /// A refill signs and broadcasts with no wallet guard held, so this lock is what makes a duty
+    /// that finds the pool empty wait for the outputs of the running refill and not fund a second
+    /// one. Selection from a pool that has a free output never takes it.
+    pub claim_funding_refill: Mutex<()>,
 
     /// Handle for accessing the database.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-2670>
