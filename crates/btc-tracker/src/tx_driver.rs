@@ -22,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     client::{BtcNotifyClient, Connected},
@@ -154,7 +154,7 @@ async fn resubmit(rpc_client: &BitcoinClient, tx: Transaction, active_jobs: &mut
             source: err.clone(),
         };
         if respond_on.send(Err(evicted)).is_err() {
-            error!(%txid, "could not send error response to job submitter");
+            warn!(%txid, "could not send error response to job submitter");
         }
     }
 }
