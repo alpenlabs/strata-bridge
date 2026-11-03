@@ -12,7 +12,7 @@ mod tests {
     };
 
     use crate::graph::{
-        duties::{GraphDuty, NagDuty},
+        duties::{DutyConfig, GraphDuty, NagDuty},
         tests::{
             INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_NONPOV_IDX, TEST_POV_IDX, TestGraphTxKind,
             dummy_proof_receipt, test_completed_signatures, test_deposit_outpoint, test_graph_data,
@@ -48,6 +48,7 @@ mod tests {
                     stake_outpoint: test_stake_outpoint(),
                     unstaking_image: sha256::Hash::hash(&[0u8; 32]),
                     operator_table: operator_table.clone(),
+                    cfg: DutyConfig(cfg.clone()),
                 },
                 false,
             ),
@@ -144,6 +145,7 @@ mod tests {
                     proof: dummy_proof_receipt(),
                     bridge_proof_tx: TestGraphTxKind::Claim.into(),
                     operator_table: operator_table.clone(),
+                    cfg: DutyConfig(cfg.clone()),
                 },
                 false,
             ),

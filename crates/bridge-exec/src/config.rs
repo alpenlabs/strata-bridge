@@ -1,9 +1,6 @@
 //! Static configuration common to all duty executors.
 
-use std::sync::Arc;
-
 use bitcoin::{Amount, FeeRate, Network};
-use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
 
 /// The static configuration for the duty executors.
@@ -38,8 +35,4 @@ pub struct ExecutionConfig {
     /// The number of blocks built on top of a transaction's block before it counts as
     /// [`TxStatus::Buried`](btc_tracker::event::TxStatus).
     pub bury_depth: u32,
-
-    /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
-    /// and static keys consistent across graph construction paths.
-    pub graph_sm_cfg: Arc<GraphSMCfg>,
 }

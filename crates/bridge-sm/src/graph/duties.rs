@@ -1,7 +1,7 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use std::num::NonZero;
+use std::{fmt, num::NonZero, ops::Deref, sync::Arc};
 
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey, hashes::sha256};
 use musig2::{
@@ -22,6 +22,28 @@ use strata_bridge_tx_graph::transactions::{
 };
 use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
+
+use crate::graph::config::GraphSMCfg;
+
+/// The config a graph duty was emitted under.
+///
+/// Its `Debug` output is a placeholder, so logging a duty doesn't print the whole config.
+#[derive(Clone, PartialEq, Eq)]
+pub struct DutyConfig(pub Arc<GraphSMCfg>);
+
+impl Deref for DutyConfig {
+    type Target = GraphSMCfg;
+
+    fn deref(&self) -> &GraphSMCfg {
+        &self.0
+    }
+}
+
+impl fmt::Debug for DutyConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("GraphSMCfg { .. }")
+    }
+}
 
 /// The nag duties that can be emitted to remind operators of missing graph signing data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +135,9 @@ pub enum GraphDuty {
 
         /// Operator table snapshot from the GraphSM that emitted this duty.
         operator_table: OperatorTable,
+
+        /// The config the graph's deposit is pinned to.
+        cfg: DutyConfig,
     },
 
     /// Verify the adaptor signatures for the generated graph.
@@ -278,6 +303,9 @@ pub enum GraphDuty {
 
         /// Operator table snapshot from the GraphSM that emitted this duty.
         operator_table: OperatorTable,
+
+        /// The config the graph's deposit is pinned to.
+        cfg: DutyConfig,
     },
 
     /// Publish a counterproof ACK transaction.

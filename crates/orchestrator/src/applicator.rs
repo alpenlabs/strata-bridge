@@ -435,7 +435,8 @@ mod tests {
     use super::*;
     use crate::testing::{
         INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, random_p2tr_desc,
-        test_deposit_sm_cfg, test_empty_registry, test_operator_table, test_populated_registry,
+        test_deposit_sm_cfg, test_empty_registry, test_graph_sm_cfg, test_operator_table,
+        test_populated_registry,
     };
 
     // ===== apply_batch basic tests =====
@@ -554,7 +555,7 @@ mod tests {
             unstaking_image: <sha256::Hash as bitcoin::hashes::Hash>::all_zeros(),
             operator_table,
         };
-        let (gsm, _duty) = GraphSM::new(gsm_ctx, INITIAL_BLOCK_HEIGHT);
+        let (gsm, _duty) = GraphSM::new(&test_graph_sm_cfg(), gsm_ctx, INITIAL_BLOCK_HEIGHT);
         gsm
     }
 

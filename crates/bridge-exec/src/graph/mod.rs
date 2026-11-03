@@ -49,9 +49,11 @@ pub async fn execute_graph_duty(
             stake_outpoint,
             unstaking_image,
             operator_table,
+            cfg: graph_cfg,
         } => {
             common::generate_graph_data(
                 &cfg,
+                graph_cfg,
                 &output_handles,
                 &GraphSMCtx {
                     covenant: *covenant,
@@ -187,9 +189,10 @@ pub async fn execute_graph_duty(
             proof,
             bridge_proof_tx,
             operator_table,
+            cfg: graph_cfg,
         } => {
             evaluate_and_publish_counterproof(
-                &cfg,
+                graph_cfg,
                 &output_handles,
                 counterproof_tx.clone(),
                 graph_idx.operator,

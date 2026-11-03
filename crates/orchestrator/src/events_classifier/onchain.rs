@@ -375,6 +375,7 @@ fn try_register_deposit(
     let deposit_outpoint = dsm.context().deposit_outpoint();
     info!(%deposit_outpoint, %deposit_idx, "registering new DepositSM for detected DRT");
     applicator.insert_deposit(deposit_idx, dsm)?;
+    let graph_cfg = applicator.registry().cfg().graph.clone();
 
     // Register one GraphSM per covenant member, collecting initial duties.
     let mut duties = Vec::new();
@@ -393,7 +394,7 @@ fn try_register_deposit(
             operator_table: local_table.clone(),
         };
 
-        let (gsm, duty) = GraphSM::new(gsm_ctx, height);
+        let (gsm, duty) = GraphSM::new(&graph_cfg, gsm_ctx, height);
 
         info!(%graph_idx, "registering new GraphSM for detected DRT");
         applicator.insert_graph(gsm.context().graph_idx(), gsm)?;
