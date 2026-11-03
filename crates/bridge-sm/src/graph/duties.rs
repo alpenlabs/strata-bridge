@@ -18,7 +18,7 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx,
     counterproof::CounterproofTx,
-    prelude::{ContestTx, CounterproofNackTx, UnstakingBurnTx},
+    prelude::{ContestTx, CounterproofNackTx, UnstakingBlockPayoutTx},
 };
 use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
@@ -202,7 +202,7 @@ pub enum GraphDuty {
         graph_idx: GraphIdx,
 
         /// The unsigned unstaking burn transaction.
-        unstaking_burn_tx: UnstakingBurnTx,
+        unstaking_burn_tx: UnstakingBlockPayoutTx,
 
         /// The graph owner's revealed unstaking preimage.
         unstaking_preimage: [u8; 32],

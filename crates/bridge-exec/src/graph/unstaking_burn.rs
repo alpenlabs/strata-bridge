@@ -10,7 +10,7 @@ use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::types::GraphIdx;
-use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnTx;
+use strata_bridge_tx_graph::transactions::prelude::UnstakingBlockPayoutTx;
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -55,7 +55,7 @@ pub(super) async fn publish_unstaking_burn(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     graph_idx: GraphIdx,
-    unstaking_burn_tx: UnstakingBurnTx,
+    unstaking_burn_tx: UnstakingBlockPayoutTx,
     unstaking_preimage: [u8; 32],
 ) -> Result<(), ExecutorError> {
     info!(%graph_idx, "preparing unstaking burn transaction");
@@ -198,7 +198,7 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
 async fn select_funding(
     wallet: &mut NativeWallet,
     graph_idx: GraphIdx,
-    unstaking_burn_tx: &UnstakingBurnTx,
+    unstaking_burn_tx: &UnstakingBlockPayoutTx,
     unstaking_preimage: [u8; 32],
     fee_rate: FeeRate,
 ) -> Result<(WalletFunding, BurnTxPlan), ExecutorError> {
@@ -322,7 +322,7 @@ async fn select_funding(
 async fn build_and_sign_tx(
     output_handles: &OutputHandles,
     graph_idx: GraphIdx,
-    unstaking_burn_tx: UnstakingBurnTx,
+    unstaking_burn_tx: UnstakingBlockPayoutTx,
     unstaking_preimage: [u8; 32],
     funding: &WalletFunding,
     plan: &BurnTxPlan,
@@ -417,7 +417,7 @@ struct FeeEstimate {
 /// general-wallet input, and one output back to the general wallet. The connector witness is
 /// populated by `finalize_partial`; the wallet witness is modeled with a 64-byte Schnorr signature.
 fn estimate_unstaking_burn_fee(
-    unstaking_burn_tx: &UnstakingBurnTx,
+    unstaking_burn_tx: &UnstakingBlockPayoutTx,
     unstaking_preimage: [u8; 32],
     payout_script: &ScriptBuf,
     fee_rate: FeeRate,
@@ -459,7 +459,7 @@ fn estimate_unstaking_burn_fee(
 /// After this runs, input index `0` remains the payout connector and input index `1` is the wallet
 /// funding input signed by [`sign_wallet_input`].
 fn attach_wallet_funding(
-    tx: &mut UnstakingBurnTx,
+    tx: &mut UnstakingBlockPayoutTx,
     funding_outpoint: OutPoint,
     funding_prevout: TxOut,
     output: TxOut,
@@ -522,7 +522,7 @@ mod tests {
         NativeGeneralWallet, OperatorWalletConfig, SqliteStore, WalletKind, sync::Backend,
     };
     use strata_bridge_connectors::prelude::ClaimUnstakingPayoutConnector;
-    use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnData;
+    use strata_bridge_tx_graph::transactions::prelude::UnstakingBlockPayoutData;
     use tempfile::TempDir;
 
     use super::*;
@@ -613,17 +613,17 @@ mod tests {
             .expect("general wallet funding should confirm");
     }
 
-    fn unstaking_burn_tx(unstaking_preimage: [u8; 32]) -> UnstakingBurnTx {
+    fn unstaking_burn_tx(unstaking_preimage: [u8; 32]) -> UnstakingBlockPayoutTx {
         let connector = ClaimUnstakingPayoutConnector::new(
             Network::Regtest,
             xonly_pubkey(3),
             sha256::Hash::hash(&unstaking_preimage),
         );
-        let data = UnstakingBurnData {
+        let data = UnstakingBlockPayoutData {
             claim_txid: Txid::from_slice(&[5; 32]).expect("txid should be valid"),
         };
 
-        UnstakingBurnTx::new(data, connector)
+        UnstakingBlockPayoutTx::new(data, connector)
     }
 
     fn wallet_script() -> ScriptBuf {

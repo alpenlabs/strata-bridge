@@ -3,7 +3,7 @@
 use bitcoin::hashes::{Hash, sha256};
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors},
-    transactions::prelude::{UnstakingBurnData, UnstakingBurnTx},
+    transactions::prelude::{UnstakingBlockPayoutData, UnstakingBlockPayoutTx},
 };
 use tracing::warn;
 
@@ -54,8 +54,8 @@ impl GraphSM {
             &cfg.game_graph_params,
             &setup_params,
         );
-        let unstaking_burn_tx = UnstakingBurnTx::new(
-            UnstakingBurnData {
+        let unstaking_burn_tx = UnstakingBlockPayoutTx::new(
+            UnstakingBlockPayoutData {
                 claim_txid: candidate.claim_txid,
             },
             connectors.claim_unstaking_payout,

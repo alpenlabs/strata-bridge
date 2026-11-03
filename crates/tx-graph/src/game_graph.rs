@@ -659,8 +659,8 @@ mod tests {
 
     use super::*;
     use crate::transactions::prelude::{
-        AdminBurnData, AdminBurnTx, BridgeProofData, BridgeProofTx, CounterproofNackData,
-        CounterproofNackTx, UnstakingBurnData, UnstakingBurnTx,
+        AdminBlockPayoutData, AdminBlockPayoutTx, BridgeProofData, BridgeProofTx,
+        CounterproofNackData, CounterproofNackTx, UnstakingBlockPayoutData, UnstakingBlockPayoutTx,
     };
 
     const N_WATCHTOWERS: usize = 10;
@@ -845,10 +845,10 @@ mod tests {
         Contested(ProofScenario),
         /// The uncontested payout transaction is posted.
         Uncontested,
-        /// The admin burn transaction is posted.
-        AdminBurn,
-        /// The unstaking burn transaction is posted.
-        UnstakingBurn,
+        /// The admin block payout transaction is posted.
+        AdminBlockPayout,
+        /// The unstaking block payout transaction is posted.
+        UnstakingBlockPayout,
     }
 
     /// Test scenario for the operator bridge proof.
@@ -918,20 +918,21 @@ mod tests {
         }
 
         // ┌───────────────────────────────────────────────────────────────────┐
-        // │                Admin burn (test terminates here)                  │
+        // │            Admin block payout (test terminates here)              │
         // └───────────────────────────────────────────────────────────────────┘
-        if let Scenario::AdminBurn = scenario {
-            let data = AdminBurnData {
+        if let Scenario::AdminBlockPayout = scenario {
+            let data = AdminBlockPayoutData {
                 claim_txid: game.claim.as_ref().compute_txid(),
             };
-            let mut admin_burn = AdminBurnTx::new(data, connectors.claim_admin_payout);
-            admin_burn.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
-            admin_burn.push_output(TxOut {
+            let mut admin_block_payout =
+                AdminBlockPayoutTx::new(data, connectors.claim_admin_payout);
+            admin_block_payout.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
+            admin_block_payout.push_output(TxOut {
                 value: node.coinbase_amount() - FEE,
                 script_pubkey: node.wallet_address().script_pubkey(),
             });
 
-            let signing_info = admin_burn.signing_info_partial();
+            let signing_info = admin_block_payout.signing_info_partial();
             let admin_signatures = signer
                 .admin_keypairs
                 .iter()
@@ -942,31 +943,33 @@ mod tests {
                     signature: signing_info.sign(keypair),
                 })
                 .collect();
-            let admin_burn = admin_burn.finalize_partial(admin_signatures);
-            assert_eq!(admin_burn.version, Version(3));
+            let admin_block_payout = admin_block_payout.finalize_partial(admin_signatures);
+            assert_eq!(admin_block_payout.version, Version(3));
 
-            node.sign_and_broadcast(&admin_burn);
+            node.sign_and_broadcast(&admin_block_payout);
             return;
         }
 
         // ┌───────────────────────────────────────────────────────────────────┐
-        // │              Unstaking burn (test terminates here)                │
+        // │          Unstaking block payout (test terminates here)            │
         // └───────────────────────────────────────────────────────────────────┘
-        if let Scenario::UnstakingBurn = scenario {
-            let data = UnstakingBurnData {
+        if let Scenario::UnstakingBlockPayout = scenario {
+            let data = UnstakingBlockPayoutData {
                 claim_txid: game.claim.as_ref().compute_txid(),
             };
-            let mut unstaking_burn = UnstakingBurnTx::new(data, connectors.claim_unstaking_payout);
-            unstaking_burn.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
-            unstaking_burn.push_output(TxOut {
+            let mut unstaking_block_payout =
+                UnstakingBlockPayoutTx::new(data, connectors.claim_unstaking_payout);
+            unstaking_block_payout.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
+            unstaking_block_payout.push_output(TxOut {
                 value: node.coinbase_amount() - FEE,
                 script_pubkey: node.wallet_address().script_pubkey(),
             });
 
-            let unstaking_burn = unstaking_burn.finalize_partial(signer.unstaking_preimage);
-            assert_eq!(unstaking_burn.version, Version(3));
+            let unstaking_block_payout =
+                unstaking_block_payout.finalize_partial(signer.unstaking_preimage);
+            assert_eq!(unstaking_block_payout.version, Version(3));
 
-            node.sign_and_broadcast(&unstaking_burn);
+            node.sign_and_broadcast(&unstaking_block_payout);
             return;
         }
 
@@ -1234,13 +1237,13 @@ mod tests {
     }
 
     #[test]
-    fn admin_burn_payout() {
-        test_scenario(Scenario::AdminBurn);
+    fn admin_block_payout_payout() {
+        test_scenario(Scenario::AdminBlockPayout);
     }
 
     #[test]
-    fn unstaking_burn_payout() {
-        test_scenario(Scenario::UnstakingBurn);
+    fn unstaking_block_payout_payout() {
+        test_scenario(Scenario::UnstakingBlockPayout);
     }
 
     #[test]

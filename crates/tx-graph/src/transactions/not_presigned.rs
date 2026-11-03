@@ -152,21 +152,21 @@ impl CounterproofNackTx {
 }
 
 impl_not_presigned_tx! {
-    /// Data that is needed to construct an [`AdminBurnTx`].
-    pub struct AdminBurnData {
+    /// Data that is needed to construct an [`AdminBlockPayoutTx`].
+    pub struct AdminBlockPayoutData {
         /// ID of the claim transaction.
         pub claim_txid: Txid,
     }
 
-    /// Admin burn transaction.
-    pub struct AdminBurnTx;
+    /// Admin block payout transaction.
+    pub struct AdminBlockPayoutTx;
 
     type Connector = ClaimAdminPayoutConnector;
     const VOUT = ClaimTx::ADMIN_PAYOUT_VOUT;
     const SPEND_PATH = ClaimAdminPayoutSpendPath::AdminBlockPayout;
 }
 
-impl AdminBurnTx {
+impl AdminBlockPayoutTx {
     /// Finalizes the first transaction input and returns the resulting bitcoin transaction.
     ///
     /// The remaining inputs must be manually signed.
@@ -190,21 +190,21 @@ impl AdminBurnTx {
 }
 
 impl_not_presigned_tx! {
-    /// Data that is needed to construct an [`UnstakingBurnTx`].
-    pub struct UnstakingBurnData {
+    /// Data that is needed to construct an [`UnstakingBlockPayoutTx`].
+    pub struct UnstakingBlockPayoutData {
         /// ID of the claim transaction.
         pub claim_txid: Txid,
     }
 
-    /// Unstaking burn transaction.
-    pub struct UnstakingBurnTx;
+    /// Unstaking block payout transaction.
+    pub struct UnstakingBlockPayoutTx;
 
     type Connector = ClaimUnstakingPayoutConnector;
     const VOUT = ClaimTx::UNSTAKING_PAYOUT_VOUT;
     const SPEND_PATH = ClaimUnstakingPayoutSpendPath::UnstakingBlockPayout;
 }
 
-impl UnstakingBurnTx {
+impl UnstakingBlockPayoutTx {
     /// Finalizes the first transaction input and returns the resulting bitcoin transaction.
     ///
     /// The remaining inputs must be manually signed.
