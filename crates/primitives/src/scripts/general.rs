@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use bitcoin::{
     absolute::LockTime,
-    opcodes::all::{OP_CHECKSIG, OP_CHECKSIGADD, OP_EQUAL, OP_RETURN},
+    opcodes::all::{OP_CHECKSIG, OP_CHECKSIGADD, OP_NUMEQUAL, OP_RETURN},
     script::{Builder, PushBytesBuf},
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
@@ -57,7 +57,7 @@ pub fn threshold_multisig_script(pubkeys: &[XOnlyPublicKey], threshold: usize) -
 
     builder
         .push_int(threshold.try_into().expect("threshold must fit in i64"))
-        .push_opcode(OP_EQUAL)
+        .push_opcode(OP_NUMEQUAL)
         .into_script()
 }
 
@@ -194,7 +194,7 @@ mod tests {
             .push_slice(pubkeys[2].serialize())
             .push_opcode(OP_CHECKSIGADD)
             .push_int(2)
-            .push_opcode(OP_EQUAL)
+            .push_opcode(OP_NUMEQUAL)
             .into_script();
 
         assert_eq!(threshold_multisig_script(&pubkeys, 2), expected);
