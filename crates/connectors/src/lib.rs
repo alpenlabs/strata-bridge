@@ -1,7 +1,8 @@
 //! This crate contains connectors for the Glock transaction graph.
 
+pub mod claim_admin_payout;
 pub mod claim_contest;
-pub mod claim_payout;
+pub mod claim_unstaking_payout;
 pub mod contest_counterproof;
 pub mod keyed_anchor;
 pub mod multi_anchor;
