@@ -17,9 +17,25 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+# Fireblocks custody (optional; enabled via the `fireblocks` feature).
+hex = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
 
 [features]
 default = []
+# Compiles the Fireblocks custody of the general funds and its REST/JWT/serde deps.
+fireblocks = [
+  "dep:hex",
+  "dep:jsonwebtoken",
+  "dep:reqwest",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:sha2",
+]
 test-utils = []
 
 [dev-dependencies]
@@ -27,3 +43,4 @@ corepc-node.workspace = true
 operator-wallet = { path = ".", features = ["test-utils"] }
 serial_test.workspace = true
 tempfile.workspace = true
+wiremock.workspace = true
