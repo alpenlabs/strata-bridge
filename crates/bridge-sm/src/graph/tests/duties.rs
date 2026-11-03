@@ -7,7 +7,8 @@ mod tests {
     use strata_bridge_tx_graph::{
         game_graph::GameConnectors,
         transactions::prelude::{
-            CounterproofNackData, CounterproofNackTx, UnstakingBlockPayoutData, UnstakingBlockPayoutTx,
+            CounterproofNackData, CounterproofNackTx, UnstakingBlockPayoutData,
+            UnstakingBlockPayoutTx,
         },
     };
 

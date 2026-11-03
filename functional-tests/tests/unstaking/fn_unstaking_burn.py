@@ -30,7 +30,8 @@ from utils.withdrawal import wait_until_active_valid_claim
 @flexitest.register
 class UnstakingBurnTest(StrataTestBase):
     """
-    Test that an operator unstaking intent lets a watchtower burn the claim unstaking payout connector.
+    Test that an operator unstaking intent lets a watchtower burn the claim
+    unstaking payout connector.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
