@@ -260,11 +260,11 @@ impl<A> GameFunctor<A> {
     /// Converts a `GameFunctor` into a `FunctorInner`.
     fn into_inner(self) -> GameFunctorInner<A> {
         let [a, b] = self.bridge_proof_timeout;
-        let [c, d, e, f] = self.contested_payout;
-        let [g, h] = self.slash;
-        let [i, j, k] = self.uncontested_payout;
+        let [c, d, e, f, g] = self.contested_payout;
+        let [h, i] = self.slash;
+        let [j, k, l, m] = self.uncontested_payout;
 
-        let fields = [a, b, c, d, e, f, g, h, i, j, k];
+        let fields = [a, b, c, d, e, f, g, h, i, j, k, l, m];
         let watchtowers = self
             .watchtowers
             .into_iter()
@@ -285,11 +285,11 @@ impl<A> GameFunctor<A> {
 
     /// Converts a `FunctorInner` into a `GameFunctor`.
     fn from_inner(inner: GameFunctorInner<A>) -> Self {
-        let [a, b, c, d, e, f, g, h, i, j, k] = inner.fields;
+        let [a, b, c, d, e, f, g, h, i, j, k, l, m] = inner.fields;
         let bridge_proof_timeout = [a, b];
-        let contested_payout = [c, d, e, f];
-        let slash = [g, h];
-        let uncontested_payout = [i, j, k];
+        let contested_payout = [c, d, e, f, g];
+        let slash = [h, i];
+        let uncontested_payout = [j, k, l, m];
         let watchtowers = inner
             .watchtowers
             .into_iter()

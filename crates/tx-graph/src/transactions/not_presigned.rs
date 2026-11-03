@@ -16,8 +16,9 @@ use bitcoin::{
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
-        AdminSignature, ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness,
-        CounterproofConnector, TimelockedSpendPath, TimelockedWitness,
+        AdminSignature, ClaimAdminPayoutConnector, ClaimAdminPayoutSpendPath,
+        ClaimAdminPayoutWitness, ClaimUnstakingPayoutConnector, ClaimUnstakingPayoutSpendPath,
+        ClaimUnstakingPayoutWitness, CounterproofConnector, TimelockedSpendPath, TimelockedWitness,
     },
     Connector, SigningInfo,
 };
@@ -160,9 +161,9 @@ impl_not_presigned_tx! {
     /// Admin burn transaction.
     pub struct AdminBurnTx;
 
-    type Connector = ClaimPayoutConnector;
-    const VOUT = ClaimTx::PAYOUT_VOUT;
-    const SPEND_PATH = ClaimPayoutSpendPath::AdminBurn;
+    type Connector = ClaimAdminPayoutConnector;
+    const VOUT = ClaimTx::ADMIN_PAYOUT_VOUT;
+    const SPEND_PATH = ClaimAdminPayoutSpendPath::AdminBlockPayout;
 }
 
 impl AdminBurnTx {
@@ -181,7 +182,7 @@ impl AdminBurnTx {
             input.witness_utxo = Some(utxo);
         }
 
-        let witness = ClaimPayoutWitness::AdminBurn { admin_signatures };
+        let witness = ClaimAdminPayoutWitness::AdminBlockPayout { admin_signatures };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
 
         psbt.extract_tx().expect("should be able to extract tx")
@@ -198,9 +199,9 @@ impl_not_presigned_tx! {
     /// Unstaking burn transaction.
     pub struct UnstakingBurnTx;
 
-    type Connector = ClaimPayoutConnector;
-    const VOUT = ClaimTx::PAYOUT_VOUT;
-    const SPEND_PATH = ClaimPayoutSpendPath::UnstakingBurn;
+    type Connector = ClaimUnstakingPayoutConnector;
+    const VOUT = ClaimTx::UNSTAKING_PAYOUT_VOUT;
+    const SPEND_PATH = ClaimUnstakingPayoutSpendPath::UnstakingBlockPayout;
 }
 
 impl UnstakingBurnTx {
@@ -213,7 +214,7 @@ impl UnstakingBurnTx {
             input.witness_utxo = Some(utxo);
         }
 
-        let witness = ClaimPayoutWitness::UnstakingBurn { unstaking_preimage };
+        let witness = ClaimUnstakingPayoutWitness::UnstakingBlockPayout { unstaking_preimage };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
 
         psbt.extract_tx().expect("should be able to extract tx")

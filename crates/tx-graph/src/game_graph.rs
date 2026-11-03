@@ -8,9 +8,9 @@ use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
     prelude::{
-        ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
-        ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
-        CounterproofConnector, NOfNConnector,
+        ClaimAdminPayoutConnector, ClaimContestConnector, ClaimUnstakingPayoutConnector,
+        ContestCounterproofOutput, ContestPayoutConnector, ContestProofConnector,
+        ContestSlashConnector, CounterproofConnector, NOfNConnector,
     },
     SigningInfo,
 };
@@ -210,8 +210,10 @@ pub struct CounterproofGraphSummary {
 pub struct GameConnectors {
     /// Claim contest connector.
     pub claim_contest: ClaimContestConnector,
-    /// Claim payout connector.
-    pub claim_payout: ClaimPayoutConnector,
+    /// Claim admin payout connector.
+    pub claim_admin_payout: ClaimAdminPayoutConnector,
+    /// Claim unstaking payout connector.
+    pub claim_unstaking_payout: ClaimUnstakingPayoutConnector,
     /// Deposit connector.
     pub deposit: NOfNConnector,
     /// Contest proof connector.
@@ -274,7 +276,8 @@ impl GameGraph {
         let claim = ClaimTx::new(
             claim_data,
             connectors.claim_contest.clone(),
-            connectors.claim_payout.clone(),
+            connectors.claim_admin_payout.clone(),
+            connectors.claim_unstaking_payout,
             keys.operator_pubkey,
         );
 
@@ -286,7 +289,8 @@ impl GameGraph {
             uncontested_payout_data,
             connectors.deposit,
             connectors.claim_contest.clone(),
-            connectors.claim_payout.clone(),
+            connectors.claim_admin_payout.clone(),
+            connectors.claim_unstaking_payout,
             &keys.operator_descriptor,
         );
 
@@ -365,7 +369,8 @@ impl GameGraph {
         let contested_payout = ContestedPayoutTx::new(
             contested_payout_data,
             connectors.deposit,
-            connectors.claim_payout.clone(),
+            connectors.claim_admin_payout.clone(),
+            connectors.claim_unstaking_payout,
             connectors.contest_payout,
             connectors.contest_slash,
             &keys.operator_descriptor,
@@ -556,11 +561,15 @@ impl GameConnectors {
             protocol.contest_timelock,
             crate::fee::claim_contest_surcharge(n_watchtowers, n_data),
         );
-        let claim_payout = ClaimPayoutConnector::new(
+        let claim_admin_payout = ClaimAdminPayoutConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
             keys.admin.pubkeys.clone(),
             keys.admin.threshold,
+        );
+        let claim_unstaking_payout = ClaimUnstakingPayoutConnector::new(
+            protocol.network,
+            keys.n_of_n_pubkey,
             keys.unstaking_image,
         );
         let deposit = NOfNConnector::new(
@@ -623,7 +632,8 @@ impl GameConnectors {
 
         Self {
             claim_contest,
-            claim_payout,
+            claim_admin_payout,
+            claim_unstaking_payout,
             deposit,
             contest_proof,
             contest_payout,
@@ -749,15 +759,22 @@ mod tests {
             protocol.contest_timelock,
             crate::fee::claim_contest_surcharge(n_watchtowers, protocol.counterproof_n_data),
         );
-        let claim_payout_connector = ClaimPayoutConnector::new(
+        let claim_admin_payout_connector = ClaimAdminPayoutConnector::new(
             protocol.network,
             keys.n_of_n_pubkey,
             keys.admin.pubkeys.clone(),
             keys.admin.threshold,
+        );
+        let claim_unstaking_payout_connector = ClaimUnstakingPayoutConnector::new(
+            protocol.network,
+            keys.n_of_n_pubkey,
             keys.unstaking_image,
         );
-        let claim_funds_amount =
-            ClaimTx::claim_funds_required(&claim_contest_connector, &claim_payout_connector);
+        let claim_funds_amount = ClaimTx::claim_funds_required(
+            &claim_contest_connector,
+            &claim_admin_payout_connector,
+            &claim_unstaking_payout_connector,
+        );
 
         // ┌───────────────────────────────────────────────────────────────────┐
         // │                       Funding Transaction                         │
@@ -907,7 +924,7 @@ mod tests {
             let data = AdminBurnData {
                 claim_txid: game.claim.as_ref().compute_txid(),
             };
-            let mut admin_burn = AdminBurnTx::new(data, connectors.claim_payout);
+            let mut admin_burn = AdminBurnTx::new(data, connectors.claim_admin_payout);
             admin_burn.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
             admin_burn.push_output(TxOut {
                 value: node.coinbase_amount() - FEE,
@@ -939,7 +956,7 @@ mod tests {
             let data = UnstakingBurnData {
                 claim_txid: game.claim.as_ref().compute_txid(),
             };
-            let mut unstaking_burn = UnstakingBurnTx::new(data, connectors.claim_payout);
+            let mut unstaking_burn = UnstakingBurnTx::new(data, connectors.claim_unstaking_payout);
             unstaking_burn.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
             unstaking_burn.push_output(TxOut {
                 value: node.coinbase_amount() - FEE,

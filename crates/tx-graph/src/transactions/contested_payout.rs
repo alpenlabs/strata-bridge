@@ -10,8 +10,10 @@ use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
-        ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, ContestPayoutConnector,
-        ContestSlashConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath, TimelockedWitness,
+        ClaimAdminPayoutConnector, ClaimAdminPayoutSpendPath, ClaimAdminPayoutWitness,
+        ClaimUnstakingPayoutConnector, ClaimUnstakingPayoutSpendPath, ClaimUnstakingPayoutWitness,
+        ContestPayoutConnector, ContestSlashConnector, NOfNConnector, NOfNSpend,
+        TimelockedSpendPath, TimelockedWitness,
     },
     Connector, ParentTxCombined, SigningInfo,
 };
@@ -38,7 +40,8 @@ pub struct ContestedPayoutTx {
     psbt: Psbt,
     prevouts: [TxOut; Self::N_INPUTS],
     deposit_connector: NOfNConnector,
-    claim_payout_connector: ClaimPayoutConnector,
+    claim_admin_payout_connector: ClaimAdminPayoutConnector,
+    claim_unstaking_payout_connector: ClaimUnstakingPayoutConnector,
     contest_payout_connector: ContestPayoutConnector,
     contest_slash_connector: ContestSlashConnector,
 }
@@ -47,24 +50,27 @@ impl ContestedPayoutTx {
     /// Index of the CPFP output.
     pub const CPFP_VOUT: u32 = 0;
     /// Number of transaction inputs.
-    pub const N_INPUTS: usize = 4;
+    pub const N_INPUTS: usize = 5;
 
     /// Creates an contested payout transaction.
     pub fn new(
         data: ContestedPayoutData,
         deposit_connector: NOfNConnector,
-        claim_payout_connector: ClaimPayoutConnector,
+        claim_admin_payout_connector: ClaimAdminPayoutConnector,
+        claim_unstaking_payout_connector: ClaimUnstakingPayoutConnector,
         contest_payout_connector: ContestPayoutConnector,
         contest_slash_connector: ContestSlashConnector,
         operator_descriptor: &Descriptor,
     ) -> Self {
-        debug_assert!(deposit_connector.network() == claim_payout_connector.network());
+        debug_assert!(deposit_connector.network() == claim_admin_payout_connector.network());
+        debug_assert!(deposit_connector.network() == claim_unstaking_payout_connector.network());
         debug_assert!(deposit_connector.network() == contest_payout_connector.network());
         debug_assert!(deposit_connector.network() == contest_slash_connector.network());
 
         let prevouts = [
             deposit_connector.tx_out(),
-            claim_payout_connector.tx_out(),
+            claim_admin_payout_connector.tx_out(),
+            claim_unstaking_payout_connector.tx_out(),
             contest_payout_connector.tx_out(),
             contest_slash_connector.tx_out(),
         ];
@@ -77,9 +83,18 @@ impl ContestedPayoutTx {
             TxIn {
                 previous_output: OutPoint {
                     txid: data.claim_txid,
-                    vout: ClaimTx::PAYOUT_VOUT,
+                    vout: ClaimTx::ADMIN_PAYOUT_VOUT,
                 },
-                sequence: claim_payout_connector.sequence(ClaimPayoutSpendPath::Payout),
+                sequence: claim_admin_payout_connector.sequence(ClaimAdminPayoutSpendPath::Payout),
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.claim_txid,
+                    vout: ClaimTx::UNSTAKING_PAYOUT_VOUT,
+                },
+                sequence: claim_unstaking_payout_connector
+                    .sequence(ClaimUnstakingPayoutSpendPath::Payout),
                 ..Default::default()
             },
             TxIn {
@@ -102,7 +117,8 @@ impl ContestedPayoutTx {
         let fee = crate::fee::contested_payout_fee();
         let output = vec![TxOut {
             value: deposit_connector.value()
-                + claim_payout_connector.value()
+                + claim_admin_payout_connector.value()
+                + claim_unstaking_payout_connector.value()
                 + contest_payout_connector.value()
                 + contest_slash_connector.value()
                 - fee,
@@ -132,7 +148,8 @@ impl ContestedPayoutTx {
             psbt,
             prevouts,
             deposit_connector,
-            claim_payout_connector,
+            claim_admin_payout_connector,
+            claim_unstaking_payout_connector,
             contest_payout_connector,
             contest_slash_connector,
         }
@@ -143,24 +160,29 @@ impl ContestedPayoutTx {
         let mut psbt = self.psbt;
 
         let deposit_witness = n_of_n_signatures[0];
-        let claim_payout_witness = ClaimPayoutWitness::Payout {
+        let claim_admin_payout_witness = ClaimAdminPayoutWitness::Payout {
             output_key_signature: n_of_n_signatures[1],
         };
+        let claim_unstaking_payout_witness = ClaimUnstakingPayoutWitness::Payout {
+            output_key_signature: n_of_n_signatures[2],
+        };
         let contest_payout_witnes = TimelockedWitness::Timeout {
-            timelocked_key_signature: n_of_n_signatures[2],
+            timelocked_key_signature: n_of_n_signatures[3],
         };
         let contest_slash_witness = TimelockedWitness::Normal {
-            output_key_signature: n_of_n_signatures[3],
+            output_key_signature: n_of_n_signatures[4],
         };
 
         self.deposit_connector
             .finalize_input(&mut psbt.inputs[0], &deposit_witness);
-        self.claim_payout_connector
-            .finalize_input(&mut psbt.inputs[1], &claim_payout_witness);
+        self.claim_admin_payout_connector
+            .finalize_input(&mut psbt.inputs[1], &claim_admin_payout_witness);
+        self.claim_unstaking_payout_connector
+            .finalize_input(&mut psbt.inputs[2], &claim_unstaking_payout_witness);
         self.contest_payout_connector
-            .finalize_input(&mut psbt.inputs[2], &contest_payout_witnes);
+            .finalize_input(&mut psbt.inputs[3], &contest_payout_witnes);
         self.contest_slash_connector
-            .finalize_input(&mut psbt.inputs[3], &contest_slash_witness);
+            .finalize_input(&mut psbt.inputs[4], &contest_slash_witness);
 
         psbt.extract_tx().expect("should be able to extract tx")
     }
@@ -191,23 +213,29 @@ impl PresignedTx<{ Self::N_INPUTS }> for ContestedPayoutTx {
                 NOfNSpend,
                 0,
             ),
-            self.claim_payout_connector.get_signing_info(
+            self.claim_admin_payout_connector.get_signing_info(
                 &mut cache,
                 Prevouts::All(&self.prevouts),
-                ClaimPayoutSpendPath::Payout,
+                ClaimAdminPayoutSpendPath::Payout,
                 1,
+            ),
+            self.claim_unstaking_payout_connector.get_signing_info(
+                &mut cache,
+                Prevouts::All(&self.prevouts),
+                ClaimUnstakingPayoutSpendPath::Payout,
+                2,
             ),
             self.contest_payout_connector.get_signing_info(
                 &mut cache,
                 Prevouts::All(&self.prevouts),
                 TimelockedSpendPath::Timeout,
-                2,
+                3,
             ),
             self.contest_slash_connector.get_signing_info(
                 &mut cache,
                 Prevouts::All(&self.prevouts),
                 TimelockedSpendPath::Normal,
-                3,
+                4,
             ),
         ]
     }

@@ -102,15 +102,15 @@ const COUNTERPROOF_PER_DATA_BYTE_VBYTES: u64 = 17;
 
 /// Predicted vsize of [`crate::transactions::claim::ClaimTx`] in vbytes.
 ///
-/// Structure: 1 wallet input (P2TR key path) + 3 P2TR outputs (claim_contest, claim_payout,
-/// anchor).
-const CLAIM_VSIZE: u64 = 197;
+/// Structure: 1 wallet input (P2TR key path) + 4 P2TR outputs (claim_contest,
+/// claim_admin_payout, claim_unstaking_payout, anchor).
+const CLAIM_VSIZE: u64 = 240;
 
 /// Predicted vsize of [`crate::transactions::uncontested_payout::UncontestedPayoutTx`] in vbytes.
 ///
-/// Structure: 3 inputs (NOfN key path, ClaimContest uncontested script path, ClaimPayout key path)
-/// + 1 P2TR output.
-const UNCONTESTED_PAYOUT_VSIZE: u64 = 268;
+/// Structure: 4 inputs (NOfN key path, ClaimContest uncontested script path,
+/// ClaimAdminPayout key path, ClaimUnstakingPayout key path) + 1 P2TR output.
+const UNCONTESTED_PAYOUT_VSIZE: u64 = 326;
 
 /// Vsize of [`crate::transactions::contest::ContestTx`] excluding per-watchtower outputs and
 /// the variable taproot control block of the spent leaf. Empirically measured: header + 1
@@ -181,9 +181,9 @@ const COUNTERPROOF_ACK_VSIZE: u64 = 187;
 
 /// Predicted vsize of [`crate::transactions::contested_payout::ContestedPayoutTx`].
 ///
-/// Structure: 4 inputs (deposit NOfN key, claim_payout key, contest_payout timeout script,
-/// contest_slash normal key) + 1 P2TR output.
-const CONTESTED_PAYOUT_VSIZE: u64 = 302;
+/// Structure: 5 inputs (deposit NOfN key, claim_admin_payout key, claim_unstaking_payout key,
+/// contest_payout timeout script, contest_slash normal key) + 1 P2TR output.
+const CONTESTED_PAYOUT_VSIZE: u64 = 359;
 
 /// Vsize of [`crate::transactions::slash::SlashTx`] excluding per-watchtower outputs.
 /// Empirically measured: header + 2 inputs (contest_slash timeout script-path + stake N/N
@@ -641,9 +641,10 @@ mod tests {
     fn pin_uncontested_payout_vsize() {
         let signer = TestSigner::generate(N_WATCHTOWERS);
         let (graph, _) = GameGraph::new(test_game_data(&signer, N_WATCHTOWERS as u32, N_DATA));
-        let signed = graph
-            .uncontested_payout
-            .finalize([dummy_sig(), dummy_sig(), dummy_sig()]);
+        let signed =
+            graph
+                .uncontested_payout
+                .finalize([dummy_sig(), dummy_sig(), dummy_sig(), dummy_sig()]);
         pin(
             signed.weight().to_vbytes_ceil(),
             UNCONTESTED_PAYOUT_VSIZE,
@@ -752,10 +753,13 @@ mod tests {
     fn pin_contested_payout_vsize() {
         let signer = TestSigner::generate(N_WATCHTOWERS);
         let (graph, _) = GameGraph::new(test_game_data(&signer, N_WATCHTOWERS as u32, N_DATA));
-        let signed =
-            graph
-                .contested_payout
-                .finalize([dummy_sig(), dummy_sig(), dummy_sig(), dummy_sig()]);
+        let signed = graph.contested_payout.finalize([
+            dummy_sig(),
+            dummy_sig(),
+            dummy_sig(),
+            dummy_sig(),
+            dummy_sig(),
+        ]);
         pin(
             signed.weight().to_vbytes_ceil(),
             CONTESTED_PAYOUT_VSIZE,

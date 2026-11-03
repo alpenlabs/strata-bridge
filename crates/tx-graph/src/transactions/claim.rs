@@ -4,7 +4,10 @@ use bitcoin::{
     absolute, transaction::Version, Amount, OutPoint, Transaction, TxOut, XOnlyPublicKey,
 };
 use strata_bridge_connectors::{
-    prelude::{ClaimContestConnector, ClaimPayoutConnector, KeyedAnchor},
+    prelude::{
+        ClaimAdminPayoutConnector, ClaimContestConnector, ClaimUnstakingPayoutConnector,
+        KeyedAnchor,
+    },
     Connector, ParentTx,
 };
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
@@ -26,10 +29,12 @@ pub struct ClaimTx {
 impl ClaimTx {
     /// Index of the contest output.
     pub const CONTEST_VOUT: u32 = 0;
-    /// Index of the payout output.
-    pub const PAYOUT_VOUT: u32 = 1;
+    /// Index of the admin payout output.
+    pub const ADMIN_PAYOUT_VOUT: u32 = 1;
+    /// Index of the unstaking payout output.
+    pub const UNSTAKING_PAYOUT_VOUT: u32 = 2;
     /// Index of the CPFP output.
-    pub const CPFP_VOUT: u32 = 2;
+    pub const CPFP_VOUT: u32 = 3;
 
     /// Returns the total funding amount that the wallet must provide in
     /// [`ClaimData::claim_funds`].
@@ -38,10 +43,12 @@ impl ClaimTx {
     /// The cpfp anchor output is funded too (its value is [`crate::fee::anchor_dust_value`]).
     pub fn claim_funds_required(
         claim_contest: &ClaimContestConnector,
-        claim_payout: &ClaimPayoutConnector,
+        claim_admin_payout: &ClaimAdminPayoutConnector,
+        claim_unstaking_payout: &ClaimUnstakingPayoutConnector,
     ) -> Amount {
         claim_contest.value()
-            + claim_payout.value()
+            + claim_admin_payout.value()
+            + claim_unstaking_payout.value()
             + crate::fee::anchor_dust_value()
             + crate::fee::claim_fee()
     }
@@ -50,10 +57,15 @@ impl ClaimTx {
     pub fn new(
         data: ClaimData,
         claim_contest_connector: ClaimContestConnector,
-        claim_payout_connector: ClaimPayoutConnector,
+        claim_admin_payout_connector: ClaimAdminPayoutConnector,
+        claim_unstaking_payout_connector: ClaimUnstakingPayoutConnector,
         operator_pubkey: XOnlyPublicKey,
     ) -> Self {
-        debug_assert!(claim_contest_connector.network() == claim_payout_connector.network());
+        debug_assert!(claim_contest_connector.network() == claim_admin_payout_connector.network());
+        debug_assert!(
+            claim_contest_connector.network() == claim_unstaking_payout_connector.network()
+        );
+
         let cpfp_connector = KeyedAnchor::new(
             claim_contest_connector.network(),
             operator_pubkey,
@@ -63,7 +75,8 @@ impl ClaimTx {
         let input = create_tx_ins([data.claim_funds]);
         let output = vec![
             claim_contest_connector.tx_out(),
-            claim_payout_connector.tx_out(),
+            claim_admin_payout_connector.tx_out(),
+            claim_unstaking_payout_connector.tx_out(),
             cpfp_connector.tx_out(),
         ];
         let tx = Transaction {
