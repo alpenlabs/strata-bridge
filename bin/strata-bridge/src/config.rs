@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use bitcoin::BlockHash;
+use bitcoin::{BlockHash, secp256k1::PublicKey};
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -434,6 +434,68 @@ pub(crate) struct OperatorWalletConfig {
     /// have there.
     #[serde(default)]
     pub bootstrap_block_hash: Option<BlockHash>,
+
+    /// When present, the keys of the operator's general wallet sit in a Fireblocks vault. When
+    /// absent (the default), they sit in secret-service. This choice does not touch the reserved
+    /// wallet.
+    #[serde(default)]
+    pub fireblocks: Option<FireblocksWalletConfig>,
+}
+
+/// Connection + identity configuration for a Fireblocks-backed general wallet.
+///
+/// `Debug` is hand-written to redact `api_key`: the whole [`Config`] is logged at startup
+/// (`mode/operator.rs`), so a derived `Debug` would leak the API key into the logs.
+///
+/// `deny_unknown_fields` so a mistyped credential key surfaces as a config error instead of
+/// being silently dropped.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FireblocksWalletConfig {
+    /// API host root, **without** the `/v1` path segment, e.g. `https://api.fireblocks.io`.
+    /// Must be a bare `https` origin. The client follows no redirects.
+    pub base_url: String,
+
+    /// Fireblocks API key (sent as the `X-API-Key` header). Its role must allow RAW signing and
+    /// the vault `public_key_info` endpoint; the vendor documentation lists that endpoint under
+    /// the Admin and Non-Signing Admin roles, which no live tenant has confirmed yet. The
+    /// workspace policy must auto-approve RAW requests: human approval is not supported,
+    /// because a request that waits past the signing limit of about 180 s is cancelled.
+    pub api_key: String,
+
+    /// Vault account id holding the BTC asset.
+    pub vault_account_id: String,
+
+    /// Asset id for the network: `BTC` on mainnet, and on a test network the id that the vault
+    /// shows. The vendor gives no fixed id per test network.
+    pub asset_id: String,
+
+    /// Public key of the default BTC address of the vault account, as compressed hex. Its P2WPKH
+    /// script is where the general wallet receives funding and earnings, and the node tracks
+    /// that script on its own bitcoind. A view created on this start scans from the
+    /// `bootstrap_*` block, so vault funds received below it stay invisible. Startup aborts
+    /// when Fireblocks reports another key for the vault address. A start with an empty vault
+    /// store also requires the API to be up and to sign a test digest with this key.
+    pub vault_pubkey: PublicKey,
+
+    /// Path to the Fireblocks API secret — an RSA private key in PEM form, used to sign the
+    /// per-request JWTs. Kept out of the config body (like the secret-service TLS material) so
+    /// the key never lives in the config file itself.
+    pub api_secret_path: PathBuf,
+}
+
+impl fmt::Debug for FireblocksWalletConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Redact the API key; everything else is non-secret operational config.
+        f.debug_struct("FireblocksWalletConfig")
+            .field("base_url", &self.base_url)
+            .field("api_key", &"<redacted>")
+            .field("vault_account_id", &self.vault_account_id)
+            .field("asset_id", &self.asset_id)
+            .field("vault_pubkey", &self.vault_pubkey)
+            .field("api_secret_path", &self.api_secret_path)
+            .finish()
+    }
 }
 
 /// Configuration for the mosaic client.
@@ -613,7 +675,34 @@ mod tests {
 
     #[test]
     fn test_config_serde_toml() {
-        assert_roundtrips(&format!("{BASE_TOML}\n{OPERATOR_WALLET_TOML}"));
+        let config = assert_roundtrips(&format!("{BASE_TOML}\n{OPERATOR_WALLET_TOML}"));
+        assert!(
+            config.operator_wallet.fireblocks.is_none(),
+            "no fireblocks table => secret-service custody"
+        );
+    }
+
+    /// A `[operator_wallet.fireblocks]` table selects the Fireblocks custody and round-trips.
+    #[test]
+    fn test_config_serde_toml_with_fireblocks() {
+        let toml_str = format!(
+            "{BASE_TOML}\n{OPERATOR_WALLET_TOML}\n\
+             [operator_wallet.fireblocks]\n\
+             base_url = \"https://api.fireblocks.io\"\n\
+             api_key = \"api-key-id\"\n\
+             vault_account_id = \"0\"\n\
+             asset_id = \"BTC\"\n\
+             vault_pubkey = \"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"\n\
+             api_secret_path = \"fireblocks_secret.pem\"\n"
+        );
+        let config = assert_roundtrips(&toml_str);
+        let fb = config
+            .operator_wallet
+            .fireblocks
+            .expect("fireblocks table => Fireblocks custody");
+        assert_eq!(fb.asset_id, "BTC");
+        assert_eq!(fb.vault_account_id, "0");
+        assert_eq!(fb.api_secret_path, PathBuf::from("fireblocks_secret.pem"));
     }
 
     #[test]
@@ -686,6 +775,40 @@ mod tests {
             ],
             "each mosaic peer entry must keep its operator index and peer ID"
         );
+    }
+
+    #[test]
+    fn debug_redacts_the_fireblocks_api_key() {
+        let config: FireblocksWalletConfig = toml::from_str(
+            r#"
+            base_url = "https://api.fireblocks.io"
+            api_key = "sentinel-key"
+            vault_account_id = "0"
+            asset_id = "BTC"
+            vault_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+            api_secret_path = "fireblocks_secret.pem"
+            "#,
+        )
+        .expect("valid table");
+
+        for rendered in [format!("{config:?}"), format!("{config:#?}")] {
+            assert!(!rendered.contains("sentinel-key"), "leaked: {rendered}");
+        }
+    }
+
+    #[test]
+    fn a_mistyped_fireblocks_key_is_an_error() {
+        let mistyped = r#"
+            base_url = "https://api.fireblocks.io"
+            api_key = "key"
+            vault_account_id = "0"
+            asset_id = "BTC"
+            vault_pubkey = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+            api_secret_pth = "fireblocks_secret.pem"
+        "#;
+
+        let err = toml::from_str::<FireblocksWalletConfig>(mistyped).expect_err("unknown key");
+        assert!(err.to_string().contains("api_secret_pth"), "got {err}");
     }
 
     #[test]

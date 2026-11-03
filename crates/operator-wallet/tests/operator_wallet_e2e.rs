@@ -270,6 +270,133 @@ async fn payout_descriptor_is_the_wallet_receive_script() {
     );
 }
 
+/// The watch-only view of a Fireblocks vault reads everything from the node. A payment shows up
+/// unconfirmed from the mempool and confirmed from a block, a child of the vault spends P2WPKH
+/// inputs at the planned rate, and a sync keeps the lease on the input that the mempool spends.
+#[cfg(feature = "fireblocks")]
+#[tokio::test]
+#[serial]
+async fn a_vault_view_tracks_its_script_on_the_node() {
+    use bdk_wallet::bitcoin::{
+        secp256k1::Secp256k1 as Secp, sighash::EcdsaSighashType, CompressedPublicKey,
+        PublicKey as BitcoinPublicKey,
+    };
+    use operator_wallet::{
+        general::fireblocks::{CheckedVault, FireblocksConfig, FireblocksSigner},
+        test_utils::TEST_RSA_PRIVATE_PEM,
+    };
+
+    let bitcoind = setup_bitcoind();
+    let secp = Secp::new();
+    let vault_secret = SecretKey::from_slice(&[61; 32]).expect("valid scalar");
+    let vault_pubkey = vault_secret.public_key(&secp);
+    let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest);
+    let signer = FireblocksSigner::new(
+        FireblocksConfig {
+            base_url: "https://fireblocks.invalid".to_string(),
+            api_key: "key".to_string(),
+            vault_account_id: "0".to_string(),
+            asset_id: "BTC_TEST".to_string(),
+            vault_pubkey,
+        },
+        TEST_RSA_PRIVATE_PEM.as_bytes(),
+    )
+    .expect("valid signer");
+    let (_, reserved_pubkey) = keypair_from_seed(62);
+    let mut wallet = OperatorWallet::load_or_create(
+        GeneralCustody::Fireblocks(CheckedVault::unchecked(signer, MemoryStore::new())),
+        reserved_pubkey,
+        config,
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
+        MemoryStore::new(),
+        None,
+        BTreeSet::new(),
+    )
+    .await
+    .expect("wallet init");
+
+    let vault_address = Address::p2wpkh(&CompressedPublicKey(vault_pubkey), Network::Regtest);
+    assert_eq!(
+        wallet.general().script_pubkey(),
+        vault_address.script_pubkey()
+    );
+    assert_eq!(
+        wallet.descriptor().expect("descriptor").to_script(),
+        vault_address.script_pubkey()
+    );
+
+    bitcoind
+        .client
+        .send_to_address(&vault_address, Amount::from_btc(0.5).unwrap())
+        .expect("fund the vault");
+    wallet.sync().await.expect("sync the mempool");
+    assert_eq!(wallet.general().list_utxos()[0].confirmations, 0);
+
+    let miner = bitcoind.client.new_address().expect("miner");
+    bitcoind
+        .client
+        .generate_to_address(1, &miner)
+        .expect("confirm");
+    wallet.sync().await.expect("sync the block");
+    let funding = wallet.general().list_utxos()[0].clone();
+    assert_eq!(funding.confirmations, 1);
+
+    let target = FeeRate::from_sat_per_vb(5).unwrap();
+    let funded = wallet
+        .create_reserved_utxos(
+            target,
+            Amount::from_btc(0.1).unwrap(),
+            1,
+            GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
+        )
+        .expect("plan the refill");
+    let (psbt, lease) = funded.into_parts();
+    assert!(psbt.inputs[0].final_script_witness.is_none(), "unsigned");
+
+    // The signature Fireblocks returns, made here with the vault key.
+    let mut signed = psbt.unsigned_tx.clone();
+    let sighash = SighashCache::new(&psbt.unsigned_tx)
+        .p2wpkh_signature_hash(
+            0,
+            &funding.script_pubkey,
+            funding.amount,
+            EcdsaSighashType::All,
+        )
+        .expect("sighash");
+    let signature = bdk_wallet::bitcoin::ecdsa::Signature::sighash_all(
+        secp.sign_ecdsa(&Message::from(sighash), &vault_secret),
+    );
+    signed.input[0].witness =
+        Witness::p2wpkh(&signature, &BitcoinPublicKey::new(vault_pubkey).inner);
+
+    let fee = psbt.fee().expect("witness_utxo on every input");
+    let paid_rate = fee.to_sat() as f64 * 4.0 / signed.weight().to_wu() as f64;
+    assert!(
+        (5.0..5.1).contains(&paid_rate),
+        "planned for 5 sat/vB, signed pays {paid_rate}"
+    );
+
+    bitcoind
+        .client
+        .send_raw_transaction(&signed)
+        .expect("the node accepts the signed refill");
+    drop(lease);
+    wallet.lease_committed(vec![funding.outpoint], LeaseOwner::ClaimFundingRefill);
+    wallet.sync().await.expect("sync the spend");
+    assert!(
+        wallet.leased_outpoints().contains(&funding.outpoint),
+        "a spend in the mempool keeps the lease"
+    );
+    assert_eq!(wallet.general().list_utxos()[0].confirmations, 0, "change");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync the confirmed spend");
+    assert!(
+        !wallet.leased_outpoints().contains(&funding.outpoint),
+        "a confirmed spend ends the lease"
+    );
+}
+
 #[tokio::test]
 #[serial]
 async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
