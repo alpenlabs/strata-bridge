@@ -108,7 +108,7 @@ pub enum GraphDuty {
         /// The stake UTXO for the graph owner.
         stake_outpoint: OutPoint,
 
-        /// Hash image that locks the claim-payout connector for this graph.
+        /// Hash image that locks the claim unstaking payout connector for this graph.
         unstaking_image: sha256::Hash,
 
         /// Operator table snapshot from the GraphSM that emitted this duty.
@@ -195,8 +195,8 @@ pub enum GraphDuty {
         signed_uncontested_payout_tx: Transaction,
     },
 
-    /// Publish an unstaking burn transaction to spend the claim-payout connector after the graph
-    /// owner's unstaking preimage is revealed.
+    /// Publish an unstaking burn transaction to spend the claim unstaking payout connector after
+    /// the graph owner's unstaking preimage is revealed.
     PublishUnstakingBurn {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,

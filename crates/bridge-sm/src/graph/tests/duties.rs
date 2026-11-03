@@ -103,7 +103,7 @@ mod tests {
                         UnstakingBurnData {
                             claim_txid: generate_txid(),
                         },
-                        connectors.claim_payout,
+                        connectors.claim_unstaking_payout,
                     ),
                     unstaking_preimage: [0u8; 32],
                 },

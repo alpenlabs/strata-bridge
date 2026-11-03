@@ -521,7 +521,7 @@ mod tests {
     use operator_wallet::{
         NativeGeneralWallet, OperatorWalletConfig, SqliteStore, WalletKind, sync::Backend,
     };
-    use strata_bridge_connectors::prelude::ClaimPayoutConnector;
+    use strata_bridge_connectors::prelude::ClaimUnstakingPayoutConnector;
     use strata_bridge_tx_graph::transactions::prelude::UnstakingBurnData;
     use tempfile::TempDir;
 
@@ -614,11 +614,9 @@ mod tests {
     }
 
     fn unstaking_burn_tx(unstaking_preimage: [u8; 32]) -> UnstakingBurnTx {
-        let connector = ClaimPayoutConnector::new(
+        let connector = ClaimUnstakingPayoutConnector::new(
             Network::Regtest,
             xonly_pubkey(3),
-            vec![xonly_pubkey(4)],
-            1,
             sha256::Hash::hash(&unstaking_preimage),
         );
         let data = UnstakingBurnData {

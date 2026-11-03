@@ -469,7 +469,7 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
                 spending_txid: generate_spending_tx(
                     OutPoint {
                         txid: graph_summary.claim,
-                        vout: ClaimTx::PAYOUT_VOUT,
+                        vout: ClaimTx::ADMIN_PAYOUT_VOUT,
                     },
                     &[],
                 )

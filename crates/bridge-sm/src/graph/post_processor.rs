@@ -58,7 +58,7 @@ impl GraphSM {
             UnstakingBurnData {
                 claim_txid: candidate.claim_txid,
             },
-            connectors.claim_payout,
+            connectors.claim_unstaking_payout,
         );
 
         Some(GraphDuty::PublishUnstakingBurn {
