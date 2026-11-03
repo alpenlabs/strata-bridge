@@ -29,7 +29,8 @@ STAKE_VOUT = 1  # Operator stake funds locked in N/N taproot
 # Game-graph tx output indices, mirrored from the Rust tx-graph crate.
 # Naming follows `<SOURCE_TX>_<OUTPUT>_VOUT`.
 CLAIM_CONTEST_VOUT = 0
-CLAIM_PAYOUT_VOUT = 1
+CLAIM_ADMIN_PAYOUT_VOUT = 1
+CLAIM_UNSTAKING_PAYOUT_VOUT = 2
 CONTEST_PROOF_VOUT = 0
 CONTEST_PAYOUT_VOUT = 1
 # Payout/slash mutex: `contested_payout` spends this key-path with no CSV of its own (the

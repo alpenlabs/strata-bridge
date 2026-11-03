@@ -1,6 +1,11 @@
 import flexitest
 
-from constants import CLAIM_CONTEST_VOUT, CLAIM_PAYOUT_VOUT, MAX_BRIDGE_TIMEOUT
+from constants import (
+    CLAIM_ADMIN_PAYOUT_VOUT,
+    CLAIM_CONTEST_VOUT,
+    CLAIM_UNSTAKING_PAYOUT_VOUT,
+    MAX_BRIDGE_TIMEOUT,
+)
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -25,7 +30,7 @@ from utils.withdrawal import wait_until_active_valid_claim
 @flexitest.register
 class UnstakingBurnTest(StrataTestBase):
     """
-    Test that an operator unstaking intent lets a watchtower burn the claim payout connector.
+    Test that an operator unstaking intent lets a watchtower burn the claim unstaking payout connector.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -121,13 +126,13 @@ class UnstakingBurnTest(StrataTestBase):
         wait_until_utxo_spent(
             bitcoin_rpc,
             active_claim.claim_txid,
-            CLAIM_PAYOUT_VOUT,
+            CLAIM_UNSTAKING_PAYOUT_VOUT,
             timeout=450,
         )
         burn_txid = find_utxo_spender_txid(
             bitcoin_rpc,
             active_claim.claim_txid,
-            CLAIM_PAYOUT_VOUT,
+            CLAIM_UNSTAKING_PAYOUT_VOUT,
         )
         burn_block_hash = wait_for_tx_confirmation(bitcoin_rpc, burn_txid, timeout=300)
         self.logger.info(f"Unstaking burn tx {burn_txid} confirmed in block {burn_block_hash}")
@@ -137,12 +142,16 @@ class UnstakingBurnTest(StrataTestBase):
         assert len(burn_inputs) == 2, "Unstaking burn should have connector and wallet inputs"
         assert burn_inputs[0] == (
             active_claim.claim_txid,
-            CLAIM_PAYOUT_VOUT,
-        ), "Unstaking burn first input should spend the claim payout connector"
+            CLAIM_UNSTAKING_PAYOUT_VOUT,
+        ), "Unstaking burn first input should spend the claim unstaking payout connector"
         assert (
             active_claim.claim_txid,
             CLAIM_CONTEST_VOUT,
         ) not in burn_inputs, "Unstaking burn should not spend the claim contest connector"
+        assert (
+            active_claim.claim_txid,
+            CLAIM_ADMIN_PAYOUT_VOUT,
+        ) not in burn_inputs, "Unstaking burn should not spend the claim admin payout connector"
         assert len(burn_tx.get("vout", [])) == 1, "Unstaking burn should have one wallet output"
 
         return True

@@ -2,8 +2,9 @@ import logging
 from dataclasses import dataclass
 
 from constants import (
+    CLAIM_ADMIN_PAYOUT_VOUT,
     CLAIM_CONTEST_VOUT,
-    CLAIM_PAYOUT_VOUT,
+    CLAIM_UNSTAKING_PAYOUT_VOUT,
     CONTEST_PAYOUT_VOUT,
     CONTEST_SLASH_VOUT,
     CONTEST_WATCHTOWER_0_VOUT,
@@ -237,22 +238,23 @@ def assert_contested_payout_shape(
     claim_txid: str,
     contest_txid: str,
 ) -> None:
-    """Assert the tx is a `contested_payout`: exactly four inputs, being the deposit UTXO,
-    the claim payout output, and the contest's payout and slash outputs.
+    """Assert the tx is a `contested_payout`: exactly five inputs, being the deposit UTXO,
+    the claim admin and unstaking payout outputs, and the contest's payout and slash outputs.
 
-    Checking all four rules out both alternatives that could otherwise spend the contest
+    Checking all five rules out both alternatives that could otherwise spend the contest
     payout output: a `counterproof_ack` (2 inputs) and a `slash` (which would take the
     contest slash output instead).
     """
     inputs = tx_inputs(bitcoin_rpc, contested_payout_txid)
     expected = {
         (deposit_txid, DT_DEPOSIT_VOUT),
-        (claim_txid, CLAIM_PAYOUT_VOUT),
+        (claim_txid, CLAIM_ADMIN_PAYOUT_VOUT),
+        (claim_txid, CLAIM_UNSTAKING_PAYOUT_VOUT),
         (contest_txid, CONTEST_PAYOUT_VOUT),
         (contest_txid, CONTEST_SLASH_VOUT),
     }
-    assert len(inputs) == 4, (
-        f"contested_payout candidate {contested_payout_txid} must have 4 inputs, "
+    assert len(inputs) == 5, (
+        f"contested_payout candidate {contested_payout_txid} must have 5 inputs, "
         f"got {len(inputs)}: {inputs}"
     )
     assert set(inputs) == expected, (
@@ -260,7 +262,7 @@ def assert_contested_payout_shape(
         f"expected {sorted(expected)}"
     )
 
-    logging.info(f"Contested payout {contested_payout_txid} has the expected 4-input shape")
+    logging.info(f"Contested payout {contested_payout_txid} has the expected 5-input shape")
 
 
 def assert_contest_shape(bitcoin_rpc, claim_txid: str, num_watchtowers: int) -> str:
@@ -268,7 +270,7 @@ def assert_contest_shape(bitcoin_rpc, claim_txid: str, num_watchtowers: int) -> 
 
     A `contest` spends only the claim contest output and carries the proof, payout and
     slash outputs, one counterproof output per watchtower, and the CPFP anchor. The other
-    spender of that output, an `uncontested_payout`, takes the claim contest and payout
+    spender of that output, an `uncontested_payout`, takes the claim contest and both payout
     outputs together and has a different output count.
     """
     contest_txid, inputs = _spender_inputs(bitcoin_rpc, claim_txid, CLAIM_CONTEST_VOUT)
