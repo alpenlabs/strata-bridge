@@ -32,6 +32,14 @@ ignore = [
   # Remove when metrics-exporter-otel accepts a patched scc release.
   "RUSTSEC-2026-0205",
 
+  # pulldown-cmark 0.13.5 via prost-build 0.14 -> tonic-prost-build ->
+  # sp1-prover-types (build-time only). Fixed in 0.13.6, but that release is
+  # younger than the 14-day min-publish-age cooldown in .cargo/config.toml.
+  # prost-build only parses doc comments from SP1's vendored .proto files, so
+  # the quadratic wikilink parsing is never reached with untrusted input.
+  # Remove once 0.13.6 clears the cooldown and Cargo.lock is bumped.
+  "RUSTSEC-2026-0433",
+
   # zstd 0.13.3 / zstd-safe 7.3.0 via SP1's optional network feature.
   # Fixed in zstd >=0.14.3 / zstd-safe >=8.2.0. SP1 6.10.0 still pins
   # zstd ^0.13, which requires zstd-safe ^7; no compatible fixes exist.
