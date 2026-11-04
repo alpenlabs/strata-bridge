@@ -306,7 +306,7 @@ mod tests {
     use secp256k1::{Keypair, XOnlyPublicKey};
     use ssz::{Decode, Encode};
     use strata_asm_proto_bridge::OperatorClaimUnlockV1;
-    use strata_bridge_connectors::Connector;
+    use strata_bridge_connectors::{Connector, SigningInfo};
     use strata_bridge_proof_common::{MOHO_GENESIS_ATTESTATION, generate_moho_state};
     use strata_bridge_test_utils::bitcoin::generate_keypair;
     use strata_bridge_tx_graph::transactions::prelude::{BridgeProofData, BridgeProofTx};
@@ -378,16 +378,18 @@ mod tests {
         BridgeProofTx::new(proof_data, *CONTEST_PROOF_CONNECTOR)
     }
 
-    fn sign_bridge_proof_tx(tx: BridgeProofTx) -> Transaction {
-        let signing_info = tx.signing_info_partial();
-        let tweaked_operator_key = OPERATOR_KEYPAIR
+    fn tweaked_operator_key() -> Keypair {
+        OPERATOR_KEYPAIR
             .add_xonly_tweak(
                 SECP256K1,
                 &ContestProofConnector::operator_key_tweak(GAME_IDX),
             )
-            .expect("game-idx tweak is valid");
+            .expect("game-idx tweak is valid")
+    }
 
-        tx.finalize_partial(signing_info.sign(&tweaked_operator_key))
+    fn sign_bridge_proof_tx(tx: BridgeProofTx) -> Transaction {
+        let signing_info = tx.signing_info_partial();
+        tx.finalize_partial(signing_info.sign(&tweaked_operator_key()))
     }
 
     static BRIDGE_PROOF_TX_UNSIGNED: LazyLock<BridgeProofTx> =
@@ -603,18 +605,73 @@ mod tests {
             let unsigned_tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
             let signing_info =
                 unsigned_tx.signing_info_partial_with_sighash_type(TapSighashType::None);
-            let tweaked_operator_key = OPERATOR_KEYPAIR
-                .add_xonly_tweak(
-                    SECP256K1,
-                    &ContestProofConnector::operator_key_tweak(GAME_IDX),
-                )
-                .expect("game-idx tweak is valid");
-            let mut tx = unsigned_tx.finalize_partial(signing_info.sign(&tweaked_operator_key));
+            let mut tx = unsigned_tx.finalize_partial(signing_info.sign(&tweaked_operator_key()));
             // Non-default signatures must include the sighash byte in the witness.
             // We do a hotfix here.
             let mut witness = tx.input[TXIN_IDX as usize].witness.to_vec();
             witness[0].push(TapSighashType::None as u8);
             tx.input[TXIN_IDX as usize].witness = Witness::from(witness);
+
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = tx.into();
+
+            run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        /// Signs the bridge proof tx with `annex` in the contest-proof input witness.
+        fn sign_bridge_proof_tx_with_annex(
+            unsigned_tx: BridgeProofTx,
+            annex: &[u8],
+        ) -> Transaction {
+            let tweak = unsigned_tx.signing_info_partial().tweak;
+            // Sighashes don't cover the witness, so the placeholder signature can be replaced.
+            let mut tx = sign_bridge_proof_tx(unsigned_tx);
+            let sighash = SighashCache::new(&tx)
+                .taproot_signature_hash(
+                    TXIN_IDX as usize,
+                    &Prevouts::All(&PREVOUTS[..]),
+                    Some(Annex::new(annex).expect("annex starts with 0x50")),
+                    None,
+                    TapSighashType::Default,
+                )
+                .expect("sighash computation should never fail");
+            let signature = SigningInfo {
+                sighash: Message::from(sighash),
+                tweak,
+            }
+            .sign(&tweaked_operator_key());
+            tx.input[TXIN_IDX as usize].witness =
+                Witness::from(vec![signature.serialize().to_vec(), annex.to_vec()]);
+            tx
+        }
+
+        #[test]
+        fn counterproof_valid_if_witness_has_annex() {
+            for annex in [&[0x50][..], &[0x50, 0xa7]] {
+                let tx = sign_bridge_proof_tx_with_annex(BRIDGE_PROOF_TX_UNSIGNED.clone(), annex);
+
+                let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+                input.bridge_proof_tx = tx.into();
+
+                run_counterproof(RuntimeArgs {
+                    input,
+                    bridge_proof_vk: PredicateKey::always_accept(),
+                    moho_vk: PredicateKey::never_accept(),
+                });
+            }
+        }
+
+        #[test]
+        #[should_panic(
+            expected = "invalid counterproof: contest-proof txin: signature doesn't verify"
+        )]
+        fn counterproof_invalid_if_annex_not_signed() {
+            let mut tx = BRIDGE_PROOF_TX_SIGNED.clone();
+            tx.input[TXIN_IDX as usize].witness.push([0x50, 0xa7]);
 
             let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
             input.bridge_proof_tx = tx.into();
