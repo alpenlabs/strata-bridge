@@ -33,20 +33,24 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// open each other's state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WalletKind {
-    /// General-funds wallet.
+    /// General-funds wallet of secret-service custody.
     General,
+    /// Watch-only view of the Fireblocks vault. It has its own store because the store pins a
+    /// descriptor: a switch between custodies then finds each store intact.
+    Vault,
     /// Reserved wallet holding the claim-funding pool.
     Reserved,
 }
 
 impl WalletKind {
-    /// Both kinds, in a fixed order.
-    pub const ALL: [Self; 2] = [Self::General, Self::Reserved];
+    /// Every kind, in a fixed order.
+    pub const ALL: [Self; 3] = [Self::General, Self::Vault, Self::Reserved];
 
     /// Store file name inside the data directory.
     pub const fn file_name(self) -> &'static str {
         match self {
             Self::General => "general-wallet.sqlite",
+            Self::Vault => "vault-wallet.sqlite",
             Self::Reserved => "reserved-wallet.sqlite",
         }
     }
@@ -61,6 +65,7 @@ impl fmt::Display for WalletKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::General => "general",
+            Self::Vault => "vault",
             Self::Reserved => "reserved",
         })
     }
@@ -213,7 +218,7 @@ impl AsyncWalletPersister for SqliteStore {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::BTreeSet, sync::Arc};
 
     use bdk_wallet::{
         bitcoin::{
@@ -286,6 +291,29 @@ mod tests {
             .query_row("SELECT count(*) FROM bdk_wallet", [], |r| r.get(0))
             .unwrap();
         assert_eq!(wallets, 1, "one wallet row, written once");
+    }
+
+    /// Each kind pins its own descriptor, so every kind needs a file of its own in one data dir.
+    #[tokio::test]
+    async fn every_kind_keeps_its_own_wallet_in_one_data_dir() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        for (seed, kind) in (1..).zip(WalletKind::ALL) {
+            open_wallet(dir.path(), kind, seed)
+                .await
+                .unwrap_or_else(|e| panic!("open the {kind} wallet: {e}"));
+        }
+        for (seed, kind) in (1..).zip(WalletKind::ALL) {
+            assert!(
+                open_wallet(dir.path(), kind, seed).await.is_ok(),
+                "the {kind} store still holds its own wallet"
+            );
+        }
+        let files: BTreeSet<&str> = WalletKind::ALL.map(WalletKind::file_name).into();
+        assert_eq!(
+            files.len(),
+            WalletKind::ALL.len(),
+            "no two kinds share a file"
+        );
     }
 
     #[test]
