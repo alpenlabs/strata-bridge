@@ -1,6 +1,6 @@
 //! Operator wallet chain data sync module
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     fmt::Debug,
     num::NonZeroU32,
     sync::Arc,
@@ -275,30 +275,36 @@ const MAX_MEMPOOL_LISTINGS: usize = 8;
 /// A transaction that leaves the mempool between the listing and its fetch is not in the result.
 /// A replacement of it can enter after the listing, and a snapshot without either reads the output
 /// they both spend as unspent. A fetch that misses therefore lists the mempool again and fetches
-/// what the new listing adds. A transaction that enters with no miss is no different from one that
-/// enters after the read.
+/// every transaction of the new listing that no fetch has returned yet, a missed one included. The
+/// result is the first listing with no miss, so a transaction that left before it is not in the
+/// result either. A transaction that enters with no miss is no different from one that enters
+/// after the read.
 fn fetch_mempool(
     source: &impl MempoolSource,
     now: u64,
 ) -> Result<WalletUpdate, BitcoinCoreSyncError> {
-    let mut listed = HashSet::new();
-    let mut txids = HashSet::new();
-    let mut txs = Vec::new();
+    let mut fetched = HashMap::new();
     for _ in 0..MAX_MEMPOOL_LISTINGS {
+        let listing = source.mempool_txids()?;
         let mut missed = false;
-        for txid in source.mempool_txids()? {
-            if !listed.insert(txid) {
+        for txid in &listing {
+            if fetched.contains_key(txid) {
                 continue;
             }
-            match source.mempool_tx(&txid)? {
+            match source.mempool_tx(txid)? {
                 Some(tx) => {
-                    txs.push((tx, now));
-                    txids.insert(txid);
+                    fetched.insert(*txid, tx);
                 }
                 None => missed = true,
             }
         }
         if !missed {
+            let txs = listing
+                .iter()
+                .filter_map(|txid| fetched.remove(txid))
+                .map(|tx| (tx, now))
+                .collect();
+            let txids = listing.into_iter().collect();
             return Ok(WalletUpdate::Mempool { txids, txs });
         }
     }
@@ -408,11 +414,13 @@ mod tests {
     }
 
     /// A node whose mempool listings play back in order. The last listing repeats, and a
-    /// transaction absent from `txs` reads as gone.
+    /// transaction absent from `txs` reads as gone. A transaction in `gone_on_first_fetch` reads
+    /// as gone once, then as present.
     #[derive(Default)]
     struct ScriptedMempool {
         listings: RefCell<VecDeque<Vec<Txid>>>,
         txs: HashMap<Txid, Transaction>,
+        gone_on_first_fetch: RefCell<HashSet<Txid>>,
         fetches: RefCell<Vec<Txid>>,
         fail_fetch: bool,
     }
@@ -446,6 +454,9 @@ mod tests {
                 return Err(bitcoincore_rpc::Error::ReturnedError("injected".into()));
             }
             self.fetches.borrow_mut().push(*txid);
+            if self.gone_on_first_fetch.borrow_mut().remove(txid) {
+                return Ok(None);
+            }
             Ok(self.txs.get(txid).cloned())
         }
     }
@@ -477,7 +488,13 @@ mod tests {
     #[test]
     fn a_transaction_gone_before_its_fetch_is_left_out() {
         let (a, gone) = (tx(1), tx(2));
-        let node = ScriptedMempool::new(vec![vec![gone.compute_txid(), a.compute_txid()]], &[&a]);
+        let node = ScriptedMempool::new(
+            vec![
+                vec![gone.compute_txid(), a.compute_txid()],
+                vec![a.compute_txid()],
+            ],
+            &[&a],
+        );
         let (txids, txs) = unpack(fetch_mempool(&node, 0).expect("read"));
         assert_eq!(
             txids,
@@ -513,6 +530,54 @@ mod tests {
                 replacement.compute_txid()
             ],
             "the second listing fetches only what the first did not name"
+        );
+    }
+
+    /// A transaction fetched for one listing can leave before the next. The snapshot is the last
+    /// listing, so the outputs of the transaction that left do not read as spendable.
+    #[test]
+    fn the_snapshot_is_the_last_listing() {
+        let (kept, left, missed, newcomer) = (tx(1), tx(2), tx(3), tx(4));
+        let node = ScriptedMempool::new(
+            vec![
+                vec![
+                    kept.compute_txid(),
+                    left.compute_txid(),
+                    missed.compute_txid(),
+                ],
+                vec![kept.compute_txid(), newcomer.compute_txid()],
+            ],
+            &[&kept, &left, &newcomer],
+        );
+        let (txids, txs) = unpack(fetch_mempool(&node, 0).expect("read"));
+        let expected = HashSet::from([kept.compute_txid(), newcomer.compute_txid()]);
+        assert_eq!(
+            txids, expected,
+            "the snapshot names what the last listing names"
+        );
+        assert_eq!(
+            txs.iter()
+                .map(|(tx, _)| tx.compute_txid())
+                .collect::<HashSet<_>>(),
+            expected,
+            "the snapshot applies what the last listing names"
+        );
+    }
+
+    /// A fetch can miss a transaction that the mempool takes back before the next listing. That
+    /// listing names it again, and without it the output it spends reads unspent.
+    #[test]
+    fn a_missed_transaction_listed_again_is_fetched_again() {
+        let back = tx(1);
+        let node = ScriptedMempool {
+            gone_on_first_fetch: RefCell::new(HashSet::from([back.compute_txid()])),
+            ..ScriptedMempool::new(vec![vec![back.compute_txid()]], &[&back])
+        };
+        let (txids, _) = unpack(fetch_mempool(&node, 0).expect("read"));
+        assert_eq!(
+            txids,
+            HashSet::from([back.compute_txid()]),
+            "the second listing fetches the transaction again"
         );
     }
 
