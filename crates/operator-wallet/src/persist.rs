@@ -64,6 +64,9 @@ pub enum InitError<E: std::error::Error + 'static> {
     /// The bootstrap checkpoint could not be connected to genesis.
     #[error("bootstrap checkpoint does not connect to genesis: {0}")]
     Bootstrap(CannotConnectError),
+    /// The descriptor derives more than one script, and a tracked wallet follows exactly one.
+    #[error("wallet descriptor has a wildcard, but a tracked wallet follows one script")]
+    WildcardDescriptor,
 }
 
 impl<E: std::error::Error + 'static> From<LoadWithPersistError<E>> for InitError<E> {
