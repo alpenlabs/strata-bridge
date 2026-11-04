@@ -5,7 +5,7 @@ use std::num::NonZero;
 use bitcoin::{
     Amount, Network, Script, Transaction, TxOut, opcodes, relative,
     script::Instruction,
-    sighash::{Prevouts, SighashCache, TapSighashType},
+    sighash::{Annex, Prevouts, SighashCache, TapSighashType},
     taproot,
 };
 use secp256k1::{Message, SECP256K1};
@@ -76,18 +76,24 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     // ┌───────────────────────────────────────────────────────────────────────┐
     // │                       Verify operator signature                       │
     // └───────────────────────────────────────────────────────────────────────┘
-    let signature_raw = bridge_proof_tx.input[input_idx]
-        .witness
+    let witness = &bridge_proof_tx.input[input_idx].witness;
+    let signature_raw = witness
         .iter()
         .next()
         .expect("invalid counterproof: contest-proof txin: no witness");
     let signature = taproot::Signature::from_slice(signature_raw)
         .expect("invalid counterproof: contest-proof txin: signature doesn't parse");
+    let annex = witness
+        .taproot_annex()
+        .map(|annex| Annex::new(annex).expect("taproot annex starts with 0x50"));
+    let has_annex = annex.is_some();
     let mut cache = SighashCache::new(&bridge_proof_tx);
     let message = cache
-        .taproot_key_spend_signature_hash(
+        .taproot_signature_hash(
             input_idx,
             &Prevouts::All(&prevouts),
+            annex,
+            None,
             signature.sighash_type,
         )
         .map(Message::from)
@@ -110,8 +116,8 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
     // ┌───────────────────────────────────────────────────────────────────────┐
     // │                         Extract bridge proof                          │
     // └───────────────────────────────────────────────────────────────────────┘
-    // Immediately succeed if sighash mode is not SIGHASH_DEFAULT
-    if signature.sighash_type != TapSighashType::Default {
+    // Immediately succeed if sighash mode is not SIGHASH_DEFAULT or the witness has an annex
+    if signature.sighash_type != TapSighashType::Default || has_annex {
         zkvm.commit_ssz(&CounterproofOutput {
             operator_pubkey: operator_pubkey_raw,
             game_idx: game_idx_raw,
