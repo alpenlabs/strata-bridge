@@ -15,6 +15,7 @@ use bdk_wallet::{
     bitcoin::{Block, Transaction, Txid},
     chain::CheckPoint,
 };
+use thiserror::Error;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tracing::{debug, warn};
 
@@ -204,7 +205,7 @@ async fn sync_wallet_bitcoin_core(
         let client = client.clone();
         async move {
             let start_height = scan_start_height(&last_cp);
-            with_bitcoin_core(client, move |client| {
+            with_bitcoin_core(client, move |client| -> Result<(), BitcoinCoreSyncError> {
                 let mut emitter = Emitter::new(client, last_cp, start_height);
                 if emit_blocks(&mut emitter, &send_update)? == Emitted::ReceiverGone {
                     return Ok(());
@@ -217,7 +218,7 @@ async fn sync_wallet_bitcoin_core(
                 // must be the whole mempool each time.
                 let Some(mempool) = mempool_at_tip(
                     || fetch_mempool(client, unix_now()),
-                    || emit_blocks(&mut emitter, &send_update),
+                    || Ok(emit_blocks(&mut emitter, &send_update)?),
                 )?
                 else {
                     return Ok(());
@@ -264,22 +265,56 @@ fn unix_now() -> u64 {
         .map_or(0, |since_epoch| since_epoch.as_secs())
 }
 
+/// Listings that one mempool read takes at most. A read whose last listing still misses a
+/// transaction fails.
+const MAX_MEMPOOL_LISTINGS: usize = 8;
+
 /// Reads the mempool of `source` and fetches every transaction in it, each stamped `now`. BDK takes
-/// the conflicting transaction seen last as canonical. A transaction that leaves the mempool
-/// during the walk is not in the result.
+/// the conflicting transaction seen last as canonical.
+///
+/// A transaction that leaves the mempool between the listing and its fetch is not in the result.
+/// A replacement of it can enter after the listing, and a snapshot without either reads the output
+/// they both spend as unspent. A fetch that misses therefore lists the mempool again and fetches
+/// what the new listing adds. A transaction that enters with no miss is no different from one that
+/// enters after the read.
 fn fetch_mempool(
     source: &impl MempoolSource,
     now: u64,
-) -> Result<WalletUpdate, bitcoincore_rpc::Error> {
+) -> Result<WalletUpdate, BitcoinCoreSyncError> {
+    let mut listed = HashSet::new();
     let mut txids = HashSet::new();
     let mut txs = Vec::new();
-    for txid in source.mempool_txids()? {
-        if let Some(tx) = source.mempool_tx(&txid)? {
-            txs.push((tx, now));
-            txids.insert(txid);
+    for _ in 0..MAX_MEMPOOL_LISTINGS {
+        let mut missed = false;
+        for txid in source.mempool_txids()? {
+            if !listed.insert(txid) {
+                continue;
+            }
+            match source.mempool_tx(&txid)? {
+                Some(tx) => {
+                    txs.push((tx, now));
+                    txids.insert(txid);
+                }
+                None => missed = true,
+            }
+        }
+        if !missed {
+            return Ok(WalletUpdate::Mempool { txids, txs });
         }
     }
-    Ok(WalletUpdate::Mempool { txids, txs })
+    Err(BitcoinCoreSyncError::MempoolUnsettled)
+}
+
+/// Why a sync against bitcoind failed.
+#[derive(Debug, Error)]
+enum BitcoinCoreSyncError {
+    /// A node call failed.
+    #[error("bitcoind call: {0}")]
+    Rpc(#[from] bitcoincore_rpc::Error),
+    /// Transactions kept leaving the mempool between a listing and their fetch, for every
+    /// listing that one read takes.
+    #[error("the mempool kept losing transactions during {MAX_MEMPOOL_LISTINGS} listings")]
+    MempoolUnsettled,
 }
 
 /// Reads the mempool with `read_mempool` until `emit_blocks` finds no block after a read, and
@@ -341,13 +376,11 @@ fn scan_start_height(tip: &CheckPoint) -> u32 {
         .unwrap_or(0)
 }
 
-async fn with_bitcoin_core<T, F>(
-    client: Arc<bitcoincore_rpc::Client>,
-    func: F,
-) -> Result<T, bitcoincore_rpc::Error>
+async fn with_bitcoin_core<T, E, F>(client: Arc<bitcoincore_rpc::Client>, func: F) -> Result<T, E>
 where
     T: Send + 'static,
-    F: FnOnce(&bitcoincore_rpc::Client) -> Result<T, bitcoincore_rpc::Error> + Send + 'static,
+    E: Send + 'static,
+    F: FnOnce(&bitcoincore_rpc::Client) -> Result<T, E> + Send + 'static,
 {
     let handle = tokio::task::spawn_blocking(move || func(&client));
     handle.await.expect("thread should be fine")
@@ -452,6 +485,47 @@ mod tests {
             "the snapshot names only fetched transactions"
         );
         assert_eq!(txs.len(), 1, "the gone transaction is not applied");
+    }
+
+    /// A replaces-B race: the listing names A, B replaces A before A's fetch, and the listing
+    /// never named B. Without B the output that both spend reads unspent.
+    #[test]
+    fn a_transaction_gone_before_its_fetch_lists_the_mempool_again() {
+        let (other, replaced, replacement) = (tx(1), tx(2), tx(3));
+        let node = ScriptedMempool::new(
+            vec![
+                vec![other.compute_txid(), replaced.compute_txid()],
+                vec![other.compute_txid(), replacement.compute_txid()],
+            ],
+            &[&other, &replacement],
+        );
+        let (txids, _) = unpack(fetch_mempool(&node, 0).expect("read"));
+        assert_eq!(
+            txids,
+            HashSet::from([other.compute_txid(), replacement.compute_txid()]),
+            "the second listing brings in the replacement"
+        );
+        assert_eq!(
+            node.fetches.borrow().as_slice(),
+            [
+                other.compute_txid(),
+                replaced.compute_txid(),
+                replacement.compute_txid()
+            ],
+            "the second listing fetches only what the first did not name"
+        );
+    }
+
+    #[test]
+    fn a_mempool_that_keeps_losing_transactions_fails_the_read() {
+        let gone: Vec<Vec<Txid>> = (0..=MAX_MEMPOOL_LISTINGS)
+            .map(|tag| vec![tx(tag as u32).compute_txid()])
+            .collect();
+        let node = ScriptedMempool::new(gone, &[]);
+        assert!(
+            fetch_mempool(&node, 0).is_err(),
+            "a read that never settles fails instead of returning a partial snapshot"
+        );
     }
 
     #[test]
