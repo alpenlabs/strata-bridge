@@ -8,7 +8,6 @@ mod counterproof;
 mod counterproof_nack;
 mod uncontested;
 mod unstaking_burn;
-mod utils;
 
 use std::sync::Arc;
 

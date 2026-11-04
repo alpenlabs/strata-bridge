@@ -10,7 +10,15 @@ use std::{
 use bdk_wallet::{chain::Merge, AsyncWalletPersister, ChangeSet};
 use thiserror::Error;
 
-use crate::persist::prune_stale_anchors;
+use crate::{
+    leases::{Lease, LeaseOwner, LeaseSet},
+    persist::prune_stale_anchors,
+};
+
+/// A lease that holds nothing, for a test double that must hand out a lease.
+pub fn empty_lease() -> Lease {
+    Arc::new(LeaseSet::default()).take(Vec::new(), LeaseOwner::Rehydrated)
+}
 
 /// In-memory store. Clones share one store, so a test can rebuild a wallet from a clone to
 /// simulate a restart. Records every persisted changeset and can fail one chosen `persist` call.

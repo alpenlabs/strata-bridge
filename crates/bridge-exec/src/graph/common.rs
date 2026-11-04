@@ -1,16 +1,15 @@
 //! Executors for uncontested payout graph duties.
 
-use std::collections::BTreeSet;
-
 use algebra::predicate;
 use bitcoin::{
     Amount, OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
+use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
-use operator_wallet::{GeneralUtxoPolicy, GeneralWallet, OperatorWallet, WalletStore};
+use operator_wallet::{GeneralUtxoPolicy, Lease, LeaseOwner, OperatorWallet, WalletStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_db::{
     traits::BridgeDb,
@@ -32,11 +31,10 @@ use strata_mosaic_client_api::{
     MosaicClientApi,
     types::{DepositSighashes, Role, Sighash},
 };
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
-use super::utils::sign_claim_funding_tx;
 use crate::{
-    chain::{is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
+    chain::{self, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -128,24 +126,37 @@ fn invalid_mosaic_key(err: bitcoin::secp256k1::Error) -> ExecutorError {
 }
 
 // Selection must not use cached confirmations when either wallet fails to sync.
-async fn reserve_synced_claim_funding<G: GeneralWallet, P: WalletStore>(
-    wallet: &mut OperatorWallet<G, P>,
+async fn reserve_synced_claim_funding<P: WalletStore>(
+    wallet: &mut OperatorWallet<P>,
     value: Amount,
     bury_depth: u32,
-) -> Result<Option<OutPoint>, ExecutorError> {
+) -> Result<Option<(OutPoint, Lease)>, ExecutorError> {
     wallet.sync().await.map_err(|e| {
         ExecutorError::WalletErr(format!(
             "wallet sync failed before selecting claim funding: {e:?}"
         ))
     })?;
-    let settled = wallet.settled(bury_depth);
-    Ok(wallet
-        .reserve_utxo_with_value(value, predicate::not(settled))
-        .0)
+    Ok(wallet.reserve_settled(value, bury_depth))
+}
+
+/// Holds the claim-funding outpoint of a stored reservation.
+///
+/// The row keeps the outpoint across restarts, and startup rehydration holds it. This covers a
+/// row that was written after startup read the funds, so the outpoint cannot go to another graph.
+/// An outpoint that is already held takes no second record, so a repeated duty adds nothing.
+async fn hold_stored_claim_funding(output_handles: &OutputHandles, outpoint: OutPoint) {
+    let wallet = output_handles.wallet.read().await;
+    if !wallet.leased_outpoints().contains(&outpoint) {
+        wallet.lease_committed(vec![outpoint], LeaseOwner::ClaimFunding);
+    }
 }
 
 /// Returns the outpoint of `reservation` if it holds exactly `value`, so that a reservation of
 /// another amount is never spent for this graph's claim.
+///
+/// A mismatch fails on every retry, and the row stays. Unlike a stake reservation, this row can
+/// back graph data that peers hold, so a replacement outpoint does not recover the graph. An
+/// operator edits the row.
 fn check_claim_funding(
     reservation: &ClaimFundingReservation,
     value: Amount,
@@ -161,8 +172,9 @@ fn check_claim_funding(
     }
 }
 
-/// Returns the claim-funding outpoint for the graph of `ctx`, fetching it from the wallet
-/// (refilling if necessary) and caching to disk when not already saved.
+/// Returns the claim-funding outpoint for the graph of `ctx`, fetching it from the wallet and
+/// caching to disk when not already saved. An empty pool starts a refill, and the duty takes one
+/// of the refill's outputs once the refill transaction is in the node's mempool.
 ///
 /// The output is sized for the graph's own membership, and a cached reservation is reused only
 /// if it holds exactly that amount.
@@ -184,109 +196,39 @@ async fn ensure_claim_funding_outpoint(
             funding_outpoint = ?reservation.outpoint,
             "reusing cached funding outpoint"
         );
-        return check_claim_funding(&reservation, value);
+        let outpoint = check_claim_funding(&reservation, value)?;
+        hold_stored_claim_funding(output_handles, outpoint).await;
+        return Ok(outpoint);
     }
 
     info!(?graph_idx, %value, "fetching funding outpoint from wallet");
-    let reservation = {
+    let reserved = {
         let mut wallet = output_handles.wallet.write().await;
-        let script_pubkey = wallet.reserved_script_pubkey();
-
-        let outpoint = match reserve_synced_claim_funding(&mut *wallet, value, cfg.bury_depth)
-            .await?
-        {
-            Some(outpoint) => outpoint,
-            None => {
-                warn!("could not acquire claim funding utxo. attempting refill...");
-                // The reservation above found no unleased, settled member, so the shortfall
-                // is the whole target. The wallet stays denomination-agnostic; the batch is
-                // sized here.
-                let funded = wallet
-                    .create_reserved_utxos(
-                        fee::FEE_RATE,
-                        value,
-                        cfg.funding_uxto_pool_size,
-                        GeneralUtxoPolicy::BuriedOnly {
-                            bury_depth: cfg.bury_depth,
-                        },
-                    )
-                    .await
-                    .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
-                let spent = funded.spent();
-                let tx = match sign_claim_funding_tx(&output_handles.s2_client, funded.psbt).await {
-                    Ok(tx) => tx,
-                    Err(err) => {
-                        wallet.release(&spent);
-                        warn!(
-                            ?err,
-                            ?spent,
-                            "claim-funding refill signing failed; released inputs"
-                        );
-
-                        return Err(err);
-                    }
-                };
-                let txid = tx.compute_txid();
-                info!(%txid, "submitting claim funding tx to the tx driver");
-                if let Err(err) = output_handles
-                    .tx_driver
-                    .drive(tx, predicate::eq(TxStatus::Mempool))
-                    .await
-                {
-                    warn!(
-                        ?err,
-                        ?spent,
-                        "claim-funding tx driver failed; syncing wallet before reconciling input leases"
-                    );
-                    reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &spent).await;
-
-                    return Err(err.into());
-                }
-                info!(%txid, "claim funding tx detected in mempool");
-
-                wallet.sync().await.map_err(|e| {
-                    error!(?e, "could not sync wallet after refilling funding utxos");
-                    ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}"))
-                })?;
-                // The refilled pool members are unconfirmed, so they are only visible while the
-                // funding transaction is in the node's mempool. An eviction between the
-                // tx-driver's check and this sync leaves nothing to reserve; the inputs go back
-                // to the wallet and the duty retries.
-                // Rebuilt: the predicate snapshots the wallet's own funding txids, and the
-                // refill just registered one.
-                let settled = wallet.settled(cfg.bury_depth);
-                match wallet
-                    .reserve_utxo_with_value(value, predicate::not(settled))
-                    .0
-                {
-                    Some(outpoint) => outpoint,
-                    None => {
-                        release_unspent_claim_funding_inputs(&mut wallet, &spent);
-                        return Err(ExecutorError::WalletErr(
-                            "no claim-funding utxo available after refill".to_string(),
-                        ));
-                    }
-                }
-            }
-        };
-        ClaimFundingReservation {
-            outpoint,
-            txout: TxOut {
-                value,
-                script_pubkey,
-            },
-        }
+        reserve_synced_claim_funding(&mut wallet, value, cfg.bury_depth).await?
     };
-    let funding_outpoint = reservation.outpoint;
+    let (outpoint, funding_lease) = match reserved {
+        Some(reserved) => reserved,
+        None => refill_claim_funding(cfg, output_handles, value).await?,
+    };
+    let reservation = ClaimFundingReservation {
+        outpoint,
+        txout: TxOut {
+            value,
+            script_pubkey: output_handles.wallet.read().await.reserved_script_pubkey(),
+        },
+    };
 
     let assignment = output_handles
         .db
         .get_or_set_claim_funding_reservation(covenant, graph_idx, reservation)
         .await;
 
+    // The database now owns the claim-funding outpoint of this graph, so the reservation
+    // outlives this duty. `commit` keeps it held after `funding_lease` drops.
     let assigned_outpoint = match assignment {
         Ok(FundingAssignment::Created(reservation)) => {
             info!(?graph_idx, outpoint = %reservation.outpoint, "saved funding outpoint to disk");
+            funding_lease.commit();
             reservation.outpoint
         }
         Ok(FundingAssignment::Existing(reservation)) => {
@@ -295,69 +237,109 @@ async fn ensure_claim_funding_outpoint(
                 outpoint = %reservation.outpoint,
                 "using existing funding outpoint saved by another duty"
             );
-            if reservation.outpoint != funding_outpoint {
-                let mut wallet = output_handles.wallet.write().await;
-                wallet.release(&[funding_outpoint]);
-            }
-            check_claim_funding(&reservation, value)?
+            let outpoint = check_claim_funding(&reservation, value)?;
+            // The row owns this outpoint, whatever `funding_lease` holds. The candidate drops.
+            hold_stored_claim_funding(output_handles, outpoint).await;
+            outpoint
         }
-        Err(err) => {
-            let mut wallet = output_handles.wallet.write().await;
-            wallet.release(&[funding_outpoint]);
-            return Err(err.into());
-        }
+        Err(err) => return Err(err.into()),
     };
 
     Ok(assigned_outpoint)
 }
 
-async fn reconcile_claim_funding_leases_after_driver_failure<G: GeneralWallet, P: WalletStore>(
-    wallet: &mut OperatorWallet<G, P>,
-    spent: &[OutPoint],
-) {
-    if let Err(sync_err) = wallet.sync().await {
-        warn!(
-            ?sync_err,
-            ?spent,
-            "could not sync wallet after tx-driver failure; retaining claim-funding input leases"
-        );
-        return;
+/// Tops up the claim-funding pool of `value` and takes a lease on one of the new outputs, or on an
+/// output that settled while this duty waited for the refill lock.
+///
+/// The refill spends buried general-wallet inputs at the protocol fee rate, so a duty can reserve
+/// one of its outputs as soon as the refill transaction is in the node's mempool; the claim itself
+/// publishes once the refill is in a block (see `ensure_funding_confirmed`). The batch is the whole
+/// pool size: the reservation before the refill found no free settled member.
+///
+/// One refill runs at a time. The refill lock is held across signing and the wait for the mempool,
+/// so a second duty that finds the pool empty waits for this refill and then takes one of its
+/// outputs.
+async fn refill_claim_funding(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    value: Amount,
+) -> Result<(OutPoint, Lease), ExecutorError> {
+    let _refill = output_handles.claim_funding_refill.lock().await;
+    let mut wallet = output_handles.wallet.write().await;
+    if let Some(reserved) = reserve_synced_claim_funding(&mut wallet, value, cfg.bury_depth).await?
+    {
+        return Ok(reserved);
     }
-    release_unspent_claim_funding_inputs(wallet, spent);
-}
 
-/// Releases the leases on those of `spent` the general wallet still holds; the rest were spent
-/// and the last sync pruned their leases.
-fn release_unspent_claim_funding_inputs<G: GeneralWallet, P: WalletStore>(
-    wallet: &mut OperatorWallet<G, P>,
-    spent: &[OutPoint],
-) {
-    let live_general_outpoints: BTreeSet<_> = wallet
-        .general()
-        .list_utxos()
-        .into_iter()
-        .map(|u| u.outpoint)
-        .collect();
-    let still_unspent: Vec<_> = spent
-        .iter()
-        .copied()
-        .filter(|outpoint| live_general_outpoints.contains(outpoint))
-        .collect();
-    let pruned_count = spent.len().saturating_sub(still_unspent.len());
-
-    if pruned_count > 0 {
-        info!(
-            pruned_count,
-            "wallet sync pruned claim-funding input leases no longer seen as spendable"
-        );
+    warn!("could not acquire claim funding utxo. attempting refill...");
+    // The wallet stays denomination-agnostic; the batch is sized here.
+    //
+    // `refill` holds the general-wallet inputs of the refill transaction. A path that ends before
+    // the transaction reaches a mempool drops it, which returns those inputs to the pool. A path
+    // that cannot tell drops it only after a fresh sync makes the wallet view authoritative.
+    if fee::FEE_RATE > cfg.maximum_fee_rate {
+        return Err(ExecutorError::FeeRateTooHigh {
+            fee_rate: fee::FEE_RATE,
+            max: cfg.maximum_fee_rate,
+        });
     }
-    if !still_unspent.is_empty() {
-        wallet.release(&still_unspent);
-        warn!(
-            ?still_unspent,
-            "released claim-funding input leases after wallet sync showed they are still spendable"
-        );
+    let refill = wallet
+        .create_reserved_utxos(
+            fee::FEE_RATE,
+            value,
+            cfg.funding_uxto_pool_size,
+            GeneralUtxoPolicy::BuriedOnly {
+                bury_depth: cfg.bury_depth,
+            },
+            LeaseOwner::ClaimFundingRefill,
+        )
+        .map_err(|e| ExecutorError::WalletErr(format!("refill failed: {e}")))?;
+    // The lease holds the inputs from here, so signing and the wait for the mempool hold no wallet
+    // guard.
+    drop(wallet);
+    let (refill_psbt, refill_lease) = refill.into_parts();
+    let tx = chain::sign_general_inputs(
+        output_handles,
+        &refill_psbt.unsigned_tx,
+        &(0..refill_psbt.unsigned_tx.input.len()).collect::<Vec<_>>(),
+        &chain::psbt_prevouts(&refill_psbt),
+    )
+    .await?;
+    let txid = tx.compute_txid();
+    info!(%txid, "submitting claim funding tx to the tx driver");
+    if let Err(err) = output_handles
+        .tx_driver
+        .drive(tx, predicate::eq(TxStatus::Mempool))
+        .await
+    {
+        let mut wallet = output_handles.wallet.write().await;
+        if let Err(sync_err) = chain::release_after_sync(&mut wallet, refill_lease).await {
+            warn!(
+                ?sync_err,
+                "wallet sync failed after a refill driver failure"
+            );
+        }
+        return Err(err.into());
     }
+    info!(%txid, "claim funding tx detected in mempool");
+    // The lease on the refill's inputs commits. The refill spends them, so the lease costs nothing
+    // while it lives; if the node evicts the refill, the lease is what keeps another duty from
+    // spending an input and killing the refill, whose outputs stored rows name. The sync prune
+    // frees the inputs once the refill is buried.
+    refill_lease.commit();
+    let mut wallet = output_handles.wallet.write().await;
+    wallet
+        .sync()
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("wallet sync failed after refill: {e:?}")))?;
+    // The refilled pool members are unconfirmed, so they are only visible while the funding
+    // transaction is in the node's mempool. An eviction between the tx-driver's check and this
+    // sync leaves nothing to reserve; the inputs went back to the wallet and the duty retries.
+    wallet
+        .reserve_settled(value, cfg.bury_depth)
+        .ok_or_else(|| {
+            ExecutorError::WalletErr("no claim-funding utxo available after refill".to_string())
+        })
 }
 
 /// Fetches the owner's adaptor pubkey and the per-watchtower fault pubkeys from mosaic.
@@ -698,7 +680,76 @@ pub(super) async fn publish_graph_partials(
     Ok(())
 }
 
+/// Returns the output that a claim spends.
+///
+/// The reserved wallet lists the output while it is unspent. Once the claim is in a mempool, the
+/// wallet no longer offers the output, and a retry of this duty still signs: the node then
+/// supplies the output from the funding transaction.
+async fn claim_prevout(
+    output_handles: &OutputHandles,
+    claim_funding_outpoint: OutPoint,
+) -> Result<TxOut, ExecutorError> {
+    if let Some(utxo) = output_handles
+        .wallet
+        .read()
+        .await
+        .reserved_utxo(claim_funding_outpoint)
+    {
+        return Ok(TxOut::from(utxo));
+    }
+    let funding_tx = output_handles
+        .bitcoind_rpc_client
+        .get_raw_transaction_verbosity_zero(&claim_funding_outpoint.txid)
+        .await
+        .map_err(|e| {
+            warn!(%claim_funding_outpoint, ?e, "the claim funding output is not in the wallet");
+            ExecutorError::ClaimFundingOutPointMissing(claim_funding_outpoint)
+        })?
+        .0;
+    funding_tx
+        .output
+        .get(claim_funding_outpoint.vout as usize)
+        .cloned()
+        .ok_or(ExecutorError::ClaimFundingOutPointMissing(
+            claim_funding_outpoint,
+        ))
+}
+
+/// Fails unless a block holds the transaction that creates `claim_funding_outpoint`.
+///
+/// A claim is a v3 transaction. On an unconfirmed refill it would be the refill's only allowed
+/// child, so it could carry no CPFP child of its own, and it would take the slot that the refill's
+/// own bump needs. The retry tick runs the duty again once the refill confirms. A transaction the
+/// node does not know fails as a missing outpoint. An RPC failure does not stop the publish: the
+/// node decides.
+async fn ensure_funding_confirmed(
+    bitcoind_rpc_client: &BitcoinClient,
+    claim_funding_outpoint: OutPoint,
+) -> Result<(), ExecutorError> {
+    match chain::tx_confirmations(bitcoind_rpc_client, &claim_funding_outpoint.txid).await {
+        Ok(Some(depth)) if depth > 0 => Ok(()),
+        Ok(Some(_)) => {
+            warn!(%claim_funding_outpoint, "the funding tx of this claim is not confirmed");
+            Err(ExecutorError::ClaimFundingUnconfirmed(
+                claim_funding_outpoint,
+            ))
+        }
+        Ok(None) => Err(ExecutorError::ClaimFundingOutPointMissing(
+            claim_funding_outpoint,
+        )),
+        Err(e) => {
+            warn!(%claim_funding_outpoint, ?e, "could not read the funding tx; publishing anyway");
+            Ok(())
+        }
+    }
+}
+
 /// Publishes the claim transaction to Bitcoin.
+///
+/// The prevout comes from the stored reservation and not from the wallet, because the wallet drops
+/// an output once a transaction spends it, and a retry after the claim reached a mempool must still
+/// sign. The funding transaction must be confirmed: a graph whose refill never confirmed has no
+/// valid claim.
 pub(super) async fn publish_claim(
     output_handles: &OutputHandles,
     claim_tx: &ClaimTx,
@@ -711,20 +762,8 @@ pub(super) async fn publish_claim(
     );
 
     let claim_funding_outpoint = unsigned_claim_tx.input[0].previous_output;
-    let claim_prevout: TxOut = {
-        let wallet = output_handles.wallet.read().await;
-        wallet
-            .reserved_utxo(claim_funding_outpoint)
-            .ok_or_else(|| {
-                warn!(
-                    %claim_txid,
-                    %claim_funding_outpoint,
-                    "claim funding outpoint not found in wallet"
-                );
-                ExecutorError::ClaimFundingOutPointMissing(claim_funding_outpoint)
-            })?
-            .into()
-    };
+    let claim_prevout = claim_prevout(output_handles, claim_funding_outpoint).await?;
+    ensure_funding_confirmed(&output_handles.bitcoind_rpc_client, claim_funding_outpoint).await?;
 
     let prevouts = Prevouts::All(&[claim_prevout]);
 
@@ -782,76 +821,28 @@ pub(super) async fn publish_claim(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, io, sync::Arc, time::Duration};
+    use std::{collections::BTreeSet, sync::Arc};
 
     use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
     use bitcoin::{
-        Amount, FeeRate, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
+        Amount, Network, OutPoint, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
         hashes::Hash,
         secp256k1::{Keypair, SECP256K1, SecretKey},
+        transaction::InputWeightPrediction,
     };
+    use bitcoind_async_client::{Auth as RpcAuth, Client as BitcoinClient};
     use corepc_node::{Conf, Node};
     use operator_wallet::{
-        FundedPsbt, GeneralWallet, OperatorWallet, OperatorWalletConfig, UtxoInfo, sync::Backend,
+        GeneralCustody, LeaseOwner, OperatorWallet, OperatorWalletConfig, sync::Backend,
         test_utils::MemoryStore,
     };
     use strata_bridge_db::types::ClaimFundingReservation;
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
     use super::{
-        ExecutorError, check_claim_funding, reconcile_claim_funding_leases_after_driver_failure,
+        ExecutorError, chain, check_claim_funding, ensure_funding_confirmed,
         reserve_synced_claim_funding, watchtower_idxs,
     };
-
-    #[derive(Debug)]
-    struct ReconciliationGeneralWallet {
-        live_utxos: Vec<UtxoInfo>,
-        sync_fails: bool,
-    }
-
-    impl GeneralWallet for ReconciliationGeneralWallet {
-        type Error = io::Error;
-
-        async fn sync(&mut self) -> Result<(), Self::Error> {
-            if self.sync_fails {
-                Err(io::Error::other("test sync failure"))
-            } else {
-                Ok(())
-            }
-        }
-
-        fn script_pubkey(&self) -> ScriptBuf {
-            ScriptBuf::new()
-        }
-
-        fn list_utxos(&self) -> Vec<UtxoInfo> {
-            self.live_utxos.clone()
-        }
-
-        fn unspent_outpoints(&self) -> Vec<OutPoint> {
-            self.live_utxos.iter().map(|utxo| utxo.outpoint).collect()
-        }
-
-        async fn fund_v3_transaction(
-            &mut self,
-            _outputs: Vec<TxOut>,
-            _explicit_inputs: Option<&[OutPoint]>,
-            _fee_rate: FeeRate,
-            _exclude: &[OutPoint],
-        ) -> Result<FundedPsbt, Self::Error> {
-            unreachable!("reconciliation tests do not fund transactions")
-        }
-
-        async fn build_cpfp_child(
-            &mut self,
-            _parent: &Transaction,
-            _anchor_vout: u32,
-            _target_pkg_fee_rate: FeeRate,
-            _exclude: &[OutPoint],
-        ) -> Result<FundedPsbt, Self::Error> {
-            unreachable!("reconciliation tests do not build CPFP transactions")
-        }
-    }
 
     fn xonly_pubkey(byte: u8) -> XOnlyPublicKey {
         let secret_key = SecretKey::from_slice(&[byte; 32]).expect("valid secret key");
@@ -865,45 +856,61 @@ mod tests {
         CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core rpc client")
     }
 
-    async fn reconciliation_wallet(
-        bitcoind: &Node,
-        live_utxos: Vec<UtxoInfo>,
-        sync_fails: bool,
-        initial_leases: BTreeSet<OutPoint>,
-    ) -> OperatorWallet<ReconciliationGeneralWallet, MemoryStore> {
-        let general = ReconciliationGeneralWallet {
-            live_utxos,
-            sync_fails,
-        };
-        let config = OperatorWalletConfig::new(Amount::from_sat(330), Network::Regtest)
-            .with_sync_policy(0, 1, Duration::ZERO);
-
+    /// A wallet over fresh in-memory stores.
+    async fn test_wallet(bitcoind: &Node) -> OperatorWallet<MemoryStore> {
         OperatorWallet::load_or_create(
-            general,
+            GeneralCustody::SecretService {
+                general_key: xonly_pubkey(41),
+                store: MemoryStore::new(),
+            },
             xonly_pubkey(42),
-            config,
+            OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
             MemoryStore::new(),
             None,
-            initial_leases,
+            BTreeSet::new(),
         )
         .await
-        .expect("reserved wallet should initialise against an empty store")
+        .expect("the wallet initialises against empty stores")
     }
 
-    fn test_utxo(outpoint: OutPoint) -> UtxoInfo {
-        UtxoInfo {
-            outpoint,
-            amount: Amount::ONE_BTC,
-            confirmations: 1,
-            script_pubkey: ScriptBuf::new(),
+    /// Pays one output of each of `values` to the general wallet from the node's wallet, confirms
+    /// them, and syncs. The node's wallet needs mature funds.
+    async fn fund_general(
+        bitcoind: &Node,
+        wallet: &mut OperatorWallet<MemoryStore>,
+        values: &[Amount],
+    ) {
+        let address =
+            bitcoin::Address::from_script(&wallet.general().script_pubkey(), Network::Regtest)
+                .expect("general address");
+        for value in values {
+            bitcoind
+                .client
+                .send_to_address(&address, *value)
+                .expect("fund general wallet");
         }
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm funding");
+        wallet.sync().await.expect("wallet syncs");
+    }
+
+    /// Gives the node's wallet mature funds.
+    fn mature_node_funds(bitcoind: &Node) {
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
     }
 
     #[tokio::test]
     async fn claim_funding_rejects_cached_utxo_after_sync_failure() {
         let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
-        let mut wallet = reconciliation_wallet(&bitcoind, vec![], false, BTreeSet::new()).await;
+        let mut wallet = test_wallet(&bitcoind).await;
         let miner = bitcoind.client.new_address().expect("miner");
         bitcoind
             .client
@@ -922,9 +929,7 @@ mod tests {
             .generate_to_address(3, &miner)
             .expect("bury funding");
         wallet.sync().await.expect("cache buried output");
-        let pool = wallet.reserved_utxos_with_value(value);
-        assert_eq!(pool.len(), 1);
-        assert!(wallet.settled(2)(&pool[0]));
+        assert_eq!(wallet.reserved_utxos_with_value(value).len(), 1);
 
         drop(bitcoind);
         let result = reserve_synced_claim_funding(&mut wallet, value, 2).await;
@@ -938,7 +943,7 @@ mod tests {
     #[tokio::test]
     async fn claim_funding_selects_only_the_graph_denomination() {
         let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
-        let mut wallet = reconciliation_wallet(&bitcoind, vec![], false, BTreeSet::new()).await;
+        let mut wallet = test_wallet(&bitcoind).await;
         let miner = bitcoind.client.new_address().expect("miner");
         bitcoind
             .client
@@ -969,22 +974,242 @@ mod tests {
             .expect("wallet syncs")
             .expect("a settled output of the larger amount exists");
         assert_eq!(
-            [first, second].map(|outpoint| wallet.reserved_utxo(outpoint).map(|u| u.amount)),
-            [Some(smaller), Some(larger)],
+            [
+                wallet.reserved_utxos_with_value(smaller)[0].outpoint,
+                wallet.reserved_utxos_with_value(larger)[0].outpoint,
+            ],
+            [first.0, second.0],
             "each graph must be funded at its own amount"
         );
 
         let exhausted = reserve_synced_claim_funding(&mut wallet, larger, 2)
             .await
             .expect("wallet syncs");
-        assert_eq!(
-            exhausted, None,
+        assert!(
+            exhausted.is_none(),
             "no other output of the larger amount remains"
         );
         assert!(
-            wallet.leased_outpoints().contains(&first)
-                && wallet.leased_outpoints().contains(&second),
+            wallet.leased_outpoints().contains(&first.0)
+                && wallet.leased_outpoints().contains(&second.0),
             "an exhausted pool must leave reservations of every amount in place"
+        );
+    }
+
+    /// An output paid into the reserved wallet from outside funds no claim until it is buried.
+    #[tokio::test]
+    async fn claim_funding_waits_for_burial_of_an_external_output() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let mut wallet = test_wallet(&bitcoind).await;
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let address =
+            bitcoin::Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+                .expect("reserved address");
+        let value = Amount::from_sat(100_000);
+        let bury_depth = 2;
+        bitcoind
+            .client
+            .send_to_address(&address, value)
+            .expect("fund reserved wallet");
+
+        for block in 0..=bury_depth {
+            let reserved = reserve_synced_claim_funding(&mut wallet, value, bury_depth)
+                .await
+                .expect("wallet syncs");
+            assert!(
+                reserved.is_none(),
+                "an output {block} blocks deep is not settled"
+            );
+            bitcoind
+                .client
+                .generate_to_address(1, &miner)
+                .expect("mine a block");
+        }
+
+        let reserved = reserve_synced_claim_funding(&mut wallet, value, bury_depth)
+            .await
+            .expect("wallet syncs");
+        assert!(reserved.is_some(), "a buried output is settled");
+    }
+
+    /// A refill that left the mempool before the sync is one that the wallet never saw, so its
+    /// inputs read as unspent and return to selection.
+    #[tokio::test]
+    async fn a_refill_that_no_mempool_holds_at_the_sync_returns_its_inputs() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        mature_node_funds(&bitcoind);
+        let mut wallet = test_wallet(&bitcoind).await;
+        fund_general(&bitcoind, &mut wallet, &[Amount::from_sat(100_000)]).await;
+        let (_, refill_lease) = wallet
+            .select_general_utxo(LeaseOwner::ClaimFundingRefill, Amount::ONE_SAT)
+            .expect("the input is selectable");
+
+        chain::release_after_sync(&mut wallet, refill_lease)
+            .await
+            .expect("sync succeeds");
+
+        assert!(
+            wallet.leased_outpoints().is_empty(),
+            "the inputs of a refill that no mempool holds must not stay held"
+        );
+        assert!(
+            wallet
+                .select_general_utxo(LeaseOwner::ClaimFundingRefill, Amount::ONE_SAT)
+                .is_some(),
+            "the next refill can spend them again"
+        );
+    }
+
+    /// A claim on a refill that never confirmed must not publish, a claim on a refill the node does
+    /// not know is missing its outpoint, and a claim whose funding output is spent must still pass,
+    /// because a retry signs after the claim reached a mempool.
+    #[tokio::test]
+    async fn a_claim_needs_a_confirmed_funding_tx_and_survives_its_spend() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind starts");
+        let cookie = bitcoind
+            .params
+            .get_cookie_values()
+            .expect("cookie file reads")
+            .expect("cookie file holds credentials");
+        let client = BitcoinClient::new(
+            bitcoind.rpc_url(),
+            RpcAuth::UserPass(cookie.user, cookie.password),
+            None,
+            None,
+            None,
+        )
+        .expect("rpc client");
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let address = bitcoind.client.new_address().expect("address");
+        let funding = bitcoind
+            .client
+            .send_to_address(&address, Amount::from_sat(100_000))
+            .expect("funding")
+            .txid()
+            .expect("txid");
+        let outpoint = OutPoint::new(funding, 0);
+
+        assert!(matches!(
+            ensure_funding_confirmed(&client, outpoint).await,
+            Err(ExecutorError::ClaimFundingUnconfirmed(_))
+        ));
+        assert!(matches!(
+            ensure_funding_confirmed(&client, OutPoint::new(Txid::all_zeros(), 0)).await,
+            Err(ExecutorError::ClaimFundingOutPointMissing(_))
+        ));
+
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm");
+        ensure_funding_confirmed(&client, outpoint)
+            .await
+            .expect("a confirmed funding tx passes");
+
+        bitcoind
+            .client
+            .call::<serde_json::Value>("sendall", &[serde_json::json!([miner.to_string()])])
+            .expect("spend every wallet output");
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm the spend");
+        ensure_funding_confirmed(&client, outpoint)
+            .await
+            .expect("a spent output does not change the funding tx");
+    }
+
+    /// An output that covers the fee and non-dust change funds the transaction, and one that
+    /// leaves dust does not.
+    #[tokio::test]
+    async fn connector_funding_leaves_non_dust_change() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        mature_node_funds(&bitcoind);
+        let mut wallet = test_wallet(&bitcoind).await;
+        let template = Transaction {
+            version: bitcoin::transaction::Version(3),
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![bitcoin::TxIn::default()],
+            output: vec![],
+        };
+        let rate = bitcoin::FeeRate::from_sat_per_vb(100).expect("valid rate");
+        let connector = Amount::from_sat(700);
+        let dust = wallet.general().script_pubkey().minimal_non_dust();
+        let fee = chain::funded_tx_fee(
+            &template,
+            InputWeightPrediction::P2TR_KEY_DEFAULT_SIGHASH,
+            rate,
+        )
+        .expect("no overflow");
+        let exact = fee + dust - connector;
+
+        fund_general(&bitcoind, &mut wallet, &[exact - Amount::ONE_SAT]).await;
+        assert!(
+            chain::select_connector_funding(
+                &mut wallet,
+                LeaseOwner::BridgeProof,
+                &template,
+                connector,
+                rate
+            )
+            .is_err(),
+            "an output that leaves dust must not fund the transaction"
+        );
+
+        fund_general(
+            &bitcoind,
+            &mut wallet,
+            &[exact + Amount::from_sat(5_000), exact],
+        )
+        .await;
+        let funding = chain::select_connector_funding(
+            &mut wallet,
+            LeaseOwner::BridgeProof,
+            &template,
+            connector,
+            rate,
+        )
+        .expect("an output covers the fee");
+
+        assert!(funding.input.txout.value >= exact);
+        assert!(funding.change.value >= dust);
+        assert_eq!(
+            funding.change.value,
+            connector + funding.input.txout.value - fee
+        );
+        assert!(wallet.leased_outpoints().contains(&funding.input.outpoint));
+    }
+
+    /// The wallet view is stale after a failed sync, so a refill that may be live keeps its inputs.
+    #[tokio::test]
+    async fn a_failed_sync_after_a_refill_keeps_the_inputs_held() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        mature_node_funds(&bitcoind);
+        let mut wallet = test_wallet(&bitcoind).await;
+        fund_general(&bitcoind, &mut wallet, &[Amount::from_sat(100_000)]).await;
+        let (input, refill_lease) = wallet
+            .select_general_utxo(LeaseOwner::ClaimFundingRefill, Amount::ONE_SAT)
+            .expect("the input is selectable");
+
+        drop(bitcoind);
+        chain::release_after_sync(&mut wallet, refill_lease)
+            .await
+            .expect_err("sync fails");
+
+        assert_eq!(
+            wallet.leased_outpoints(),
+            BTreeSet::from([input.outpoint]),
+            "the lease must outlive the duty"
         );
     }
 
@@ -1024,52 +1249,5 @@ mod tests {
 
         assert_eq!(historical_watchtowers, vec![1, 2]);
         assert_eq!(later_watchtowers, vec![1, 2, 3]);
-    }
-
-    #[tokio::test]
-    async fn reconciliation_prunes_spent_inputs_and_releases_live_inputs() {
-        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
-        let spent = OutPoint {
-            txid: Txid::from_slice(&[1; 32]).expect("valid txid"),
-            vout: 0,
-        };
-        let live = OutPoint {
-            txid: Txid::from_slice(&[2; 32]).expect("valid txid"),
-            vout: 0,
-        };
-        let mut wallet = reconciliation_wallet(
-            &bitcoind,
-            vec![test_utxo(live)],
-            false,
-            BTreeSet::from([spent, live]),
-        )
-        .await;
-
-        reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[spent, live]).await;
-
-        assert!(
-            wallet.leased_outpoints().is_empty(),
-            "sync should prune the spent input and reconciliation should release the live input"
-        );
-    }
-
-    #[tokio::test]
-    async fn reconciliation_retains_input_leases_when_sync_fails() {
-        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
-        let input = OutPoint {
-            txid: Txid::from_slice(&[3; 32]).expect("valid txid"),
-            vout: 0,
-        };
-        let mut wallet = reconciliation_wallet(
-            &bitcoind,
-            vec![test_utxo(input)],
-            true,
-            BTreeSet::from([input]),
-        )
-        .await;
-
-        reconcile_claim_funding_leases_after_driver_failure(&mut wallet, &[input]).await;
-
-        assert_eq!(wallet.leased_outpoints(), &BTreeSet::from([input]));
     }
 }

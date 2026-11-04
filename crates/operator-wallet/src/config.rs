@@ -1,8 +1,9 @@
 //! Configuration knobs for [`crate::OperatorWallet`].
 //!
-//! Holds runtime parameters that don't change after construction (network, anchor-identification
-//! value, sync retry policy, persistence cadence). Per-call parameters like UTXO denominations are
-//! passed to the relevant methods directly; this struct intentionally does not bake them in so the
+//! Holds runtime parameters that don't change after construction (anchor value, bury depth,
+//! network, sync retry policy, persistence cadence). Per-call parameters like UTXO denominations
+//! are passed to the relevant
+//! methods directly; this struct intentionally does not bake them in so the
 //! same composer can serve multiple use cases (claim funding, stake funding, etc.) without
 //! conflating their denominations.
 
@@ -27,9 +28,15 @@ pub const DEFAULT_PERSIST_EVERY_BLOCKS: NonZeroU32 =
 /// Configuration for [`crate::OperatorWallet`].
 #[derive(Debug, Clone)]
 pub struct OperatorWalletConfig {
-    /// Value that identifies a CPFP anchor output. Outputs with this exact value at zero
-    /// confirmations are excluded from input selection so a future CPFP child can spend them.
+    /// Value of a CPFP anchor output. An unconfirmed general-wallet UTXO of exactly this value is
+    /// an anchor that a future CPFP child spends, so selection under
+    /// [`GeneralUtxoPolicy::IncludeUnconfirmed`](crate::GeneralUtxoPolicy::IncludeUnconfirmed)
+    /// skips it.
     pub(crate) cpfp_value: Amount,
+    /// Blocks after which the protocol treats a transaction as final. A sync drops a lease only
+    /// once the spend of its outpoint has more than this many confirmations. The duties pass the
+    /// same protocol value per call where main did (`reserve_settled`, `GeneralUtxoPolicy`).
+    pub(crate) bury_depth: u32,
     /// Bitcoin network the composed wallets operate on.
     pub(crate) network: Network,
     /// Number of times a wallet sync attempt is retried before propagating the error.
@@ -39,8 +46,8 @@ pub struct OperatorWalletConfig {
     /// Initial delay before the first retry; multiplied by the exponential backoff on each
     /// subsequent attempt.
     pub(crate) sync_base_delay: Duration,
-    /// Number of applied blocks between persists of the reserved wallet's staged state during a
-    /// sync. See [`DEFAULT_PERSIST_EVERY_BLOCKS`].
+    /// Number of applied blocks between persists of a wallet's staged state during a sync. See
+    /// [`DEFAULT_PERSIST_EVERY_BLOCKS`].
     pub(crate) persist_every_blocks: NonZeroU32,
 }
 
@@ -49,9 +56,10 @@ impl OperatorWalletConfig {
     /// ([`DEFAULT_SYNC_RETRIES`] / [`DEFAULT_SYNC_BACKOFF`] / [`DEFAULT_SYNC_BASE_DELAY`]) and the
     /// persistence cadence at [`DEFAULT_PERSIST_EVERY_BLOCKS`]. Use [`Self::with_sync_policy`] and
     /// [`Self::with_persist_every_blocks`] to override them.
-    pub const fn new(cpfp_value: Amount, network: Network) -> Self {
+    pub const fn new(cpfp_value: Amount, bury_depth: u32, network: Network) -> Self {
         Self {
             cpfp_value,
+            bury_depth,
             network,
             sync_retries: DEFAULT_SYNC_RETRIES,
             sync_backoff: DEFAULT_SYNC_BACKOFF,

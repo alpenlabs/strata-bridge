@@ -8,15 +8,13 @@ use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::{client::BtcNotifyHealthEvent, tx_driver::TxDriver};
 use jsonrpsee::http_client::HttpClient;
 use libp2p_identity::ed25519::Keypair;
+use operator_wallet::{OperatorWallet, SqliteStore};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_asm_events::client::{AsmEventFeed, AsmFeedHealthEvent};
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::{
-    config::ExecutionConfig,
-    output_handles::{NativeWallet, OutputHandles},
-};
+use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
     pipeline::Pipeline, sm_registry::SMConfig,
@@ -36,7 +34,7 @@ use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{
     select,
-    sync::{RwLock, mpsc, oneshot},
+    sync::{Mutex, RwLock, mpsc, oneshot},
 };
 use tracing::{debug, error, info, warn};
 
@@ -50,6 +48,7 @@ use crate::{
     mode::services::{
         btc_client::init_zmq_client,
         health_probes::{spawn_orchestrator_stale_monitor, spawn_tx_driver_probe},
+        operator_wallet::sync_wallet_on_new_blocks,
     },
 };
 
@@ -63,7 +62,7 @@ pub(crate) async fn init_orchestrator<M>(
     gossip_handle: GossipHandle,
     req_resp_handle: ReqRespHandle,
     p2p_keypair: Keypair,
-    wallet: Arc<RwLock<NativeWallet>>,
+    wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
     btc_rpc_client: BitcoinClient,
     asm_rpc_client: HttpClient,
     bridge_proof_host: BridgeProofHost,
@@ -136,6 +135,19 @@ where
 
     let orchestrator_block_sub = zmq_client.subscribe_blocks().await;
 
+    let wallet_block_sub = zmq_client.subscribe_blocks().await;
+    let sync_wallet = wallet.clone();
+    executor.spawn_critical_async_with_shutdown(
+        "operator-wallet-sync",
+        |shutdown_guard| async move {
+            select! {
+                _ = shutdown_guard.wait_for_shutdown() => {}
+                _ = sync_wallet_on_new_blocks(sync_wallet, wallet_block_sub) => {}
+            }
+            Ok(())
+        },
+    );
+
     let mosaic_event_sub = mosaic_client.as_ref().subscribe_events().await;
 
     let nag_tick = tokio::time::interval_at(tokio::time::Instant::now(), config.nag_interval);
@@ -167,6 +179,7 @@ where
     );
     let output_handles = OutputHandles {
         wallet,
+        claim_funding_refill: Mutex::new(()),
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client.clone(),

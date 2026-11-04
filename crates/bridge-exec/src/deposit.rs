@@ -6,21 +6,21 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, OutPoint, TapSighashType, Transaction, Txid,
+    Amount, OutPoint, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
-    sighash::{Prevouts, SighashCache},
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
-use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use operator_wallet::{GeneralUtxoPolicy, LeaseOwner};
+use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
 use strata_bridge_connectors::SigningInfo;
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
-    scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
+    scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
@@ -33,7 +33,7 @@ use strata_bridge_tx_graph::{
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::{is_txid_onchain, publish_signed_transaction},
+    chain::{self, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -524,16 +524,6 @@ async fn fulfill_withdrawal(
         });
     }
 
-    // Check if fee rate exceeds maximum configured rate
-    if fee_rate > cfg.maximum_fee_rate {
-        warn!(
-            %fee_rate,
-            maximum_fee_rate = %cfg.maximum_fee_rate,
-            "fee rate exceeds maximum, skipping fulfillment"
-        );
-        return Ok(());
-    }
-
     info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
 
     // Create unfunded WithdrawalFulfillmentTx with outputs only
@@ -561,59 +551,81 @@ async fn fulfill_withdrawal(
             .get_withdrawal_funding_outpoints(deposit_idx)
             .await?;
 
+        // Every path that ends with a funded PSBT commits its lease. The database row keeps
+        // the funding outpoints of a deposit across duties and across restarts, and the
+        // transaction that spends them is signed and published after this block releases the
+        // wallet guard.
+        //
+        // A commit here is not redundant with the row. A lease keeps the outpoints from a second
+        // duty while the fulfillment transaction is unconfirmed, and through an eviction, while
+        // the row only names them. `commit` is idempotent: a retry whose outpoints are already
+        // held adds no second record.
         let funding_result = match persisted_funding_outpoints.as_deref() {
             Some(outpoints) => {
                 info!(%deposit_idx, "reusing persisted funding outpoints");
                 wallet
-                    .fund_v3_transaction_with_inputs(unfunded_tx, outpoints, fee_rate)
-                    .await
-                    .map(|funded| funded.psbt)
+                    .fund_v3_transaction_with_inputs(
+                        unfunded_tx.output,
+                        outpoints,
+                        fee_rate,
+                        LeaseOwner::WithdrawalFulfillment,
+                    )
+                    .map(|funded| {
+                        let (psbt, lease) = funded.into_parts();
+                        lease.commit();
+                        psbt
+                    })
             }
             None => {
                 info!(%deposit_idx, "selecting new funding outpoints");
-                let funded = wallet
-                    .fund_v3_transaction(unfunded_tx.clone(), fee_rate)
-                    .await;
-                match funded {
-                    Ok(funded) => {
-                        let candidate_outpoints = funded.spent();
+                // Confirmed inputs only: the withdrawal fulfillment is v3, and TRUC rejects a v3
+                // transaction with an unconfirmed non-v3 ancestor.
+                let candidate = wallet.fund_v3_transaction(
+                    unfunded_tx.output.clone(),
+                    fee_rate,
+                    GeneralUtxoPolicy::ConfirmedOnly,
+                    LeaseOwner::WithdrawalFulfillment,
+                );
+                match candidate {
+                    Ok(candidate) => {
+                        let candidate_outpoints = candidate.lease().outpoints().to_vec();
                         let assignment = output_handles
                             .db
                             .get_or_set_withdrawal_funding_outpoints(
                                 deposit_idx,
-                                candidate_outpoints.clone(),
+                                candidate_outpoints,
                             )
                             .await;
 
                         match assignment {
                             Ok(FundingAssignment::Created(outpoints)) => {
                                 info!(%deposit_idx, ?outpoints, "persisted withdrawal funding outpoints");
-                                Ok(funded.psbt)
+                                let (psbt, lease) = candidate.into_parts();
+                                lease.commit();
+                                Ok(psbt)
                             }
                             Ok(FundingAssignment::Existing(outpoints)) => {
                                 info!(
                                     %deposit_idx,
                                     "using existing withdrawal funding outpoints saved by another duty"
                                 );
-                                let stale_candidate_outpoints: Vec<_> = candidate_outpoints
-                                    .iter()
-                                    .copied()
-                                    .filter(|outpoint| !outpoints.contains(outpoint))
-                                    .collect();
-                                wallet.release(&stale_candidate_outpoints);
+                                // The candidate's inputs return to the pool; the row names the
+                                // inputs to spend.
+                                drop(candidate);
                                 wallet
                                     .fund_v3_transaction_with_inputs(
-                                        unfunded_tx,
+                                        unfunded_tx.output,
                                         &outpoints,
                                         fee_rate,
+                                        LeaseOwner::WithdrawalFulfillment,
                                     )
-                                    .await
-                                    .map(|funded| funded.psbt)
+                                    .map(|funded| {
+                                        let (psbt, lease) = funded.into_parts();
+                                        lease.commit();
+                                        psbt
+                                    })
                             }
-                            Err(err) => {
-                                wallet.release(&candidate_outpoints);
-                                return Err(err.into());
-                            }
+                            Err(err) => return Err(err.into()),
                         }
                     }
                     Err(err) => Err(err),
@@ -633,42 +645,14 @@ async fn fulfill_withdrawal(
     let txid = wft_psbt.unsigned_tx.compute_txid();
     info!(%deposit_idx, %txid, "signing withdrawal fulfillment transaction");
 
-    let sign_result: Result<Transaction, ExecutorError> = async {
-        let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
-
-        let prevouts: Vec<_> = wft_psbt
-            .inputs
-            .iter()
-            .filter_map(|input| input.witness_utxo.clone())
-            .collect();
-        let prevouts = Prevouts::All(&prevouts);
-
-        let mut signed_tx = wft_psbt.unsigned_tx.clone();
-        for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
-            let msg = create_message_hash(
-                &mut sighash_cache,
-                prevouts.clone(),
-                &TaprootWitness::Key,
-                TapSighashType::Default,
-                input_index,
-            )
-            .map_err(|e| ExecutorError::WalletErr(format!("sighash error: {e}")))?;
-
-            let signature = output_handles
-                .s2_client
-                .general_wallet_signer()
-                .sign(msg.as_ref(), None)
-                .await?;
-
-            signed_tx.input[input_index]
-                .witness
-                .push(signature.serialize());
-        }
-        Ok(signed_tx)
-    }
-    .await;
-
-    let signed_tx = match sign_result {
+    let signed_tx = match chain::sign_general_inputs(
+        output_handles,
+        &wft_psbt.unsigned_tx,
+        &(0..wft_psbt.unsigned_tx.input.len()).collect::<Vec<_>>(),
+        &chain::psbt_prevouts(&wft_psbt),
+    )
+    .await
+    {
         Ok(tx) => tx,
         Err(e) => {
             error!(%deposit_idx, ?e, "failed to sign withdrawal fulfillment transaction");
