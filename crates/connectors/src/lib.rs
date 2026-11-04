@@ -164,32 +164,19 @@ pub trait Connector {
         spend_path: Self::SpendPath,
         input_index: usize,
     ) -> SigningInfo {
-        // NOTE: (uncomputable) All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
-        // There is no reason to make the sighash type variable.
-        let sighash_type = TapSighashType::Default;
-        let leaf_index = self.to_leaf_index(spend_path);
-        let sighash = match leaf_index {
-            None => create_key_spend_hash(cache, prevouts, sighash_type, input_index),
-            Some(leaf_index) => {
-                let leaf_script = &self.leaf_scripts()[leaf_index];
-                create_script_spend_hash(cache, leaf_script, prevouts, sighash_type, input_index)
-            }
-        }
-        .expect("should be able to compute the sighash");
-
-        let tweak = if leaf_index.is_none() {
-            TaprootTweak::Key {
-                tweak: self.tweak(),
-            }
-        } else {
-            TaprootTweak::Script
-        };
-
-        SigningInfo { sighash, tweak }
+        self.get_signing_info_with_sighash_type(
+            cache,
+            prevouts,
+            spend_path,
+            input_index,
+            TapSighashType::Default,
+        )
     }
 
-    /// Like [`Self::get_signing_info`] but with a custom `sighash_type`, for testing purposes.
-    #[cfg(feature = "test_utils")]
+    /// Like [`Self::get_signing_info`] but with an explicit `sighash_type`.
+    ///
+    /// Non-default signatures must include their sighash byte in the spending witness.
+    /// Callers are responsible for choosing the transaction commitments appropriate for the spend.
     fn get_signing_info_with_sighash_type(
         &self,
         cache: &mut SighashCache<&Transaction>,
@@ -368,7 +355,7 @@ pub enum TaprootWitness {
 pub struct SigningInfo {
     /// Sighash of the transaction input.
     ///
-    /// All inputs implicitly use SIGHASH_DEFAULT (aka SIGHASH_ALL).
+    /// Its commitments depend on the sighash type selected when constructing this value.
     pub sighash: Message,
     /// Tap tweak of the signing key:
     pub tweak: TaprootTweak,

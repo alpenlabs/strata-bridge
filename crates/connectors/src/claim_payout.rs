@@ -2,7 +2,7 @@
 
 use bitcoin::{
     hashes::{sha256, Hash},
-    opcodes, Amount, Network, ScriptBuf,
+    opcodes, taproot, Amount, Network, ScriptBuf,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::prelude::threshold_multisig_script;
@@ -167,8 +167,8 @@ impl Connector for ClaimPayoutConnector {
 pub struct AdminSignature {
     /// Index of the admin pubkey this signature validates against.
     pub pubkey_index: usize,
-    /// Signature produced by the admin key at `pubkey_index`.
-    pub signature: schnorr::Signature,
+    /// Signature produced by the admin key at `pubkey_index`, including its sighash type.
+    pub signature: taproot::Signature,
 }
 
 /// Available spending paths for a [`ClaimPayoutConnector`].
@@ -214,7 +214,13 @@ pub enum ClaimPayoutWitness {
 mod tests {
     use std::array;
 
-    use secp256k1::{rand::random, schnorr, Keypair};
+    use bitcoin::{
+        absolute,
+        sighash::{Prevouts, SighashCache},
+        transaction::Version,
+        Amount, OutPoint, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid,
+    };
+    use secp256k1::{rand::random, Keypair};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
@@ -277,7 +283,10 @@ mod tests {
                         .take(THRESHOLD)
                         .map(|(pubkey_index, keypair)| AdminSignature {
                             pubkey_index,
-                            signature: signing_info.sign(keypair),
+                            signature: taproot::Signature {
+                                signature: signing_info.sign(keypair),
+                                sighash_type: TapSighashType::Default,
+                            },
                         })
                         .collect(),
                 },
@@ -286,6 +295,54 @@ mod tests {
                 },
             }
         }
+    }
+
+    fn admin_burn_template(claim_outpoint: OutPoint) -> Transaction {
+        Transaction {
+            version: Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: claim_outpoint,
+                sequence: Sequence::MAX,
+                ..Default::default()
+            }],
+            output: Vec::new(),
+        }
+    }
+
+    fn admin_signing_info(
+        connector: &ClaimPayoutConnector,
+        tx: &Transaction,
+        prevouts: &[TxOut],
+        sighash_type: TapSighashType,
+    ) -> SigningInfo {
+        connector.get_signing_info_with_sighash_type(
+            &mut SighashCache::new(tx),
+            Prevouts::All(prevouts),
+            ClaimPayoutSpendPath::AdminBurn,
+            0,
+            sighash_type,
+        )
+    }
+
+    // Fixed byte tags distinguish signatures in these 2-of-3 witness layout tests.
+    fn admin_witness_inputs(signatures: &[(usize, u8)]) -> Vec<Vec<u8>> {
+        let connector = ClaimPayoutSigner::<2, 3>::generate().get_connector();
+        let admin_signatures = signatures
+            .iter()
+            .map(|&(pubkey_index, byte)| AdminSignature {
+                pubkey_index,
+                signature: taproot::Signature::from_slice(&[byte; 64]).unwrap(),
+            })
+            .collect();
+
+        let witness = ClaimPayoutWitness::AdminBurn { admin_signatures };
+        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
+        else {
+            panic!("admin burn is a script-path spend");
+        };
+
+        script_inputs
     }
 
     #[test]
@@ -314,128 +371,127 @@ mod tests {
     }
 
     #[test]
-    fn admin_burn_witness_truncates_surplus_indexed_signatures() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature_0 =
-            schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let signature_1 =
-            schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let signature_2 =
-            schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: signature_0,
-                },
-                AdminSignature {
-                    pubkey_index: 2,
-                    signature: signature_2,
-                },
-                AdminSignature {
-                    pubkey_index: 1,
-                    signature: signature_1,
-                },
-            ],
-        };
+    fn admin_burn_none_anyonecanpay_allows_later_funding() {
+        let connector = ClaimPayoutSigner::<2, 3>::generate().get_connector();
+        let template = admin_burn_template(OutPoint {
+            txid: Txid::from_byte_array([1; 32]),
+            vout: 1,
+        });
+        let prevouts = [connector.tx_out()];
+        let mut funded_tx = template.clone();
+        funded_tx.input.push(TxIn {
+            previous_output: OutPoint {
+                txid: Txid::from_byte_array([2; 32]),
+                vout: 0,
+            },
+            ..Default::default()
+        });
+        funded_tx.output.push(TxOut {
+            value: Amount::from_sat(10_000),
+            script_pubkey: connector.script_pubkey(),
+        });
+        let funded_prevouts = [connector.tx_out(), funded_tx.output[0].clone()];
 
-        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
-        else {
-            panic!("admin burn is a script-path spend");
+        for sighash_type in [
+            TapSighashType::Default,
+            TapSighashType::None,
+            TapSighashType::NonePlusAnyoneCanPay,
+        ] {
+            let original = admin_signing_info(&connector, &template, &prevouts, sighash_type);
+            let funded = admin_signing_info(&connector, &funded_tx, &funded_prevouts, sighash_type);
+            assert_eq!(
+                original == funded,
+                sighash_type == TapSighashType::NonePlusAnyoneCanPay,
+                "only NONE|ANYONECANPAY must survive added funding inputs and outputs"
+            );
+        }
+
+        let original = admin_signing_info(
+            &connector,
+            &funded_tx,
+            &funded_prevouts,
+            TapSighashType::NonePlusAnyoneCanPay,
+        );
+        funded_tx.output.clear();
+        assert_eq!(
+            original,
+            admin_signing_info(
+                &connector,
+                &funded_tx,
+                &funded_prevouts,
+                TapSighashType::NonePlusAnyoneCanPay,
+            ),
+            "publisher chooses outputs independently of admin signatures"
+        );
+    }
+
+    #[test]
+    fn admin_burn_none_anyonecanpay_still_binds_connector_and_template() {
+        let connector = ClaimPayoutSigner::<2, 3>::generate().get_connector();
+        let template = admin_burn_template(OutPoint {
+            txid: Txid::from_byte_array([1; 32]),
+            vout: 1,
+        });
+        let prevout = connector.tx_out();
+        let hash = |tx: &Transaction, prevout: &TxOut| {
+            admin_signing_info(
+                &connector,
+                tx,
+                std::slice::from_ref(prevout),
+                TapSighashType::NonePlusAnyoneCanPay,
+            )
+            .sighash
         };
+        let original = hash(&template, &prevout);
+
+        let mut changed = template.clone();
+        changed.input[0].previous_output.vout = 2;
+        assert_ne!(original, hash(&changed, &prevout));
+        changed = template.clone();
+        changed.input[0].sequence = Sequence::ZERO;
+        assert_ne!(original, hash(&changed, &prevout));
+        changed = template.clone();
+        changed.version = Version(2);
+        assert_ne!(original, hash(&changed, &prevout));
+        changed = template.clone();
+        changed.lock_time = absolute::LockTime::from_consensus(1);
+        assert_ne!(original, hash(&changed, &prevout));
+
+        let mut changed_prevout = prevout.clone();
+        changed_prevout.value += Amount::from_sat(1);
+        assert_ne!(original, hash(&template, &changed_prevout));
+        changed_prevout = prevout.clone();
+        changed_prevout.script_pubkey = ScriptBuf::new();
+        assert_ne!(original, hash(&template, &changed_prevout));
+    }
+
+    #[test]
+    fn admin_burn_witness_truncates_surplus_indexed_signatures() {
+        let script_inputs = admin_witness_inputs(&[(0, 0xAA), (2, 0xCC), (1, 0xBB)]);
 
         assert_eq!(
             script_inputs,
-            vec![
-                Vec::new(),
-                signature_1.serialize().to_vec(),
-                signature_0.serialize().to_vec(),
-            ]
+            vec![Vec::new(), vec![0xBB; 64], vec![0xAA; 64]]
         );
     }
 
     #[test]
     fn admin_burn_witness_ignores_duplicate_indices() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature_0 =
-            schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let duplicate_signature =
-            schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let signature_2 =
-            schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: signature_0,
-                },
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: duplicate_signature,
-                },
-                AdminSignature {
-                    pubkey_index: 2,
-                    signature: signature_2,
-                },
-            ],
-        };
-
-        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
-        else {
-            panic!("admin burn is a script-path spend");
-        };
+        let script_inputs = admin_witness_inputs(&[(0, 0xAA), (0, 0xBB), (2, 0xCC)]);
 
         assert_eq!(
             script_inputs,
-            vec![
-                signature_2.serialize().to_vec(),
-                Vec::new(),
-                signature_0.serialize().to_vec()
-            ]
+            vec![vec![0xCC; 64], Vec::new(), vec![0xAA; 64]]
         );
     }
 
     #[test]
     fn admin_burn_witness_ignores_out_of_bounds_indices() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature_0 =
-            schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let out_of_bounds_signature =
-            schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let signature_2 =
-            schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: signature_0,
-                },
-                AdminSignature {
-                    pubkey_index: 3,
-                    signature: out_of_bounds_signature,
-                },
-                AdminSignature {
-                    pubkey_index: 2,
-                    signature: signature_2,
-                },
-            ],
-        };
-
-        let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
-        else {
-            panic!("admin burn is a script-path spend");
-        };
+        let script_inputs = admin_witness_inputs(&[(0, 0xAA), (3, 0xBB), (2, 0xCC)]);
 
         assert_eq!(
             script_inputs,
-            vec![
-                signature_2.serialize().to_vec(),
-                Vec::new(),
-                signature_0.serialize().to_vec()
-            ]
+            vec![vec![0xCC; 64], Vec::new(), vec![0xAA; 64]]
         );
     }
 
@@ -444,32 +500,7 @@ mod tests {
         expected = "admin burn requires at least threshold signatures for distinct known admin pubkeys"
     )]
     fn admin_burn_witness_rejects_below_threshold_signatures() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
-        let connector = signer.get_connector();
-        let signature =
-            schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
-        let duplicate_signature =
-            schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
-        let out_of_bounds_signature =
-            schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
-            admin_signatures: vec![
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature,
-                },
-                AdminSignature {
-                    pubkey_index: 0,
-                    signature: duplicate_signature,
-                },
-                AdminSignature {
-                    pubkey_index: 3,
-                    signature: out_of_bounds_signature,
-                },
-            ],
-        };
-
-        connector.get_taproot_witness(&witness);
+        admin_witness_inputs(&[(0, 0xAA), (0, 0xBB), (3, 0xCC)]);
     }
 
     #[test]
