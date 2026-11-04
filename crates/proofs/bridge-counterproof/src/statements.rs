@@ -292,7 +292,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use bitcoin::{
-        Amount, Network, ScriptBuf, Txid, Witness, absolute,
+        Amount, Network, ScriptBuf, TxIn, Txid, Witness, absolute,
         hashes::Hash,
         opcodes::all::{OP_PUSHNUM_1, OP_RETURN},
         script::{Builder, PushBytesBuf},
@@ -737,6 +737,98 @@ mod tests {
     /// Unit tests for `CounterproofMode::InvalidBridgeProof`.
     mod invalid_bridge_proof {
         use super::*;
+
+        /// The shape that the executor publishes: the connector at input 0, a wallet input at
+        /// input 1, the proof at output 0 and wallet change at output 1.
+        fn wallet_funded_input(wallet_script: ScriptBuf) -> CounterproofInput {
+            let wallet_prevout = TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: wallet_script.clone(),
+            };
+            let mut unsigned_tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
+            unsigned_tx.push_input(TxIn::default(), wallet_prevout.clone());
+            unsigned_tx.push_output(TxOut {
+                value: Amount::from_sat(40_000),
+                script_pubkey: wallet_script,
+            });
+
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = sign_bridge_proof_tx(unsigned_tx).into();
+            input.bridge_proof_tx_prevouts = PREVOUTS
+                .iter()
+                .cloned()
+                .chain([wallet_prevout])
+                .map(|prevout| {
+                    BitcoinTxOut::try_from(prevout).expect("fixture prevout fits SSZ bounds")
+                })
+                .collect();
+            input
+        }
+
+        /// The script of a native wallet.
+        fn taproot_wallet() -> ScriptBuf {
+            ScriptBuf::new_p2tr(SECP256K1, *OPERATOR_PUBKEY, None)
+        }
+
+        #[test]
+        #[should_panic(expected = "invalid counterproof: bridge proof is valid")]
+        fn a_valid_proof_in_a_wallet_funded_tx_cannot_be_counterproven() {
+            let _ = run_counterproof(RuntimeArgs {
+                input: wallet_funded_input(taproot_wallet()),
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+        }
+
+        /// The dangerous shape: change at output 0 moves the proof to output 1, the guest reads
+        /// the change as the proof, and any watchtower can counterprove an honest operator. The
+        /// executor keeps the proof at output 0 because of this.
+        #[test]
+        fn a_valid_proof_with_change_at_output_zero_can_be_counterproven() {
+            let wallet_script = taproot_wallet();
+            let wallet_prevout = TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: wallet_script.clone(),
+            };
+            let proof_output =
+                sign_bridge_proof_tx(BRIDGE_PROOF_TX_UNSIGNED.clone()).output[0].clone();
+            let mut unsigned_tx = BRIDGE_PROOF_TX_UNSIGNED.clone();
+            unsigned_tx.push_input(TxIn::default(), wallet_prevout.clone());
+            unsigned_tx.clear_output();
+            unsigned_tx.push_output(TxOut {
+                value: Amount::from_sat(40_000),
+                script_pubkey: wallet_script,
+            });
+            unsigned_tx.push_output(proof_output);
+            let mut input = INPUT_FOR_INVALID_BRIDGE_PROOF.clone();
+            input.bridge_proof_tx = sign_bridge_proof_tx(unsigned_tx).into();
+            input.bridge_proof_tx_prevouts = PREVOUTS
+                .iter()
+                .cloned()
+                .chain([wallet_prevout])
+                .map(|prevout| {
+                    BitcoinTxOut::try_from(prevout).expect("fixture prevout fits SSZ bounds")
+                })
+                .collect();
+
+            let output = run_counterproof(RuntimeArgs {
+                input,
+                bridge_proof_vk: PredicateKey::always_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+            assert_eq!(output.game_idx, GAME_IDX.get());
+        }
+
+        #[test]
+        fn an_invalid_proof_in_a_wallet_funded_tx_can_be_counterproven() {
+            let output = run_counterproof(RuntimeArgs {
+                input: wallet_funded_input(taproot_wallet()),
+                bridge_proof_vk: PredicateKey::never_accept(),
+                moho_vk: PredicateKey::never_accept(),
+            });
+
+            assert_eq!(output.game_idx, GAME_IDX.get());
+        }
 
         #[test]
         #[should_panic(expected = "invalid counterproof: bridge proof is valid")]

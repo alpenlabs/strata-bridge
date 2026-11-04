@@ -297,6 +297,23 @@ mod tests {
         assert_eq!(classified_bridge_proof_receipt(&tx), receipt);
     }
 
+    /// The executor funds the proof from the wallet: the connector stays at input 0 and the
+    /// proof at output 0, with a wallet input and change after them.
+    #[test]
+    fn classify_tx_reads_a_wallet_funded_bridge_proof() {
+        let receipt = test_proof_receipt();
+        let mut tx = test_bridge_proof_tx();
+        tx.output[0].script_pubkey = op_return_script(borsh::to_vec(&receipt).unwrap());
+        tx.input
+            .extend(generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]).input);
+        tx.output.push(TxOut {
+            value: Amount::from_sat(40_000),
+            script_pubkey: ScriptBuf::new_p2wsh(&sha256::Hash::all_zeros().into()),
+        });
+
+        assert_eq!(classified_bridge_proof_receipt(&tx), receipt);
+    }
+
     #[test]
     fn classify_tx_defaults_bridge_proof_receipt_when_first_output_splits_the_payload() {
         let receipt_bytes = borsh::to_vec(&test_proof_receipt()).unwrap();

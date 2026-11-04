@@ -6,11 +6,12 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
-use btc_tracker::event::TxStatus;
+use btc_tracker::{cpfp::DeadlineClass, event::TxStatus};
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use operator_wallet::{GeneralUtxoPolicy, Lease, LeaseOwner, OperatorWallet, WalletStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_db::{
     traits::BridgeDb,
     types::{ClaimFundingReservation, FundingAssignment},
@@ -34,7 +35,7 @@ use strata_mosaic_client_api::{
 use tracing::{info, warn};
 
 use crate::{
-    chain::{self, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
+    chain::{self, CpfpKind, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -306,11 +307,23 @@ async fn refill_claim_funding(
     )
     .await?;
     let txid = tx.compute_txid();
+    let refill_fee = refill_psbt
+        .fee()
+        .map_err(|e| ExecutorError::WalletErr(format!("refill psbt fee: {e:?}")))?;
     info!(%txid, "submitting claim funding tx to the tx driver");
-    if let Err(err) = output_handles
-        .tx_driver
-        .drive(tx, predicate::eq(TxStatus::Mempool))
-        .await
+    // The duty continues once the refill is in the mempool. A child of the change output, which
+    // the planner always leaves, bumps the refill until its burial.
+    if let Err(err) = chain::publish_signed_transaction_until(
+        output_handles,
+        &tx,
+        "claim funding refill",
+        CpfpKind::InferGeneralPayout {
+            parent_fee: chain::ParentFee::Exact(refill_fee),
+            deadline: DeadlineClass::NoDeadline,
+        },
+        predicate::eq(TxStatus::Mempool),
+    )
+    .await
     {
         let mut wallet = output_handles.wallet.write().await;
         if let Err(sync_err) = chain::release_after_sync(&mut wallet, refill_lease).await {
@@ -319,7 +332,7 @@ async fn refill_claim_funding(
                 "wallet sync failed after a refill driver failure"
             );
         }
-        return Err(err.into());
+        return Err(err);
     }
     info!(%txid, "claim funding tx detected in mempool");
     // The lease on the refill's inputs commits. The refill spends them, so the lease costs nothing
@@ -744,12 +757,44 @@ async fn ensure_funding_confirmed(
     }
 }
 
+/// [`ensure_funding_confirmed`], and a re-drive of a refill that sits in the mempool.
+///
+/// A refill that an earlier process broadcast has no driver record, so it would get no bumps. The
+/// node knows it, so this hands it back to the driver with its CPFP path. The claim still waits for
+/// the confirmation, so the error stands.
+async fn ensure_funding_confirmed_or_drive(
+    output_handles: &OutputHandles,
+    claim_funding_outpoint: OutPoint,
+) -> Result<(), ExecutorError> {
+    let client = &output_handles.bitcoind_rpc_client;
+    let gate = ensure_funding_confirmed(client, claim_funding_outpoint).await;
+    if let Err(ExecutorError::ClaimFundingUnconfirmed(_)) = &gate {
+        let refill = client
+            .get_raw_transaction_verbosity_zero(&claim_funding_outpoint.txid)
+            .await?
+            .0;
+        info!(txid = %refill.compute_txid(), "driving the unconfirmed claim funding refill");
+        chain::publish_signed_transaction_until(
+            output_handles,
+            &refill,
+            "claim funding refill",
+            CpfpKind::InferGeneralPayout {
+                parent_fee: chain::ParentFee::FromPrevouts,
+                deadline: DeadlineClass::NoDeadline,
+            },
+            predicate::eq(TxStatus::Mempool),
+        )
+        .await?;
+    }
+    gate
+}
+
 /// Publishes the claim transaction to Bitcoin.
 ///
-/// The prevout comes from the stored reservation and not from the wallet, because the wallet drops
-/// an output once a transaction spends it, and a retry after the claim reached a mempool must still
-/// sign. The funding transaction must be confirmed: a graph whose refill never confirmed has no
-/// valid claim.
+/// The prevout comes from the reserved wallet, or from the node when the wallet no longer lists
+/// the output: the wallet drops an output once a transaction spends it, and a retry after the claim
+/// reached a mempool must still sign. The funding transaction must be confirmed: a graph whose
+/// refill never confirmed has no valid claim.
 pub(super) async fn publish_claim(
     output_handles: &OutputHandles,
     claim_tx: &ClaimTx,
@@ -763,7 +808,7 @@ pub(super) async fn publish_claim(
 
     let claim_funding_outpoint = unsigned_claim_tx.input[0].previous_output;
     let claim_prevout = claim_prevout(output_handles, claim_funding_outpoint).await?;
-    ensure_funding_confirmed(&output_handles.bitcoind_rpc_client, claim_funding_outpoint).await?;
+    ensure_funding_confirmed_or_drive(output_handles, claim_funding_outpoint).await?;
 
     let prevouts = Prevouts::All(&[claim_prevout]);
 
@@ -811,10 +856,15 @@ pub(super) async fn publish_claim(
     }
 
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_claim_tx,
         "claim",
-        TxStatus::is_buried,
+        CpfpKind::AnchorAt {
+            anchor_vout: ClaimTx::CPFP_VOUT,
+            anchor_key: claim_tx.cpfp_connector().internal_key(),
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await
 }
@@ -1182,6 +1232,7 @@ mod tests {
         .expect("an output covers the fee");
 
         assert!(funding.input.txout.value >= exact);
+        assert_eq!(funding.fee, fee);
         assert!(funding.change.value >= dust);
         assert_eq!(
             funding.change.value,
