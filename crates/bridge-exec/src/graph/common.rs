@@ -277,10 +277,10 @@ async fn refill_claim_funding(
     // `refill` holds the general-wallet inputs of the refill transaction. A path that ends before
     // the transaction reaches a mempool drops it, which returns those inputs to the pool. A path
     // that cannot tell drops it only after a fresh sync makes the wallet view authoritative.
-    if fee::FEE_RATE > cfg.maximum_fee_rate {
+    if fee::FEE_RATE > cfg.fee_target.max_fee_rate {
         return Err(ExecutorError::FeeRateTooHigh {
             fee_rate: fee::FEE_RATE,
-            max: cfg.maximum_fee_rate,
+            max: cfg.fee_target.max_fee_rate,
         });
     }
     let refill = wallet

@@ -3,7 +3,7 @@
 use std::{cmp, collections::VecDeque, num::NonZero, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
-use bitcoin::{FeeRate, relative};
+use bitcoin::relative;
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::{client::BtcNotifyHealthEvent, tx_driver::TxDriver};
 use jsonrpsee::http_client::HttpClient;
@@ -14,7 +14,11 @@ use strata_bridge_asm_events::client::{AsmEventFeed, AsmFeedHealthEvent};
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
+use strata_bridge_exec::{
+    config::ExecutionConfig,
+    fees::{FeeQuoteMemo, FeeTargetPolicy},
+    output_handles::OutputHandles,
+};
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
     pipeline::Pipeline, sm_registry::SMConfig,
@@ -49,6 +53,7 @@ use crate::{
         btc_client::init_zmq_client,
         health_probes::{spawn_orchestrator_stale_monitor, spawn_tx_driver_probe},
         operator_wallet::sync_wallet_on_new_blocks,
+        startup_checks::FeeLimits,
     },
 };
 
@@ -56,6 +61,7 @@ use crate::{
 pub(crate) async fn init_orchestrator<M>(
     params: &Params,
     config: &Config,
+    fee_limits: FeeLimits,
     operator_table: OperatorTable,
     s2_client: &SecretServiceClient,
     mosaic_client: Arc<M>,
@@ -168,7 +174,19 @@ where
         pending_asm_events: VecDeque::new(),
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config);
+    // One fee quote memo serves the executors. Its first read happens on the first use, so a
+    // source that does not answer stops nothing at boot.
+    let fee_source = config
+        .fee_source
+        .build(Arc::new(btc_rpc_client.clone()))
+        .map_err(|e| anyhow!("failed to construct fee source from config: {e}"))?;
+    let fee_quotes = Arc::new(FeeQuoteMemo::new(fee_source));
+    let fee_target = FeeTargetPolicy {
+        premium_percent: config.cpfp_fee_premium_percent,
+        min_package_fee_rate: fee_limits.min_package_fee_rate,
+        max_fee_rate: fee_limits.max_fee_rate,
+    };
+    let exec_cfg = build_exec_config(params, config, fee_target, &sm_config, fee_quotes);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let tx_driver_health = tx_driver.health_handle();
     health_registry.mark_ok(COMPONENT_TX_DRIVER, "driver_initialized");
@@ -340,17 +358,24 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
     }
 }
 
-fn build_exec_config(params: &Params, config: &Config, sm_config: &SMConfig) -> ExecutionConfig {
+fn build_exec_config(
+    params: &Params,
+    config: &Config,
+    fee_target: FeeTargetPolicy,
+    sm_config: &SMConfig,
+    fee_source: Arc<FeeQuoteMemo>,
+) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
         magic_bytes: params.protocol.magic_bytes,
-        maximum_fee_rate: FeeRate::from_sat_per_vb(config.max_fee_rate).unwrap(),
+        fee_target,
         operator_fee: params.protocol.operator_fee,
         stake_amount: params.protocol.stake_amount,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         bury_depth: u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32"),
         graph_sm_cfg: sm_config.graph.clone(),
+        fee_source,
     }
 }
 
