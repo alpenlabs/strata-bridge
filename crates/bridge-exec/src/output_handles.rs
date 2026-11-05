@@ -12,7 +12,7 @@ use strata_bridge_db::fdb::client::FdbClient;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_proof::BridgeProofHost;
 use strata_mosaic_client_api::MosaicClientApi;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 /// The handles for external services that need to be accessed by the executors.
 ///
@@ -27,6 +27,13 @@ pub struct OutputHandles {
     /// either guard: a duty takes [`OperatorWallet::general_signer`], releases the guard, and then
     /// signs, so a wait on an external signer stalls no other duty.
     pub wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
+
+    /// Allows one claim-funding refill at a time.
+    ///
+    /// A refill signs and broadcasts with no wallet guard held, so this lock is what makes a duty
+    /// that finds the pool empty wait for the outputs of the running refill and not fund a second
+    /// one. Selection from a pool that has a free output never takes this lock.
+    pub claim_funding_refill: Mutex<()>,
 
     /// Handle for accessing the database.
     // TODO: <https://alpenlabs.atlassian.net/browse/STR-2670>
