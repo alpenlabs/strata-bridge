@@ -34,7 +34,7 @@ use strata_p2p::swarm::handle::{GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{
     select,
-    sync::{RwLock, mpsc, oneshot},
+    sync::{Mutex, RwLock, mpsc, oneshot},
 };
 use tracing::{debug, error, info, warn};
 
@@ -165,6 +165,7 @@ where
     );
     let output_handles = OutputHandles {
         wallet,
+        claim_funding_refill: Mutex::new(()),
         msg_handler: RwLock::new(message_handler),
         db: fdb_client.clone(),
         bitcoind_rpc_client: btc_rpc_client.clone(),
