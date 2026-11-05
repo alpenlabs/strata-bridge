@@ -790,7 +790,7 @@ mod tests {
 
     /// A regtest wallet config. The tracked view reads only its network and persist cadence.
     fn config() -> OperatorWalletConfig {
-        OperatorWalletConfig::new(Amount::from_sat(330), Network::Regtest)
+        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest)
     }
 
     #[tokio::test]

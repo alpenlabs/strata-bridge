@@ -399,7 +399,6 @@ pub(crate) const fn executor_error_class(error: &ExecutorError) -> &'static str 
         ExecutorError::SelfVerifyFailed => "signature_self_verification",
         ExecutorError::MissingConfig(_) => "missing_configuration",
         ExecutorError::WalletErr(_) => "wallet",
-        ExecutorError::PsbtErr(_) => "psbt",
         ExecutorError::SignatureAggregationFailed(_) => "signature_aggregation",
         ExecutorError::BitcoinRpcErr(_) => "bitcoin_rpc",
         ExecutorError::ClaimTxAlreadyOnChain(_) => "claim_already_on_chain",

@@ -1,23 +1,18 @@
 //! Executor for the unstaking burn transaction.
 
-use bitcoin::{
-    Amount, FeeRate, OutPoint, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut,
-    hashes::Hash,
-    sighash::{Prevouts, SighashCache},
-    taproot,
-};
+use bitcoin::{FeeRate, OutPoint, ScriptBuf, Transaction, TxIn, TxOut};
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
-use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use operator_wallet::{FundingInput, LeaseOwner, OperatorWallet, SqliteStore};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_tx_graph::transactions::prelude::UnstakingBlockPayoutTx;
 use tracing::{debug, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction,
+    chain::{self, ConnectorFunding},
     config::ExecutionConfig,
     errors::ExecutorError,
-    output_handles::{NativeWallet, OutputHandles},
+    output_handles::OutputHandles,
 };
 
 /// Index of the payout connector input in the unfunded burn template.
@@ -26,31 +21,11 @@ const CONNECTOR_INPUT_INDEX: usize = 0;
 /// Index of the general-wallet funding input after [`attach_wallet_funding`] extends the template.
 const WALLET_INPUT_INDEX: usize = 1;
 
-/// General-wallet input selected for a single unstaking burn transaction.
-#[derive(Debug)]
-struct WalletFunding {
-    /// General-wallet outpoint leased for this burn attempt.
-    outpoint: OutPoint,
-    /// Previous output data for the leased input.
-    prevout: TxOut,
-}
-
-/// Fixed transaction construction parameters derived before selecting a funding UTXO.
-#[derive(Debug)]
-struct BurnTxPlan {
-    /// Value contributed by the payout connector input.
-    payout_connector_value: Amount,
-    /// Fee rate used to compute [`Self::fee`].
-    fee_rate: FeeRate,
-    /// Fee paid by the final burn transaction.
-    fee: Amount,
-    /// Virtual size used to compute [`Self::fee`].
-    estimated_vsize: u64,
-    /// Script that receives the remaining value after the burn fee is paid.
-    wallet_output_script: ScriptBuf,
-}
-
 /// Finalizes and publishes an unstaking burn transaction.
+///
+/// The burn pays the next-block rate. In a claimed
+/// graph the uncontested payout of the owner can spend the same connector, so a burn that waits in
+/// the mempool can lose it. The state machine then sees the payout.
 pub(super) async fn publish_unstaking_burn(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -61,7 +36,6 @@ pub(super) async fn publish_unstaking_burn(
     info!(%graph_idx, "preparing unstaking burn transaction");
 
     let fee_rate = burn_fee_rate(output_handles).await?;
-    debug!(%graph_idx, %fee_rate, "selected fee rate for unstaking burn transaction");
     if fee_rate > cfg.maximum_fee_rate {
         warn!(
             %graph_idx,
@@ -71,12 +45,18 @@ pub(super) async fn publish_unstaking_burn(
         );
         return Ok(());
     }
+    debug!(%graph_idx, %fee_rate, "selected fee rate for unstaking burn transaction");
 
-    let (funding, plan) = {
+    // `lease` holds the wallet UTXO that pays for the burn. A failure before the publish drops
+    // it, which returns the UTXO to the pool.
+    let ConnectorFunding {
+        input,
+        lease,
+        change,
+    } = {
         let mut wallet = output_handles.wallet.write().await;
         select_funding(
             &mut wallet,
-            graph_idx,
             &unstaking_burn_tx,
             unstaking_preimage,
             fee_rate,
@@ -84,58 +64,23 @@ pub(super) async fn publish_unstaking_burn(
         .await?
     };
 
-    let sign_result = build_and_sign_tx(
-        output_handles,
-        graph_idx,
-        unstaking_burn_tx,
-        unstaking_preimage,
-        &funding,
-        &plan,
-    )
-    .await;
-
-    let signed_tx = match sign_result {
-        Ok(tx) => tx,
-        Err(e) => {
-            warn!(
-                %graph_idx,
-                funding_outpoint = %funding.outpoint,
-                %e,
-                "failed to sign unstaking burn transaction; releasing wallet funding outpoint"
-            );
-            output_handles
-                .wallet
-                .write()
-                .await
-                .release(&[funding.outpoint]);
-            return Err(e);
-        }
-    };
+    let mut funded_burn = unstaking_burn_tx;
+    attach_wallet_funding(&mut funded_burn, &input, change);
+    let prevouts = funded_burn.prevouts().to_vec();
+    let finalized = funded_burn.finalize_partial(unstaking_preimage);
+    let signed_tx =
+        chain::sign_general_inputs(output_handles, &finalized, &[WALLET_INPUT_INDEX], &prevouts)
+            .await?;
 
     info!(%graph_idx, txid = %signed_tx.compute_txid(), "publishing unstaking burn transaction");
-    let publish_result = publish_signed_transaction(
-        &output_handles.tx_driver,
+    chain::publish_leased_transaction(
+        output_handles,
         &signed_tx,
         "unstaking burn",
         TxStatus::is_buried,
+        lease,
     )
-    .await;
-
-    if let Err(ref e) = publish_result {
-        warn!(
-            %graph_idx,
-            funding_outpoint = %funding.outpoint,
-            %e,
-            "failed to publish unstaking burn transaction; releasing wallet funding outpoint"
-        );
-        output_handles
-            .wallet
-            .write()
-            .await
-            .release(&[funding.outpoint]);
-    }
-
-    publish_result
+    .await
 }
 
 /// Returns the fee rate used for an unstaking burn attempt.
@@ -167,344 +112,80 @@ async fn burn_fee_rate(output_handles: &OutputHandles) -> Result<FeeRate, Execut
 
 /// Selects and leases a general-wallet UTXO that can pay for the burn transaction.
 ///
-/// The payout connector contributes value but does not necessarily cover relay fees. This helper
-/// computes the fixed fee once, filters wallet UTXOs against that fee, and returns both the
-/// selected UTXO and the plan used to construct the final transaction.
+/// The payout connector contributes value but does not necessarily cover relay fees.
 ///
 /// The burn transaction constructed by this executor is:
 ///
 /// ```text
-/// +----------+-------------------------------------------+-------------------------------------------------+
-/// | Inputs   |                                           | Outputs                                         |
-/// +----------+-------------------------------------------+-------------------------------------------------+
-/// | input 0  | claim payout connector                    | output 0: general-wallet output                 |
-/// |          | value: BurnTxPlan::payout_connector_value | value: inputs - BurnTxPlan::fee                 |
-/// |          | witness: unstaking_preimage               | script_pubkey: BurnTxPlan::wallet_output_script |
-/// +----------+-------------------------------------------+-------------------------------------------------+
-/// | input 1  | general-wallet funding UTXO               |                                                 |
-/// |          | outpoint: WalletFunding::outpoint         |                                                 |
-/// |          | prevout: WalletFunding::prevout           |                                                 |
-/// +----------+-------------------------------------------+-------------------------------------------------+
-/// ```
-///
-/// The fee is the difference between total inputs and explicit outputs:
-///
-/// ```text
-/// BurnTxPlan::fee =
-///     BurnTxPlan::payout_connector_value
-///   + WalletFunding::prevout.value
-///   - general_wallet_output_value
+/// +----------+-----------------------------+---------------------------------------+
+/// | Inputs   |                             | Outputs                               |
+/// +----------+-----------------------------+---------------------------------------+
+/// | input 0  | claim payout connector      | output 0: general-wallet change       |
+/// |          | witness: unstaking_preimage | value: inputs - ConnectorFunding::fee |
+/// +----------+-----------------------------+---------------------------------------+
+/// | input 1  | general-wallet funding UTXO |                                       |
+/// +----------+-----------------------------+---------------------------------------+
 /// ```
 async fn select_funding(
-    wallet: &mut NativeWallet,
-    graph_idx: GraphIdx,
+    wallet: &mut OperatorWallet<SqliteStore>,
     unstaking_burn_tx: &UnstakingBlockPayoutTx,
     unstaking_preimage: [u8; 32],
     fee_rate: FeeRate,
-) -> Result<(WalletFunding, BurnTxPlan), ExecutorError> {
-    let payout_connector_value = unstaking_burn_tx.prevouts()[CONNECTOR_INPUT_INDEX].value;
-
-    info!(%graph_idx, "syncing wallet before funding unstaking burn transaction");
+) -> Result<ConnectorFunding, ExecutorError> {
     if let Err(e) = wallet.sync().await {
-        warn!(%graph_idx, ?e, "could not sync wallet before funding unstaking burn");
+        warn!(
+            ?e,
+            "could not sync wallet before funding unstaking burn; selecting anyway"
+        );
     }
 
-    let wallet_output_script = wallet.general_script_pubkey();
-    let min_output_value = wallet_output_script.minimal_non_dust();
-    let fee = estimate_unstaking_burn_fee(
+    let template = funded_template(
         unstaking_burn_tx,
         unstaking_preimage,
-        &wallet_output_script,
+        &wallet.general().script_pubkey(),
+    );
+    chain::select_connector_funding(
+        wallet,
+        LeaseOwner::UnstakingBurn,
+        &template,
+        unstaking_burn_tx.prevouts()[CONNECTOR_INPUT_INDEX].value,
         fee_rate,
-    )?;
-    let plan = BurnTxPlan {
-        payout_connector_value,
-        fee_rate,
-        fee: fee.amount,
-        estimated_vsize: fee.vsize,
-        wallet_output_script,
-    };
-
-    debug!(
-        %graph_idx,
-        %payout_connector_value,
-        fee = %plan.fee,
-        %fee_rate,
-        estimated_vsize = plan.estimated_vsize,
-        %min_output_value,
-        "selecting wallet funding UTXO for unstaking burn"
-    );
-
-    let funding = wallet.select_and_lease_general_utxo(|utxo| {
-        let output_value = match payout_connector_value
-            .checked_add(utxo.amount)
-            .and_then(|input_value| input_value.checked_sub(plan.fee))
-        {
-            Some(output_value) => output_value,
-            None => {
-                debug!(
-                    %graph_idx,
-                    outpoint = %utxo.outpoint,
-                    utxo_value = %utxo.amount,
-                    fee = %plan.fee,
-                    "wallet UTXO cannot cover unstaking burn fee"
-                );
-                return false;
-            }
-        };
-
-        if output_value < min_output_value {
-            debug!(
-                %graph_idx,
-                outpoint = %utxo.outpoint,
-                utxo_value = %utxo.amount,
-                %output_value,
-                %min_output_value,
-                fee = %plan.fee,
-                "wallet UTXO cannot fund non-dust unstaking burn output"
-            );
-            return false;
-        }
-
-        true
-    });
-
-    let Some(funding) = funding else {
-        warn!(
-            %graph_idx,
-            %payout_connector_value,
-            fee = %plan.fee,
-            %min_output_value,
-            %fee_rate,
-            "no general wallet UTXO available to fund unstaking burn"
-        );
-        return Err(ExecutorError::WalletErr(format!(
-            "no general wallet UTXO available to fund unstaking burn for graph {graph_idx}; \
-             payout connector value {payout_connector_value}, fee {}, minimum output value {}",
-            plan.fee, min_output_value
-        )));
-    };
-
-    let wallet_output_value = payout_connector_value
-        .checked_add(funding.amount)
-        .and_then(|input_value| input_value.checked_sub(plan.fee))
-        .ok_or_else(|| {
-            ExecutorError::WalletErr(format!(
-                "selected unstaking burn funding UTXO {} cannot cover fee {}",
-                funding.outpoint, plan.fee
-            ))
-        })?;
-
-    info!(
-        %graph_idx,
-        funding_outpoint = %funding.outpoint,
-        funding_value = %funding.amount,
-        %wallet_output_value,
-        fee = %plan.fee,
-        fee_rate = %plan.fee_rate,
-        estimated_vsize = plan.estimated_vsize,
-        "leased wallet funding UTXO for unstaking burn"
-    );
-
-    Ok((
-        WalletFunding {
-            outpoint: funding.outpoint,
-            prevout: funding.into(),
-        },
-        plan,
-    ))
+    )
 }
 
-/// Builds the funded burn transaction and signs the general-wallet input.
-///
-/// `finalize_partial` spends the payout connector with the unstaking preimage. The executor then
-/// signs the wallet funding input that was appended by [`attach_wallet_funding`].
-async fn build_and_sign_tx(
-    output_handles: &OutputHandles,
-    graph_idx: GraphIdx,
-    unstaking_burn_tx: UnstakingBlockPayoutTx,
-    unstaking_preimage: [u8; 32],
-    funding: &WalletFunding,
-    plan: &BurnTxPlan,
-) -> Result<Transaction, ExecutorError> {
-    let wallet_output_value = plan
-        .payout_connector_value
-        .checked_add(funding.prevout.value)
-        .and_then(|input_value| input_value.checked_sub(plan.fee))
-        .ok_or_else(|| {
-            ExecutorError::WalletErr(format!(
-                "selected unstaking burn funding UTXO {} cannot cover fee {}",
-                funding.outpoint, plan.fee
-            ))
-        })?;
-
-    debug!(
-        %graph_idx,
-        funding_outpoint = %funding.outpoint,
-        funding_value = %funding.prevout.value,
-        %wallet_output_value,
-        fee = %plan.fee,
-        "building funded unstaking burn transaction"
-    );
-
-    let mut funded_burn = unstaking_burn_tx;
-    attach_wallet_funding(
-        &mut funded_burn,
-        funding.outpoint,
-        funding.prevout.clone(),
-        TxOut {
-            value: wallet_output_value,
-            script_pubkey: plan.wallet_output_script.clone(),
-        },
-    );
-
-    let prevouts = funded_burn.prevouts().to_vec();
-    let mut signed_tx = funded_burn.finalize_partial(unstaking_preimage);
-    let wallet_signature = sign_wallet_input(output_handles, &signed_tx, &prevouts).await?;
-    signed_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push(wallet_signature.to_vec());
-
-    let final_vsize = signed_tx.vsize() as u64;
-    let final_fee = plan
-        .payout_connector_value
-        .checked_add(funding.prevout.value)
-        .and_then(|input_value| input_value.checked_sub(wallet_output_value))
-        .ok_or_else(|| {
-            ExecutorError::WalletErr("final unstaking burn fee calculation underflowed".to_string())
-        })?;
-    let effective_fee_rate_sat_vb = final_fee.to_sat() as f64 / final_vsize as f64;
-    if final_vsize != plan.estimated_vsize {
-        warn!(
-            %graph_idx,
-            txid = %signed_tx.compute_txid(),
-            estimated_vsize = plan.estimated_vsize,
-            final_vsize,
-            fee = %final_fee,
-            fee_rate = %plan.fee_rate,
-            effective_fee_rate_sat_vb,
-            "unstaking burn transaction size differed from fee estimate"
-        );
-    }
-
-    info!(
-        %graph_idx,
-        txid = %signed_tx.compute_txid(),
-        fee = %final_fee,
-        expected_fee = %plan.fee,
-        fee_rate = %plan.fee_rate,
-        effective_fee_rate_sat_vb = effective_fee_rate_sat_vb,
-        final_vsize,
-        estimated_vsize = plan.estimated_vsize,
-        "finalized unstaking burn transaction fee"
-    );
-
-    Ok(signed_tx)
-}
-
-/// Estimated fee data for the fixed unstaking burn transaction shape.
-#[derive(Debug)]
-struct FeeEstimate {
-    /// Fee amount at the selected fee rate.
-    amount: Amount,
-    /// Virtual size of the transaction shape used for fee calculation.
-    vsize: u64,
-}
-
-/// Estimates the fee for the concrete funded burn transaction.
-///
-/// The estimate is derived from the actual transaction template: one payout connector input, one
-/// general-wallet input, and one output back to the general wallet. The connector witness is
-/// populated by `finalize_partial`; the wallet witness is modeled with a 64-byte Schnorr signature.
-fn estimate_unstaking_burn_fee(
+/// Returns the funded burn with placeholder values, which gives its size. The connector witness
+/// is exact after `finalize_partial`, and the empty wallet input stays unsigned.
+fn funded_template(
     unstaking_burn_tx: &UnstakingBlockPayoutTx,
     unstaking_preimage: [u8; 32],
     payout_script: &ScriptBuf,
-    fee_rate: FeeRate,
-) -> Result<FeeEstimate, ExecutorError> {
-    let mut unstaking_burn_tx = unstaking_burn_tx.clone();
-    let min_output_value = payout_script.minimal_non_dust();
-    attach_wallet_funding(
-        &mut unstaking_burn_tx,
-        OutPoint::null(),
-        TxOut {
-            value: Amount::ZERO,
-            script_pubkey: payout_script.clone(),
-        },
-        TxOut {
-            value: min_output_value,
-            script_pubkey: payout_script.clone(),
-        },
-    );
-
-    // The connector witness is exact after `finalize_partial`; the general wallet witness is a
-    // fixed-size Schnorr signature, so a 64-byte dummy witness gives an exact vsize.
-    let mut estimated_tx = unstaking_burn_tx.finalize_partial(unstaking_preimage);
-    estimated_tx.input[WALLET_INPUT_INDEX]
-        .witness
-        .push([0u8; 64]);
-
-    let vsize = estimated_tx.vsize() as u64;
-    let fee = fee_rate
-        .fee_vb(vsize)
-        .ok_or_else(|| ExecutorError::WalletErr("unstaking burn fee overflow".into()))?;
-
-    info!(%fee_rate, %vsize, fee = %fee, "estimated unstaking burn transaction fee");
-
-    Ok(FeeEstimate { amount: fee, vsize })
+) -> Transaction {
+    let mut template = unstaking_burn_tx.clone();
+    let placeholder = TxOut {
+        value: payout_script.minimal_non_dust(),
+        script_pubkey: payout_script.clone(),
+    };
+    let input = FundingInput {
+        outpoint: OutPoint::null(),
+        txout: placeholder.clone(),
+    };
+    attach_wallet_funding(&mut template, &input, placeholder);
+    template.finalize_partial(unstaking_preimage)
 }
 
 /// Appends the general-wallet input and output to the burn template.
 ///
 /// After this runs, input index `0` remains the payout connector and input index `1` is the wallet
-/// funding input signed by [`sign_wallet_input`].
-fn attach_wallet_funding(
-    tx: &mut UnstakingBlockPayoutTx,
-    funding_outpoint: OutPoint,
-    funding_prevout: TxOut,
-    output: TxOut,
-) {
+/// funding input.
+fn attach_wallet_funding(tx: &mut UnstakingBlockPayoutTx, funding: &FundingInput, output: TxOut) {
     tx.push_input(
         TxIn {
-            previous_output: funding_outpoint,
+            previous_output: funding.outpoint,
             ..Default::default()
         },
-        funding_prevout,
+        funding.txout.clone(),
     );
     tx.push_output(output);
-}
-
-/// Signs the appended general-wallet funding input using the secret service.
-///
-/// The general wallet uses a taproot key-spend path, so the signature commits to all prevouts and
-/// uses the default taproot sighash type.
-async fn sign_wallet_input(
-    output_handles: &OutputHandles,
-    tx: &Transaction,
-    prevouts: &[TxOut],
-) -> Result<taproot::Signature, ExecutorError> {
-    let prevouts = Prevouts::All(prevouts);
-    let mut sighash_cache = SighashCache::new(tx);
-    let s2_signer = output_handles.s2_client.general_wallet_signer();
-
-    let sighash = sighash_cache
-        .taproot_key_spend_signature_hash(WALLET_INPUT_INDEX, &prevouts, TapSighashType::Default)
-        .map_err(|e| {
-            warn!(%e, "failed to compute unstaking burn wallet-input sighash");
-            ExecutorError::WalletErr(format!("unstaking burn sighash error: {e}"))
-        })?;
-    let signature = s2_signer
-        .sign(&sighash.to_byte_array(), None)
-        .await
-        .map_err(|e| {
-            warn!(?e, "failed to sign unstaking burn wallet input");
-            ExecutorError::SecretServiceErr(e)
-        })?;
-
-    Ok(taproot::Signature {
-        signature,
-        sighash_type: TapSighashType::Default,
-    })
 }
 
 #[cfg(test)]
@@ -513,24 +194,18 @@ mod tests {
 
     use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
     use bitcoin::{
-        Address, Network, Txid, XOnlyPublicKey,
+        Address, Amount, Network, Txid, Weight, XOnlyPublicKey,
         hashes::{Hash, sha256},
         secp256k1::{Keypair, SECP256K1, SecretKey},
+        transaction::InputWeightPrediction,
     };
     use corepc_node::{Conf, Node};
-    use operator_wallet::{
-        NativeGeneralWallet, OperatorWalletConfig, SqliteStore, WalletKind, sync::Backend,
-    };
+    use operator_wallet::{GeneralCustody, OperatorWalletConfig, WalletKind, sync::Backend};
     use strata_bridge_connectors::prelude::ClaimUnstakingPayoutConnector;
     use strata_bridge_tx_graph::transactions::prelude::UnstakingBlockPayoutData;
     use tempfile::TempDir;
 
     use super::*;
-
-    const TEST_GRAPH_IDX: GraphIdx = GraphIdx {
-        deposit: 0,
-        operator: 0,
-    };
 
     fn setup_bitcoind() -> Node {
         let mut conf = Conf::default();
@@ -560,24 +235,18 @@ mod tests {
 
     /// Builds a wallet over fresh SQLite stores in a temp dir. The [`TempDir`] must outlive the
     /// wallet, so it is returned alongside.
-    async fn wallet(bitcoind: &Node) -> (NativeWallet, TempDir) {
+    async fn wallet(bitcoind: &Node) -> (OperatorWallet<SqliteStore>, TempDir) {
         let data_dir = tempfile::tempdir().expect("temp dir for wallet stores");
         let general_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::General)
             .expect("general store should open");
         let reserved_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::Reserved)
             .expect("reserved store should open");
-        let config = OperatorWalletConfig::new(Amount::from_sat(20_000), Network::Regtest);
-        let general = NativeGeneralWallet::load_or_create(
-            xonly_pubkey(1),
-            &config,
-            Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
-            general_store,
-            None,
-        )
-        .await
-        .expect("general wallet should initialise against an empty store");
-        let wallet = NativeWallet::load_or_create(
-            general,
+        let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest);
+        let wallet = OperatorWallet::load_or_create(
+            GeneralCustody::SecretService {
+                general_key: xonly_pubkey(1),
+                store: general_store,
+            },
             xonly_pubkey(2),
             config,
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
@@ -586,11 +255,11 @@ mod tests {
             BTreeSet::new(),
         )
         .await
-        .expect("reserved wallet should initialise against an empty store");
+        .expect("wallet should initialise against empty stores");
         (wallet, data_dir)
     }
 
-    fn fund_general_wallet(bitcoind: &Node, wallet: &NativeWallet, amount: Amount) {
+    fn fund_general_wallet(bitcoind: &Node, wallet: &OperatorWallet<SqliteStore>, amount: Amount) {
         let mining_address = bitcoind
             .client
             .new_address()
@@ -601,7 +270,7 @@ mod tests {
             .expect("coinbase outputs should mature");
 
         let general_address =
-            Address::from_script(&wallet.general_script_pubkey(), Network::Regtest)
+            Address::from_script(&wallet.general().script_pubkey(), Network::Regtest)
                 .expect("general wallet script should be addressable");
         bitcoind
             .client
@@ -611,6 +280,31 @@ mod tests {
             .client
             .generate_to_address(1, &mining_address)
             .expect("general wallet funding should confirm");
+    }
+
+    /// Funds the general wallet with a single unconfirmed credit: mature coinbases, then send
+    /// without mining, so the wallet's synced view holds one zero-confirmation UTXO.
+    fn fund_general_wallet_unconfirmed(
+        bitcoind: &Node,
+        wallet: &OperatorWallet<SqliteStore>,
+        amount: Amount,
+    ) {
+        let mining_address = bitcoind
+            .client
+            .new_address()
+            .expect("mining address should be generated");
+        bitcoind
+            .client
+            .generate_to_address(101, &mining_address)
+            .expect("coinbase outputs should mature");
+
+        let general_address =
+            Address::from_script(&wallet.general().script_pubkey(), Network::Regtest)
+                .expect("general wallet script should be addressable");
+        bitcoind
+            .client
+            .send_to_address(&general_address, amount)
+            .expect("general wallet should receive an unconfirmed credit");
     }
 
     fn unstaking_burn_tx(unstaking_preimage: [u8; 32]) -> UnstakingBlockPayoutTx {
@@ -636,11 +330,11 @@ mod tests {
         let unstaking_burn_tx = unstaking_burn_tx(unstaking_preimage);
         let payout_script = wallet_script();
         let fee_rate = FeeRate::from_sat_per_vb(2).expect("fee rate should be valid");
+        let prediction = InputWeightPrediction::P2TR_KEY_DEFAULT_SIGHASH;
 
-        let fee = estimate_unstaking_burn_fee(
-            &unstaking_burn_tx,
-            unstaking_preimage,
-            &payout_script,
+        let fee = chain::funded_tx_fee(
+            &funded_template(&unstaking_burn_tx, unstaking_preimage, &payout_script),
+            prediction,
             fee_rate,
         )
         .expect("fee should be estimated");
@@ -649,14 +343,15 @@ mod tests {
             value: Amount::from_sat(25_000),
             script_pubkey: payout_script.clone(),
         };
-        let output_value = unstaking_burn_tx.prevouts()[CONNECTOR_INPUT_INDEX].value
-            + funding_prevout.value
-            - fee.amount;
+        let output_value =
+            unstaking_burn_tx.prevouts()[CONNECTOR_INPUT_INDEX].value + funding_prevout.value - fee;
         let mut funded_burn = unstaking_burn_tx;
         attach_wallet_funding(
             &mut funded_burn,
-            OutPoint::null(),
-            funding_prevout,
+            &FundingInput {
+                outpoint: OutPoint::null(),
+                txout: funding_prevout,
+            },
             TxOut {
                 value: output_value,
                 script_pubkey: payout_script,
@@ -666,17 +361,15 @@ mod tests {
         let mut tx = funded_burn.finalize_partial(unstaking_preimage);
         tx.input[WALLET_INPUT_INDEX].witness.push([0; 64]);
 
-        assert_eq!(
-            tx.vsize() as u64,
-            fee.vsize,
-            "estimated vsize should match the finalized transaction shape"
+        assert!(
+            fee >= fee_rate.fee_wu(tx.weight()).expect("no overflow"),
+            "the fee must reach the rate on the signed transaction"
         );
-        assert_eq!(
-            fee.amount,
-            fee_rate
-                .fee_vb(tx.vsize() as u64)
-                .expect("fee should not overflow"),
-            "estimated fee should be derived from the selected fee rate and final vsize"
+        assert!(
+            fee <= fee_rate
+                .fee_wu(tx.weight() + Weight::from_wu(5))
+                .expect("no overflow"),
+            "the estimate must stay within the overlap of the empty input"
         );
     }
 
@@ -689,35 +382,68 @@ mod tests {
         let unstaking_preimage = [8; 32];
         let unstaking_burn_tx = unstaking_burn_tx(unstaking_preimage);
         let fee_rate = FeeRate::from_sat_per_vb(2).expect("fee rate should be valid");
-        let min_output_value = wallet.general_script_pubkey().minimal_non_dust();
+        let min_output_value = wallet.general().script_pubkey().minimal_non_dust();
 
-        let (funding, plan) = select_funding(
+        let funding = select_funding(
             &mut wallet,
-            TEST_GRAPH_IDX,
             &unstaking_burn_tx,
             unstaking_preimage,
             fee_rate,
         )
         .await
         .expect("wallet should have a suitable funding UTXO");
-        let wallet_output_value = plan.payout_connector_value + funding.prevout.value - plan.fee;
 
-        assert_eq!(
-            plan.fee_rate, fee_rate,
-            "funding plan should retain the selected fee rate"
-        );
         assert!(
-            wallet_output_value >= min_output_value,
+            funding.change.value >= min_output_value,
             "selected funding should leave a non-dust wallet output"
         );
-        assert_eq!(
-            plan.payout_connector_value,
-            unstaking_burn_tx.prevouts()[CONNECTOR_INPUT_INDEX].value,
-            "funding plan should retain the payout connector input value"
-        );
         assert!(
-            wallet.leased_outpoints().contains(&funding.outpoint),
+            wallet.leased_outpoints().contains(&funding.input.outpoint),
             "selected funding outpoint should be leased"
         );
+    }
+
+    #[tokio::test]
+    async fn select_funding_rejects_unconfirmed_wallet_utxo() {
+        let bitcoind = setup_bitcoind();
+        let (mut wallet, _data_dir) = wallet(&bitcoind).await;
+        fund_general_wallet_unconfirmed(&bitcoind, &wallet, Amount::from_sat(25_000));
+
+        // The pin is only strong if the wallet actually sees the zero-confirmation UTXO:
+        // a wallet view that never surfaces mempool credits would pass this test with the
+        // confirmations gate absent.
+        wallet.sync().await.expect("wallet should sync");
+        let unconfirmed = wallet
+            .general()
+            .list_utxos()
+            .into_iter()
+            .filter(|u| u.confirmations == 0)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unconfirmed.len(),
+            1,
+            "the wallet view should hold exactly one zero-confirmation UTXO"
+        );
+
+        let unstaking_preimage = [9; 32];
+        let unstaking_burn_tx = unstaking_burn_tx(unstaking_preimage);
+        let fee_rate = FeeRate::from_sat_per_vb(2).expect("fee rate should be valid");
+
+        let err = select_funding(
+            &mut wallet,
+            &unstaking_burn_tx,
+            unstaking_preimage,
+            fee_rate,
+        )
+        .await
+        .expect_err("a zero-confirmation UTXO must not fund the burn (TRUC, BIP-431)");
+
+        match err {
+            ExecutorError::WalletErr(msg) => assert!(
+                msg.contains("no general wallet UTXO"),
+                "rejection should report no available funding, got: {msg}"
+            ),
+            other => panic!("expected WalletErr, got: {other:?}"),
+        }
     }
 }
