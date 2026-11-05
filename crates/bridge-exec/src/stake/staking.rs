@@ -213,7 +213,10 @@ async fn estimate_funding_fee_rate(
     Ok(fee_rate)
 }
 
-/// Funds one reserved-wallet output of `funding_amount` from general-wallet outputs.
+/// Funds one reserved-wallet output of `funding_amount` from confirmed general-wallet outputs.
+///
+/// The funding transaction is v3, and TRUC rejects a v3 transaction with an unconfirmed non-v3
+/// parent, so an unconfirmed input can make it unrelayable.
 fn select_stake_funding(
     wallet: &mut OperatorWallet<SqliteStore>,
     fee_rate: FeeRate,
@@ -224,7 +227,7 @@ fn select_stake_funding(
             fee_rate,
             funding_amount,
             1,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
+            GeneralUtxoPolicy::ConfirmedOnly,
             LeaseOwner::StakeFunding,
         )
         .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))
@@ -451,4 +454,96 @@ fn stake_funding_amount(network: Network, stake_amount: Amount) -> Amount {
         fee::unstaking_intent_surcharge(),
     );
     StakeTx::stake_funds_required(stake_amount, &unstaking_intent_output)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeSet, sync::Arc};
+
+    use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
+    use bitcoin::{
+        Address, Amount, FeeRate, Network,
+        secp256k1::{Keypair, SECP256K1},
+    };
+    use corepc_node::{Conf, Node};
+    use operator_wallet::{
+        GeneralCustody, OperatorWallet, OperatorWalletConfig, SqliteStore, WalletKind,
+        sync::Backend,
+    };
+
+    use super::select_stake_funding;
+
+    /// Stake funding is v3, so a zero-confirmation general output must not fund it.
+    #[tokio::test]
+    async fn stake_funding_refuses_an_unconfirmed_general_output() {
+        let bitcoind = Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind starts");
+        let data_dir = tempfile::tempdir().expect("temp dir");
+        let mut wallet = test_wallet(&bitcoind, &data_dir).await;
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let general_address =
+            Address::from_script(&wallet.general().script_pubkey(), Network::Regtest)
+                .expect("general address");
+        bitcoind
+            .client
+            .send_to_address(&general_address, Amount::from_sat(100_000))
+            .expect("fund the general wallet");
+        wallet.sync().await.expect("sync sees the mempool credit");
+
+        let fee_rate = FeeRate::from_sat_per_vb(2).expect("valid rate");
+        let amount = Amount::from_sat(50_000);
+        assert!(
+            select_stake_funding(&mut wallet, fee_rate, amount).is_err(),
+            "a mempool credit must not fund the stake"
+        );
+
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm the credit");
+        wallet.sync().await.expect("sync sees the block");
+        assert!(
+            select_stake_funding(&mut wallet, fee_rate, amount).is_ok(),
+            "a confirmed output funds the stake"
+        );
+    }
+
+    fn test_key(seed: u8) -> bitcoin::XOnlyPublicKey {
+        Keypair::from_seckey_slice(SECP256K1, &[seed; 32])
+            .expect("valid secret key")
+            .x_only_public_key()
+            .0
+    }
+
+    async fn test_wallet(
+        bitcoind: &Node,
+        data_dir: &tempfile::TempDir,
+    ) -> OperatorWallet<SqliteStore> {
+        let core_client = || {
+            let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
+            Arc::new(CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core client"))
+        };
+        let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest);
+        let general_store =
+            SqliteStore::open_in_dir(data_dir.path(), WalletKind::General).expect("general store");
+        let reserved_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::Reserved)
+            .expect("reserved store");
+        OperatorWallet::load_or_create(
+            GeneralCustody::SecretService {
+                general_key: test_key(1),
+                store: general_store,
+            },
+            test_key(2),
+            config,
+            Backend::BitcoinCore(core_client()),
+            reserved_store,
+            None,
+            BTreeSet::new(),
+        )
+        .await
+        .expect("operator wallet")
+    }
 }

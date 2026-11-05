@@ -578,10 +578,12 @@ async fn fulfill_withdrawal(
             }
             None => {
                 info!(%deposit_idx, "selecting new funding outpoints");
+                // Confirmed inputs only: the withdrawal fulfillment is v3, and TRUC rejects a v3
+                // transaction with an unconfirmed non-v3 ancestor.
                 let candidate = wallet.fund_v3_transaction(
                     unfunded_tx.output.clone(),
                     fee_rate,
-                    GeneralUtxoPolicy::IncludeUnconfirmed,
+                    GeneralUtxoPolicy::ConfirmedOnly,
                     LeaseOwner::WithdrawalFulfillment,
                 );
                 match candidate {
