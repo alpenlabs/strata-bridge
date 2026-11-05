@@ -50,8 +50,9 @@ pub enum ExecutorError {
     #[error("stake outpoint {0} already spent on chain")]
     StakeOutPointAlreadySpent(OutPoint),
 
-    /// The claim funding outpoint is not among the reserved wallet's unspent outputs.
-    #[error("claim funding outpoint {0} not found in wallet")]
+    /// The claim funding outpoint is not among the reserved wallet's unspent outputs, and the node
+    /// does not know its transaction.
+    #[error("claim funding outpoint {0} not found in the wallet or on the node")]
     ClaimFundingOutPointMissing(OutPoint),
 
     /// The claim-funding reservation recorded for a graph does not hold the amount its claim
