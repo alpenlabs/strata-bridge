@@ -246,17 +246,27 @@ async fn ensure_claim_funding_outpoint(
     Ok(assigned_outpoint)
 }
 
-/// Tops up the claim-funding pool of `value` and takes a lease on one of the new outputs.
+/// Tops up the claim-funding pool of `value` and takes a lease on one of the new outputs, or on an
+/// output that settled while this duty waited for the refill lock.
 ///
 /// The refill spends buried general-wallet inputs at the protocol fee rate, so a duty can reserve
 /// one of its outputs as soon as the refill transaction is in the node's mempool. The batch is the
 /// whole pool size: the reservation before the refill found no free settled member.
+///
+/// One refill runs at a time. The refill lock is held across signing and the wait for the mempool,
+/// so a second duty that finds the pool empty waits for this refill and then takes one of its
+/// outputs.
 async fn refill_claim_funding(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     value: Amount,
 ) -> Result<(OutPoint, Lease), ExecutorError> {
+    let _refill = output_handles.claim_funding_refill.lock().await;
     let mut wallet = output_handles.wallet.write().await;
+    if let Some(reserved) = reserve_synced_claim_funding(&mut wallet, value, cfg.bury_depth).await?
+    {
+        return Ok(reserved);
+    }
 
     warn!("could not acquire claim funding utxo. attempting refill...");
     // The wallet stays denomination-agnostic; the batch is sized here.
