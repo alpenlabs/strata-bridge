@@ -13,12 +13,13 @@ def wait_until_current_covenant(
     bridge_rpcs: list,
     members: list[int],
     activation_height: int | None = None,
-    admission_status: str = "ready",
+    admission_status: str | None = "ready",
     timeout: int = 600,
 ) -> RpcCovenantId:
     """Wait until every node reports the same current covenant with `members`.
 
-    The covenant must also have `admission_status` and, when given, `activation_height`.
+    The covenant must also have `admission_status`, unless it is `None`, and, when given,
+    `activation_height`.
     Returns the covenant all nodes agree on.
     """
     result: dict[str, RpcCovenantId | None] = {"covenant": None}
@@ -28,7 +29,7 @@ def wait_until_current_covenant(
         logging.info(f"Current covenants: {reported}")
         matching = all(
             current.members == members
-            and current.admission_status == admission_status
+            and (admission_status is None or current.admission_status == admission_status)
             and (
                 activation_height is None or current.covenant.activation_height == activation_height
             )
@@ -48,7 +49,8 @@ def wait_until_current_covenant(
         step=1,
         error_msg=(
             f"Timeout after {timeout}s waiting for every node to report covenant members "
-            f"{members} with admission `{admission_status}`"
+            f"{members}"
+            + ("" if admission_status is None else f" with admission `{admission_status}`")
             + ("" if activation_height is None else f" activated at {activation_height}")
         ),
     )
