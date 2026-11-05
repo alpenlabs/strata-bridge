@@ -26,7 +26,7 @@
 //! the wallet, and then signs, so a wait for a signature never sits under a wallet lock. A failed
 //! signature drops the lease, which returns the inputs.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc, time::Instant};
 
 use bdk_wallet::{
     bitcoin::{
@@ -79,6 +79,15 @@ impl LeasedPsbt {
     }
 }
 
+/// The most recent attempt of [`OperatorWallet::sync`].
+#[derive(Debug, Clone, Copy)]
+pub struct LastSync {
+    /// Whether both wallets synced.
+    pub succeeded: bool,
+    /// When the attempt ended.
+    pub at: Instant,
+}
+
 /// Which general-wallet UTXOs reserved-wallet funding may select from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneralUtxoPolicy {
@@ -102,6 +111,11 @@ pub struct OperatorWallet<P> {
     reserved: TrackedWallet<P>,
     config: OperatorWalletConfig,
     leases: Arc<LeaseSet>,
+    /// The most recent sync attempt. `None` before the first attempt. The two wallets have
+    /// separate stores and sync one after the other inside [`Self::sync`], so the reserved tip
+    /// advances while a store failure stops the general wallet, and the tip alone cannot show
+    /// that.
+    last_sync: Option<LastSync>,
 }
 
 impl<P: WalletStore> OperatorWallet<P> {
@@ -150,6 +164,7 @@ impl<P: WalletStore> OperatorWallet<P> {
             reserved,
             config,
             leases: Arc::new(LeaseSet::with_committed(initial_leases)),
+            last_sync: None,
         })
     }
 
@@ -216,7 +231,7 @@ impl<P: WalletStore> OperatorWallet<P> {
     /// internal write path, so health probes can observe sync progress through a shared read
     /// lock without serializing against wallet-dependent duties. The tip covers the reserved
     /// wallet only: the general wallet syncs separately inside [`sync`](Self::sync) and can fail
-    /// while this tip advances.
+    /// while this tip advances — probe [`Self::last_sync`] for it.
     pub fn local_chain_tip_height(&self) -> u32 {
         self.reserved.tip().height
     }
@@ -224,6 +239,18 @@ impl<P: WalletStore> OperatorWallet<P> {
     /// Returns the block hash of the reserved wallet's local chain tip.
     pub fn reserved_tip_hash(&self) -> bdk_wallet::bitcoin::BlockHash {
         self.reserved.tip().hash
+    }
+
+    /// The most recent sync attempt, or `None` before the first.
+    ///
+    /// The reserved tip ([`Self::local_chain_tip_height`]) keeps advancing while the general
+    /// wallet fails, because each wallet has its own store. A health probe that reads only the
+    /// tip therefore reports a general wallet whose store has failed as healthy forever.
+    ///
+    /// A sync does not reach the signer, so this says nothing about it: an outage of the signer
+    /// shows up when a duty signs.
+    pub const fn last_sync(&self) -> Option<LastSync> {
+        self.last_sync
     }
 
     // ── Reserved-wallet UTXO lookup ─────────────────────────────────────────
@@ -445,6 +472,10 @@ impl<P: WalletStore> OperatorWallet<P> {
                 error!(?e, attempt, "error syncing wallet");
             }
             let result = general_result.and(reserved_result);
+            self.last_sync = Some(LastSync {
+                succeeded: result.is_ok(),
+                at: Instant::now(),
+            });
             match result {
                 Ok(()) => break,
                 Err(e) => {
