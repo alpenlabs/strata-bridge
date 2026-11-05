@@ -52,7 +52,7 @@ pub use crate::{
     plan::{FundingInput, IncumbentChild, REPLACEMENT_INCREMENT_SAT_PER_VB},
     sync::SyncError,
     tracked::{TrackedWallet, UtxoInfo},
-    wallet::{GeneralUtxoPolicy, LeasedPsbt, OperatorWallet},
+    wallet::{GeneralUtxoPolicy, LastSync, LeasedPsbt, OperatorWallet},
 };
 
 /// Errors returned by [`OperatorWallet`] methods. An init error is boxed so that call sites do not
