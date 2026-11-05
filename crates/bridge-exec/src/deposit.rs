@@ -30,6 +30,7 @@ use strata_bridge_tx_graph::{
         CooperativePayoutTx, SweepTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
     },
 };
+use strata_l1_txfmt::MagicBytes;
 use tracing::{error, info, warn};
 
 use crate::{
@@ -92,6 +93,8 @@ pub async fn execute_deposit_duty(
             deadline,
             recipient_desc,
             deposit_amount,
+            operator_fee,
+            magic_bytes,
         } => {
             fulfill_withdrawal(
                 &cfg,
@@ -100,6 +103,8 @@ pub async fn execute_deposit_duty(
                 *deadline,
                 recipient_desc.clone(),
                 *deposit_amount,
+                *operator_fee,
+                *magic_bytes,
             )
             .await
         }
@@ -464,6 +469,7 @@ async fn publish_deposit(
 /// Fulfills a user's withdrawal request by fronting funds to the user.
 ///
 /// Only the assignee executes this duty.
+#[expect(clippy::too_many_arguments)]
 async fn fulfill_withdrawal(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
@@ -471,6 +477,8 @@ async fn fulfill_withdrawal(
     deadline: BitcoinBlockHeight,
     recipient_desc: Descriptor,
     deposit_amount: Amount,
+    operator_fee: Amount,
+    magic_bytes: MagicBytes,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %deadline, dest=%recipient_desc, "checking withdrawal fulfillment conditions");
 
@@ -495,7 +503,7 @@ async fn fulfill_withdrawal(
 
     // Calculate the amount to send to user (deposit_amount - operator_fee)
     let amount = deposit_amount
-        .checked_sub(cfg.operator_fee)
+        .checked_sub(operator_fee)
         .expect("deposit amount must be greater than operator fee");
 
     // Get fee rate estimate from bitcoind, bounded from below by `fee::FEE_RATE` so the
@@ -540,7 +548,7 @@ async fn fulfill_withdrawal(
     let wft_data = WithdrawalFulfillmentData {
         deposit_idx,
         user_amount: amount,
-        magic_bytes: cfg.magic_bytes,
+        magic_bytes,
     };
     let wft = WithdrawalFulfillmentTx::new(wft_data, recipient_desc);
     let unfunded_tx = wft.into_unsigned_tx();

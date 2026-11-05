@@ -934,6 +934,102 @@ mod tests {
         },
     };
 
+    #[test]
+    fn fulfillment_assignment_and_retry_keep_pinned_fee_and_magic_bytes() {
+        use strata_bridge_sm::{
+            deposit::{
+                duties::DepositDuty,
+                events::{RetryTickEvent, WithdrawalAssignedEvent},
+            },
+            tx_classifier::{TxClassifier, is_fulfillment},
+        };
+        use strata_bridge_test_utils::bridge_fixtures::random_p2tr_desc;
+        use strata_bridge_tx_graph::transactions::prelude::{
+            WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+        };
+
+        let original = test_populated_registry(1);
+        let pinned = original.current_config().clone();
+        let mut startup = original.cfg().clone();
+        let startup_deposit = Arc::make_mut(&mut startup.deposit);
+        startup_deposit.operator_fee += Amount::from_sat(100);
+        startup_deposit.magic_bytes = [0x4e, 0x45, 0x57, 0x21].into();
+        let mut deposit = original.get_deposit(&0).unwrap().clone();
+        deposit.state = DepositState::Deposited {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+        let mut registry = SMRegistry::new(startup.clone());
+        registry
+            .insert_pinned_deposit(0, deposit, pinned.clone())
+            .unwrap();
+        let recipient = random_p2tr_desc();
+
+        for event in [
+            DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: INITIAL_BLOCK_HEIGHT + 100,
+                recipient_desc: recipient.clone(),
+            }),
+            DepositEvent::RetryTick(RetryTickEvent),
+        ] {
+            let ProcessOutcome::Applied(output) = registry
+                .process_event(&SMId::Deposit(0), event.into())
+                .unwrap()
+            else {
+                panic!("assignment and retry must apply");
+            };
+            let [
+                UnifiedDuty::Deposit(DepositDuty::FulfillWithdrawalRequest {
+                    deposit_idx,
+                    deposit_amount,
+                    operator_fee,
+                    magic_bytes,
+                    recipient_desc,
+                    ..
+                }),
+            ] = output.duties.as_slice()
+            else {
+                panic!("expected one fulfillment duty, got {:?}", output.duties);
+            };
+            assert_eq!(*operator_fee, pinned.deposit().operator_fee);
+            assert_eq!(*magic_bytes, pinned.deposit().magic_bytes);
+            let tx = WithdrawalFulfillmentTx::new(
+                WithdrawalFulfillmentData {
+                    deposit_idx: *deposit_idx,
+                    user_amount: *deposit_amount - *operator_fee,
+                    magic_bytes: *magic_bytes,
+                },
+                recipient_desc.clone(),
+            )
+            .into_unsigned_tx();
+            assert!(matches!(
+                registry.get_deposit(&0).unwrap().classify_tx(
+                    pinned.deposit(),
+                    &tx,
+                    INITIAL_BLOCK_HEIGHT + 1,
+                ),
+                Some(DepositEvent::FulfillmentConfirmed(_))
+            ));
+            // Either startup value would make this fulfillment unrecognizable.
+            assert!(!is_fulfillment(
+                *magic_bytes,
+                *deposit_idx,
+                *deposit_amount,
+                startup.deposit.operator_fee,
+                recipient_desc,
+                &tx,
+            ));
+            assert!(!is_fulfillment(
+                startup.deposit.magic_bytes,
+                *deposit_idx,
+                *deposit_amount,
+                *operator_fee,
+                recipient_desc,
+                &tx,
+            ));
+        }
+    }
+
     // ===== Basic CRUD tests =====
 
     #[test]

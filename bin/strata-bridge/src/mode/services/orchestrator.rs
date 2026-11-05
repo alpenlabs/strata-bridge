@@ -331,9 +331,7 @@ fn build_exec_config(params: &Params, config: &Config) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
-        magic_bytes: params.protocol.magic_bytes,
         maximum_fee_rate: FeeRate::from_sat_per_vb(config.max_fee_rate).unwrap(),
-        operator_fee: params.protocol.operator_fee,
         stake_amount: params.protocol.stake_amount,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         bury_depth: u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32"),

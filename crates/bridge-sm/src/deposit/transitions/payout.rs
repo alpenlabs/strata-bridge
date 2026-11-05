@@ -118,6 +118,8 @@ impl DepositSM {
                     deadline: assignment.deadline,
                     recipient_desc: assignment.recipient_desc,
                     deposit_amount: cfg.deposit_amount(),
+                    operator_fee: cfg.operator_fee(),
+                    magic_bytes: cfg.magic_bytes(),
                 },
             ]))
         } else {
