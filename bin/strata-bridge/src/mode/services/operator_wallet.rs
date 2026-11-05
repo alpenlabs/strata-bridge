@@ -1,11 +1,13 @@
 //! Provides operator wallet initialization.
 
-use std::{sync::Arc, time::Instant};
+use std::{future::Future, sync::Arc, time::Instant};
 
 use anyhow::{Context, anyhow, ensure};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::BlockHash;
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
+use btc_tracker::event::{BlockEvent, BlockStatus};
+use futures::{FutureExt, Stream, StreamExt, future::ready};
 use operator_wallet::{
     BlockId, DEFAULT_PERSIST_EVERY_BLOCKS, GeneralCustody, OperatorWallet, OperatorWalletConfig,
     SqliteStore, WalletKind, sync::Backend,
@@ -14,7 +16,7 @@ use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
-use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
+use strata_bridge_primitives::{constants::SEGWIT_MIN_AMOUNT, subscription::Subscription};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -230,11 +232,75 @@ pub(in crate::mode) async fn spawn_initial_operator_wallet_sync(
     }
 }
 
+/// Syncs the operator wallet once for each new block, for as long as `blocks` yields.
+///
+/// Selection reads the view of the last sync, so this bounds the age of that view to one block on
+/// an active chain. The task takes the exclusive guard for each sync, as any duty does, and it
+/// is the only sync that a node with no running duty sees. A failed sync waits for the next block.
+pub(in crate::mode) async fn sync_wallet_on_new_blocks(
+    wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
+    blocks: Subscription<BlockEvent>,
+) {
+    let mined = blocks.filter(|event| ready(event.status == BlockStatus::Mined));
+    run_for_each_batch(Box::pin(mined), || async {
+        // Bind the result so the write guard (a temporary in this expression) drops here.
+        let result = wallet.write().await.sync().await;
+        if let Err(e) = result {
+            warn!(
+                ?e,
+                "wallet sync on a new block failed; the next block retries"
+            );
+        }
+    })
+    .await;
+}
+
+/// Calls `action` once for each batch of items that `items` has ready. A sync reads the whole
+/// chain tip, so the replay at startup and a burst of blocks cost one call each.
+async fn run_for_each_batch<T, F, Fut>(mut items: impl Stream<Item = T> + Unpin, action: F)
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = ()>,
+{
+    while items.next().await.is_some() {
+        while let Some(Some(_)) = items.next().now_or_never() {}
+        action().await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use bitcoin::hashes::Hash;
+    use futures::channel::mpsc;
 
     use super::*;
+
+    /// Items that arrive while an earlier batch runs form one later batch.
+    #[tokio::test]
+    async fn ready_items_form_one_batch_each() {
+        let (sender, receiver) = mpsc::unbounded();
+        for item in 0..3 {
+            sender.unbounded_send(item).expect("open channel");
+        }
+        let calls = Cell::new(0);
+        run_for_each_batch(receiver, || async {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 {
+                sender.unbounded_send(3).expect("open channel");
+                sender.unbounded_send(4).expect("open channel");
+            } else {
+                sender.close_channel();
+            }
+        })
+        .await;
+        assert_eq!(
+            calls.get(),
+            2,
+            "the three queued items form one batch and the two sent during it form another"
+        );
+    }
 
     fn hash(byte: u8) -> BlockHash {
         BlockHash::from_byte_array([byte; 32])
