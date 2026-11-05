@@ -48,7 +48,7 @@ fn canonical_connector_spending_tx() -> Transaction {
     generate_spending_tx(
         OutPoint {
             txid: TEST_GRAPH_SUMMARY.claim,
-            vout: ClaimTx::PAYOUT_VOUT,
+            vout: ClaimTx::ADMIN_PAYOUT_VOUT,
         },
         &[],
     )

@@ -16,8 +16,9 @@ use bitcoin::{
 use secp256k1::schnorr;
 use strata_bridge_connectors::{
     prelude::{
-        AdminSignature, ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness,
-        CounterproofConnector, TimelockedSpendPath, TimelockedWitness,
+        AdminSignature, ClaimAdminPayoutConnector, ClaimAdminPayoutSpendPath,
+        ClaimAdminPayoutWitness, ClaimUnstakingPayoutConnector, ClaimUnstakingPayoutSpendPath,
+        ClaimUnstakingPayoutWitness, CounterproofConnector, TimelockedSpendPath, TimelockedWitness,
     },
     Connector, SigningInfo,
 };
@@ -151,21 +152,21 @@ impl CounterproofNackTx {
 }
 
 impl_not_presigned_tx! {
-    /// Data that is needed to construct an [`AdminBurnTx`].
-    pub struct AdminBurnData {
+    /// Data that is needed to construct an [`AdminBlockPayoutTx`].
+    pub struct AdminBlockPayoutData {
         /// ID of the claim transaction.
         pub claim_txid: Txid,
     }
 
-    /// Admin burn transaction.
-    pub struct AdminBurnTx;
+    /// Admin block payout transaction.
+    pub struct AdminBlockPayoutTx;
 
-    type Connector = ClaimPayoutConnector;
-    const VOUT = ClaimTx::PAYOUT_VOUT;
-    const SPEND_PATH = ClaimPayoutSpendPath::AdminBurn;
+    type Connector = ClaimAdminPayoutConnector;
+    const VOUT = ClaimTx::ADMIN_PAYOUT_VOUT;
+    const SPEND_PATH = ClaimAdminPayoutSpendPath::AdminBlockPayout;
 }
 
-impl AdminBurnTx {
+impl AdminBlockPayoutTx {
     /// Finalizes the first transaction input and returns the resulting bitcoin transaction.
     ///
     /// The remaining inputs must be manually signed.
@@ -181,7 +182,7 @@ impl AdminBurnTx {
             input.witness_utxo = Some(utxo);
         }
 
-        let witness = ClaimPayoutWitness::AdminBurn { admin_signatures };
+        let witness = ClaimAdminPayoutWitness::AdminBlockPayout { admin_signatures };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
 
         psbt.extract_tx().expect("should be able to extract tx")
@@ -189,21 +190,21 @@ impl AdminBurnTx {
 }
 
 impl_not_presigned_tx! {
-    /// Data that is needed to construct an [`UnstakingBurnTx`].
-    pub struct UnstakingBurnData {
+    /// Data that is needed to construct an [`UnstakingBlockPayoutTx`].
+    pub struct UnstakingBlockPayoutData {
         /// ID of the claim transaction.
         pub claim_txid: Txid,
     }
 
-    /// Unstaking burn transaction.
-    pub struct UnstakingBurnTx;
+    /// Unstaking block payout transaction.
+    pub struct UnstakingBlockPayoutTx;
 
-    type Connector = ClaimPayoutConnector;
-    const VOUT = ClaimTx::PAYOUT_VOUT;
-    const SPEND_PATH = ClaimPayoutSpendPath::UnstakingBurn;
+    type Connector = ClaimUnstakingPayoutConnector;
+    const VOUT = ClaimTx::UNSTAKING_PAYOUT_VOUT;
+    const SPEND_PATH = ClaimUnstakingPayoutSpendPath::UnstakingBlockPayout;
 }
 
-impl UnstakingBurnTx {
+impl UnstakingBlockPayoutTx {
     /// Finalizes the first transaction input and returns the resulting bitcoin transaction.
     ///
     /// The remaining inputs must be manually signed.
@@ -213,7 +214,7 @@ impl UnstakingBurnTx {
             input.witness_utxo = Some(utxo);
         }
 
-        let witness = ClaimPayoutWitness::UnstakingBurn { unstaking_preimage };
+        let witness = ClaimUnstakingPayoutWitness::UnstakingBlockPayout { unstaking_preimage };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
 
         psbt.extract_tx().expect("should be able to extract tx")

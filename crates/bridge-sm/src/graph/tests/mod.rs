@@ -343,7 +343,7 @@ pub(super) fn test_payout_connector_spent_tx() -> Transaction {
     generate_spending_tx(
         OutPoint {
             txid: test_graph_summary().claim,
-            vout: ClaimTx::PAYOUT_VOUT,
+            vout: ClaimTx::ADMIN_PAYOUT_VOUT,
         },
         &[],
     )

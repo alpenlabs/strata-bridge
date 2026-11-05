@@ -266,7 +266,7 @@ impl ContestSlashConnector {
 }
 
 impl_timelocked_connector! {
-    /// Connector output between `Contest` and:
+    /// Connector output between `Watchtower i Counterproof` and:
     /// 1. `Watchtower i Nack` (normal)
     /// 2. `Watchtower i Ack` (timeout).
     ///

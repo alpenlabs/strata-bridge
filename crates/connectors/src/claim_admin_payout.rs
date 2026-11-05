@@ -1,30 +1,24 @@
 //! This module contains the claim payout connector.
 
-use bitcoin::{
-    hashes::{sha256, Hash},
-    opcodes, Amount, Network, ScriptBuf,
-};
+use bitcoin::{Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::prelude::threshold_multisig_script;
 
 use crate::{Connector, TaprootWitness};
 
 /// Connector output between `Claim` and:
-/// 1. `Bridge Proof Timeout`
-/// 2. `Uncontested Payout` / `Contested Payout`.
+/// 1. `Uncontested Payout` / `Contested Payout`.
+/// 2. `Admin Block Payout`
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ClaimPayoutConnector {
+pub struct ClaimAdminPayoutConnector {
     network: Network,
     n_of_n_pubkey: XOnlyPublicKey,
     admin_pubkeys: Vec<XOnlyPublicKey>,
     admin_threshold: usize,
-    unstaking_image: sha256::Hash,
 }
 
-impl ClaimPayoutConnector {
+impl ClaimAdminPayoutConnector {
     /// Creates a new connector.
-    ///
-    /// The preimage of `unstaking_image` must be 32 bytes long.
     ///
     /// # Panics
     ///
@@ -35,7 +29,6 @@ impl ClaimPayoutConnector {
         n_of_n_pubkey: XOnlyPublicKey,
         admin_pubkeys: Vec<XOnlyPublicKey>,
         admin_threshold: usize,
-        unstaking_image: sha256::Hash,
     ) -> Self {
         assert!(
             !admin_pubkeys.is_empty(),
@@ -62,14 +55,13 @@ impl ClaimPayoutConnector {
             n_of_n_pubkey,
             admin_pubkeys,
             admin_threshold,
-            unstaking_image,
         }
     }
 }
 
-impl Connector for ClaimPayoutConnector {
-    type SpendPath = ClaimPayoutSpendPath;
-    type Witness = ClaimPayoutWitness;
+impl Connector for ClaimAdminPayoutConnector {
+    type SpendPath = ClaimAdminPayoutSpendPath;
+    type Witness = ClaimAdminPayoutWitness;
 
     fn network(&self) -> Network {
         self.network
@@ -80,23 +72,10 @@ impl Connector for ClaimPayoutConnector {
     }
 
     fn leaf_scripts(&self) -> Vec<ScriptBuf> {
-        let mut scripts = Vec::new();
-
-        let admin_burn_script =
-            threshold_multisig_script(&self.admin_pubkeys, self.admin_threshold);
-        scripts.push(admin_burn_script);
-
-        let unstaking_burn_script = ScriptBuf::builder()
-            .push_opcode(opcodes::all::OP_SIZE)
-            .push_int(0x20)
-            .push_opcode(opcodes::all::OP_EQUALVERIFY)
-            .push_opcode(opcodes::all::OP_SHA256)
-            .push_slice(self.unstaking_image.to_byte_array())
-            .push_opcode(opcodes::all::OP_EQUAL)
-            .into_script();
-        scripts.push(unstaking_burn_script);
-
-        scripts
+        vec![threshold_multisig_script(
+            &self.admin_pubkeys,
+            self.admin_threshold,
+        )]
     }
 
     fn value(&self) -> Amount {
@@ -105,20 +84,19 @@ impl Connector for ClaimPayoutConnector {
 
     fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
         match spend_path {
-            ClaimPayoutSpendPath::Payout => None,
-            ClaimPayoutSpendPath::AdminBurn => Some(0),
-            ClaimPayoutSpendPath::UnstakingBurn => Some(1),
+            ClaimAdminPayoutSpendPath::Payout => None,
+            ClaimAdminPayoutSpendPath::AdminBlockPayout => Some(0),
         }
     }
 
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         match witness {
-            ClaimPayoutWitness::Payout {
+            ClaimAdminPayoutWitness::Payout {
                 output_key_signature,
             } => TaprootWitness::Key {
                 output_key_signature: *output_key_signature,
             },
-            ClaimPayoutWitness::AdminBurn { admin_signatures } => {
+            ClaimAdminPayoutWitness::AdminBlockPayout { admin_signatures } => {
                 let mut accepted_signatures = admin_signatures
                     .iter()
                     .copied()
@@ -134,7 +112,7 @@ impl Connector for ClaimPayoutConnector {
 
                 assert!(
                     accepted_signatures.len() >= self.admin_threshold,
-                    "admin burn requires at least threshold signatures for distinct known admin pubkeys"
+                    "admin block payout requires at least threshold signatures for distinct known admin pubkeys"
                 );
                 accepted_signatures.truncate(self.admin_threshold);
 
@@ -154,10 +132,6 @@ impl Connector for ClaimPayoutConnector {
                     script_inputs,
                 }
             }
-            ClaimPayoutWitness::UnstakingBurn { unstaking_preimage } => TaprootWitness::Script {
-                leaf_index: 1,
-                script_inputs: vec![unstaking_preimage.to_vec()],
-            },
         }
     }
 }
@@ -171,21 +145,19 @@ pub struct AdminSignature {
     pub signature: schnorr::Signature,
 }
 
-/// Available spending paths for a [`ClaimPayoutConnector`].
+/// Available spending paths for a [`ClaimAdminPayoutConnector`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum ClaimPayoutSpendPath {
+pub enum ClaimAdminPayoutSpendPath {
     /// The connector is spent in the `Uncontested Payout`
     /// or in the `Contested Payout` transaction.
     Payout,
-    /// The connector is spent in the `Admin Burn` transaction.
-    AdminBurn,
-    /// The connector is spent in the `Unstaking Burn` transaction.
-    UnstakingBurn,
+    /// The connector is spent in the `Admin Block Payout` transaction.
+    AdminBlockPayout,
 }
 
-/// Witness data to spend a [`ClaimPayoutConnector`].
+/// Witness data to spend a [`ClaimAdminPayoutConnector`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ClaimPayoutWitness {
+pub enum ClaimAdminPayoutWitness {
     /// The connector is spent in the `Uncontested Payout`
     /// or in the `Contested Payout` transaction.
     Payout {
@@ -194,8 +166,8 @@ pub enum ClaimPayoutWitness {
         /// The output key is the N/N key tweaked with the tap tree merkle root.
         output_key_signature: schnorr::Signature,
     },
-    /// The connector is spent in the `Admin Burn` transaction.
-    AdminBurn {
+    /// The connector is spent in the `Admin Block Payout` transaction.
+    AdminBlockPayout {
         /// Admin signatures paired with the pubkey indices they validate against.
         ///
         /// The witness builder ignores unknown or repeated pubkey indices, keeps threshold
@@ -203,33 +175,27 @@ pub enum ClaimPayoutWitness {
         /// admin pubkeys that are not selected.
         admin_signatures: Vec<AdminSignature>,
     },
-    /// The connector is spent in the `Unstaking Burn` transaction.
-    UnstakingBurn {
-        /// Preimage that is revealed when the operator posts the unstaking intent transaction.
-        unstaking_preimage: [u8; 32],
-    },
 }
 
 #[cfg(test)]
 mod tests {
     use std::array;
 
-    use secp256k1::{rand::random, schnorr, Keypair};
+    use secp256k1::{schnorr, Keypair};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
     use crate::{test_utils::Signer, SigningInfo};
 
-    struct ClaimPayoutSigner<const THRESHOLD: usize, const N_ADMINS: usize> {
+    struct ClaimAdminPayoutSigner<const THRESHOLD: usize, const N_ADMINS: usize> {
         n_of_n_keypair: Keypair,
         admin_keypairs: [Keypair; N_ADMINS],
-        unstaking_preimage: [u8; 32],
     }
 
     impl<const THRESHOLD: usize, const N_ADMINS: usize> Signer
-        for ClaimPayoutSigner<THRESHOLD, N_ADMINS>
+        for ClaimAdminPayoutSigner<THRESHOLD, N_ADMINS>
     {
-        type Connector = ClaimPayoutConnector;
+        type Connector = ClaimAdminPayoutConnector;
 
         fn generate() -> Self {
             assert!(N_ADMINS > 0);
@@ -239,12 +205,11 @@ mod tests {
             Self {
                 n_of_n_keypair: generate_keypair(),
                 admin_keypairs: array::from_fn(|_| generate_keypair()),
-                unstaking_preimage: random::<[u8; 32]>(),
             }
         }
 
         fn get_connector(&self) -> Self::Connector {
-            ClaimPayoutConnector::new(
+            ClaimAdminPayoutConnector::new(
                 Network::Regtest,
                 self.n_of_n_keypair.x_only_public_key().0,
                 self.admin_keypairs
@@ -252,12 +217,11 @@ mod tests {
                     .map(|keypair| keypair.x_only_public_key().0)
                     .collect(),
                 THRESHOLD,
-                sha256::Hash::hash(&self.unstaking_preimage),
             )
         }
 
         fn get_connector_name(&self) -> &'static str {
-            "claim-payout"
+            "claim-admin-payout"
         }
 
         fn sign_leaf(
@@ -266,56 +230,65 @@ mod tests {
             signing_info: SigningInfo,
         ) -> <Self::Connector as Connector>::Witness {
             match spend_path {
-                ClaimPayoutSpendPath::Payout => ClaimPayoutWitness::Payout {
+                ClaimAdminPayoutSpendPath::Payout => ClaimAdminPayoutWitness::Payout {
                     output_key_signature: signing_info.sign(&self.n_of_n_keypair),
                 },
-                ClaimPayoutSpendPath::AdminBurn => ClaimPayoutWitness::AdminBurn {
-                    admin_signatures: self
-                        .admin_keypairs
-                        .iter()
-                        .enumerate()
-                        .take(THRESHOLD)
-                        .map(|(pubkey_index, keypair)| AdminSignature {
-                            pubkey_index,
-                            signature: signing_info.sign(keypair),
-                        })
-                        .collect(),
-                },
-                ClaimPayoutSpendPath::UnstakingBurn => ClaimPayoutWitness::UnstakingBurn {
-                    unstaking_preimage: self.unstaking_preimage,
-                },
+                ClaimAdminPayoutSpendPath::AdminBlockPayout => {
+                    ClaimAdminPayoutWitness::AdminBlockPayout {
+                        admin_signatures: self
+                            .admin_keypairs
+                            .iter()
+                            .enumerate()
+                            .take(THRESHOLD)
+                            .map(|(pubkey_index, keypair)| AdminSignature {
+                                pubkey_index,
+                                signature: signing_info.sign(keypair),
+                            })
+                            .collect(),
+                    }
+                }
             }
         }
     }
 
     #[test]
     fn payout_spend() {
-        ClaimPayoutSigner::<2, 4>::assert_connector_is_spendable(ClaimPayoutSpendPath::Payout);
+        ClaimAdminPayoutSigner::<2, 4>::assert_connector_is_spendable(
+            ClaimAdminPayoutSpendPath::Payout,
+        );
     }
 
     #[test]
-    fn admin_burn_spend_1_of_1() {
-        ClaimPayoutSigner::<1, 1>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    fn admin_block_payout_spend_1_of_1() {
+        ClaimAdminPayoutSigner::<1, 1>::assert_connector_is_spendable(
+            ClaimAdminPayoutSpendPath::AdminBlockPayout,
+        );
     }
 
     #[test]
-    fn admin_burn_spend_1_of_3() {
-        ClaimPayoutSigner::<1, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    fn admin_block_payout_spend_1_of_3() {
+        ClaimAdminPayoutSigner::<1, 3>::assert_connector_is_spendable(
+            ClaimAdminPayoutSpendPath::AdminBlockPayout,
+        );
     }
 
     #[test]
-    fn admin_burn_spend_2_of_3() {
-        ClaimPayoutSigner::<2, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    fn admin_block_payout_spend_2_of_3() {
+        ClaimAdminPayoutSigner::<2, 3>::assert_connector_is_spendable(
+            ClaimAdminPayoutSpendPath::AdminBlockPayout,
+        );
     }
 
     #[test]
-    fn admin_burn_spend_3_of_3() {
-        ClaimPayoutSigner::<3, 3>::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
+    fn admin_block_payout_spend_3_of_3() {
+        ClaimAdminPayoutSigner::<3, 3>::assert_connector_is_spendable(
+            ClaimAdminPayoutSpendPath::AdminBlockPayout,
+        );
     }
 
     #[test]
-    fn admin_burn_witness_truncates_surplus_indexed_signatures() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
+    fn admin_block_payout_witness_truncates_surplus_indexed_signatures() {
+        let signer = ClaimAdminPayoutSigner::<2, 3>::generate();
         let connector = signer.get_connector();
         let signature_0 =
             schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
@@ -323,7 +296,7 @@ mod tests {
             schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
         let signature_2 =
             schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
+        let witness = ClaimAdminPayoutWitness::AdminBlockPayout {
             admin_signatures: vec![
                 AdminSignature {
                     pubkey_index: 0,
@@ -342,7 +315,7 @@ mod tests {
 
         let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
         else {
-            panic!("admin burn is a script-path spend");
+            panic!("admin block payout is a script-path spend");
         };
 
         assert_eq!(
@@ -356,8 +329,8 @@ mod tests {
     }
 
     #[test]
-    fn admin_burn_witness_ignores_duplicate_indices() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
+    fn admin_block_payout_witness_ignores_duplicate_indices() {
+        let signer = ClaimAdminPayoutSigner::<2, 3>::generate();
         let connector = signer.get_connector();
         let signature_0 =
             schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
@@ -365,7 +338,7 @@ mod tests {
             schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
         let signature_2 =
             schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
+        let witness = ClaimAdminPayoutWitness::AdminBlockPayout {
             admin_signatures: vec![
                 AdminSignature {
                     pubkey_index: 0,
@@ -384,7 +357,7 @@ mod tests {
 
         let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
         else {
-            panic!("admin burn is a script-path spend");
+            panic!("admin block payout is a script-path spend");
         };
 
         assert_eq!(
@@ -398,8 +371,8 @@ mod tests {
     }
 
     #[test]
-    fn admin_burn_witness_ignores_out_of_bounds_indices() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
+    fn admin_block_payout_witness_ignores_out_of_bounds_indices() {
+        let signer = ClaimAdminPayoutSigner::<2, 3>::generate();
         let connector = signer.get_connector();
         let signature_0 =
             schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
@@ -407,7 +380,7 @@ mod tests {
             schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
         let signature_2 =
             schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
+        let witness = ClaimAdminPayoutWitness::AdminBlockPayout {
             admin_signatures: vec![
                 AdminSignature {
                     pubkey_index: 0,
@@ -426,7 +399,7 @@ mod tests {
 
         let TaprootWitness::Script { script_inputs, .. } = connector.get_taproot_witness(&witness)
         else {
-            panic!("admin burn is a script-path spend");
+            panic!("admin block payout is a script-path spend");
         };
 
         assert_eq!(
@@ -441,10 +414,10 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "admin burn requires at least threshold signatures for distinct known admin pubkeys"
+        expected = "admin block payout requires at least threshold signatures for distinct known admin pubkeys"
     )]
-    fn admin_burn_witness_rejects_below_threshold_signatures() {
-        let signer = ClaimPayoutSigner::<2, 3>::generate();
+    fn admin_block_payout_witness_rejects_below_threshold_signatures() {
+        let signer = ClaimAdminPayoutSigner::<2, 3>::generate();
         let connector = signer.get_connector();
         let signature =
             schnorr::Signature::from_slice(&[0xAA; 64]).expect("signature length is valid");
@@ -452,7 +425,7 @@ mod tests {
             schnorr::Signature::from_slice(&[0xBB; 64]).expect("signature length is valid");
         let out_of_bounds_signature =
             schnorr::Signature::from_slice(&[0xCC; 64]).expect("signature length is valid");
-        let witness = ClaimPayoutWitness::AdminBurn {
+        let witness = ClaimAdminPayoutWitness::AdminBlockPayout {
             admin_signatures: vec![
                 AdminSignature {
                     pubkey_index: 0,
@@ -479,19 +452,11 @@ mod tests {
         let admin_keypair = generate_keypair();
         let admin_pubkey = admin_keypair.x_only_public_key().0;
 
-        ClaimPayoutConnector::new(
+        ClaimAdminPayoutConnector::new(
             Network::Regtest,
             n_of_n_keypair.x_only_public_key().0,
             vec![admin_pubkey, admin_pubkey],
             2,
-            sha256::Hash::hash(&random::<[u8; 32]>()),
-        );
-    }
-
-    #[test]
-    fn unstaking_burn_spend() {
-        ClaimPayoutSigner::<2, 4>::assert_connector_is_spendable(
-            ClaimPayoutSpendPath::UnstakingBurn,
         );
     }
 }

@@ -247,7 +247,7 @@ fn expected_burn_outpoint(initial: &GraphState) -> OutPoint {
 
     OutPoint {
         txid,
-        vout: ClaimTx::PAYOUT_VOUT,
+        vout: ClaimTx::UNSTAKING_PAYOUT_VOUT,
     }
 }
 

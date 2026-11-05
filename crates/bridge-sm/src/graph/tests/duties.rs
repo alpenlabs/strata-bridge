@@ -7,7 +7,8 @@ mod tests {
     use strata_bridge_tx_graph::{
         game_graph::GameConnectors,
         transactions::prelude::{
-            CounterproofNackData, CounterproofNackTx, UnstakingBurnData, UnstakingBurnTx,
+            CounterproofNackData, CounterproofNackTx, UnstakingBlockPayoutData,
+            UnstakingBlockPayoutTx,
         },
     };
 
@@ -99,11 +100,11 @@ mod tests {
             (
                 GraphDuty::PublishUnstakingBurn {
                     graph_idx,
-                    unstaking_burn_tx: UnstakingBurnTx::new(
-                        UnstakingBurnData {
+                    unstaking_burn_tx: UnstakingBlockPayoutTx::new(
+                        UnstakingBlockPayoutData {
                             claim_txid: generate_txid(),
                         },
-                        connectors.claim_payout,
+                        connectors.claim_unstaking_payout,
                     ),
                     unstaking_preimage: [0u8; 32],
                 },

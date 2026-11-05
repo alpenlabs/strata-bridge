@@ -506,14 +506,39 @@ mod tests {
     #[test]
     fn classify_tx_recognizes_payout_connector_spent() {
         let cfg = test_graph_sm_cfg();
-        let payout_connector_tx = test_payout_connector_spent_tx();
-        for state in payout_connector_spent_states() {
-            let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &payout_connector_tx, LATER_BLOCK_HEIGHT);
-            assert!(
-                matches!(result, Some(GraphEvent::PayoutConnectorSpent(_))),
-                "expected Some(PayoutConnectorSpent) but got {result:?}"
+        // Spend each output independently so neither connector can be omitted by the classifier.
+        for vout in [ClaimTx::ADMIN_PAYOUT_VOUT, ClaimTx::UNSTAKING_PAYOUT_VOUT] {
+            let payout_connector_tx = generate_spending_tx(
+                OutPoint {
+                    txid: test_graph_summary().claim,
+                    vout,
+                },
+                &[],
             );
+            for state in payout_connector_spent_states() {
+                let mut sm = create_sm(state);
+                let result = sm.classify_tx(&cfg, &payout_connector_tx, LATER_BLOCK_HEIGHT);
+                let Some(GraphEvent::PayoutConnectorSpent(event)) = result else {
+                    panic!("expected PayoutConnectorSpent for output {vout}, got {result:?}");
+                };
+                sm.process_payout_connector_spent(event)
+                    .expect("either connector spend must be accepted by the transition");
+                let spending_txid = payout_connector_tx.compute_txid();
+                match sm.state() {
+                    GraphState::Aborted {
+                        reason:
+                            crate::graph::state::AbortReason::PayoutConnectorSpent {
+                                spending_txid: recorded,
+                            },
+                        ..
+                    } => assert_eq!(*recorded, spending_txid),
+                    state => assert_eq!(
+                        state.payout_connector_spent_txid(),
+                        Some(spending_txid),
+                        "spend of output {vout} must be recorded"
+                    ),
+                }
+            }
         }
     }
 

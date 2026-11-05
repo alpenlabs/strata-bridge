@@ -2,7 +2,10 @@
 
 use bitcoin::{Amount, OutPoint, XOnlyPublicKey, hashes::sha256};
 use serde::{Deserialize, Serialize};
-use strata_bridge_connectors::prelude::{ClaimContestConnector, ClaimPayoutConnector};
+use strata_bridge_connectors::{
+    claim_unstaking_payout::ClaimUnstakingPayoutConnector,
+    prelude::{ClaimAdminPayoutConnector, ClaimContestConnector},
+};
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
@@ -32,7 +35,7 @@ pub struct GraphSMCtx {
     /// The stake UTXO that will be spent by the watchtowers if an operator is faulty.
     pub stake_outpoint: OutPoint,
 
-    /// The hash (image) that locks the claim-payout connector.
+    /// The hash (image) that locks the claim unstaking payout connector.
     ///
     /// Its preimage is revealed when an operator initiates an unstaking process.
     pub unstaking_image: sha256::Hash,
@@ -82,7 +85,7 @@ impl GraphSMCtx {
         self.stake_outpoint
     }
 
-    /// Returns the hash (image) that locks the claim-payout connector.
+    /// Returns the hash (image) that locks the claim unstaking payout connector.
     ///
     /// Its preimage is revealed when an operator initiates an unstaking process.
     pub const fn unstaking_image(&self) -> sha256::Hash {
@@ -183,15 +186,20 @@ impl GraphSMCtx {
             fee::claim_contest_surcharge(n_watchtowers, protocol.counterproof_n_data),
         );
 
-        let claim_payout = ClaimPayoutConnector::new(
+        let claim_admin_payout = ClaimAdminPayoutConnector::new(
             protocol.network,
             n_of_n_pubkey,
             cfg.admin.pubkeys.clone(),
             cfg.admin.threshold,
+        );
+
+        let claim_unstaking_payout = ClaimUnstakingPayoutConnector::new(
+            protocol.network,
+            n_of_n_pubkey,
             self.unstaking_image(),
         );
 
-        ClaimTx::claim_funds_required(&claim_contest, &claim_payout)
+        ClaimTx::claim_funds_required(&claim_contest, &claim_admin_payout, &claim_unstaking_payout)
     }
 
     /// Returns the list of watchtower pubkeys for this graph.
@@ -390,7 +398,11 @@ mod tests {
 
             assert_eq!(
                 value,
-                ClaimTx::claim_funds_required(&connectors.claim_contest, &connectors.claim_payout),
+                ClaimTx::claim_funds_required(
+                    &connectors.claim_contest,
+                    &connectors.claim_admin_payout,
+                    &connectors.claim_unstaking_payout
+                ),
                 "claim funding for {} members must match the claim built for them",
                 members.len()
             );
