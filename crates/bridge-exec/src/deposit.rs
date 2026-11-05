@@ -13,6 +13,7 @@ use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
+use operator_wallet::{GeneralUtxoPolicy, LeaseOwner};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
 use strata_bridge_connectors::SigningInfo;
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
@@ -550,59 +551,79 @@ async fn fulfill_withdrawal(
             .get_withdrawal_funding_outpoints(deposit_idx)
             .await?;
 
+        // Every path that ends with a funded PSBT commits its lease. The database row keeps
+        // the funding outpoints of a deposit across duties and across restarts, and the
+        // transaction that spends them is signed and published after this block releases the
+        // wallet guard.
+        //
+        // A commit here is not redundant with the row. A lease keeps the outpoints from a second
+        // duty while the fulfillment transaction is unconfirmed, and through an eviction, while
+        // the row only names them. `commit` is idempotent: a retry whose outpoints are already
+        // held adds no second record.
         let funding_result = match persisted_funding_outpoints.as_deref() {
             Some(outpoints) => {
                 info!(%deposit_idx, "reusing persisted funding outpoints");
                 wallet
-                    .fund_v3_transaction_with_inputs(unfunded_tx, outpoints, fee_rate)
-                    .await
-                    .map(|funded| funded.psbt)
+                    .fund_v3_transaction_with_inputs(
+                        unfunded_tx.output,
+                        outpoints,
+                        fee_rate,
+                        LeaseOwner::WithdrawalFulfillment,
+                    )
+                    .map(|funded| {
+                        let (psbt, lease) = funded.into_parts();
+                        lease.commit();
+                        psbt
+                    })
             }
             None => {
                 info!(%deposit_idx, "selecting new funding outpoints");
-                let funded = wallet
-                    .fund_v3_transaction(unfunded_tx.clone(), fee_rate)
-                    .await;
-                match funded {
-                    Ok(funded) => {
-                        let candidate_outpoints = funded.spent();
+                let candidate = wallet.fund_v3_transaction(
+                    unfunded_tx.output.clone(),
+                    fee_rate,
+                    GeneralUtxoPolicy::IncludeUnconfirmed,
+                    LeaseOwner::WithdrawalFulfillment,
+                );
+                match candidate {
+                    Ok(candidate) => {
+                        let candidate_outpoints = candidate.lease().outpoints().to_vec();
                         let assignment = output_handles
                             .db
                             .get_or_set_withdrawal_funding_outpoints(
                                 deposit_idx,
-                                candidate_outpoints.clone(),
+                                candidate_outpoints,
                             )
                             .await;
 
                         match assignment {
                             Ok(FundingAssignment::Created(outpoints)) => {
                                 info!(%deposit_idx, ?outpoints, "persisted withdrawal funding outpoints");
-                                Ok(funded.psbt)
+                                let (psbt, lease) = candidate.into_parts();
+                                lease.commit();
+                                Ok(psbt)
                             }
                             Ok(FundingAssignment::Existing(outpoints)) => {
                                 info!(
                                     %deposit_idx,
                                     "using existing withdrawal funding outpoints saved by another duty"
                                 );
-                                let stale_candidate_outpoints: Vec<_> = candidate_outpoints
-                                    .iter()
-                                    .copied()
-                                    .filter(|outpoint| !outpoints.contains(outpoint))
-                                    .collect();
-                                wallet.release(&stale_candidate_outpoints);
+                                // The candidate's inputs return to the pool; the row names the
+                                // inputs to spend.
+                                drop(candidate);
                                 wallet
                                     .fund_v3_transaction_with_inputs(
-                                        unfunded_tx,
+                                        unfunded_tx.output,
                                         &outpoints,
                                         fee_rate,
+                                        LeaseOwner::WithdrawalFulfillment,
                                     )
-                                    .await
-                                    .map(|funded| funded.psbt)
+                                    .map(|funded| {
+                                        let (psbt, lease) = funded.into_parts();
+                                        lease.commit();
+                                        psbt
+                                    })
                             }
-                            Err(err) => {
-                                wallet.release(&candidate_outpoints);
-                                return Err(err.into());
-                            }
+                            Err(err) => return Err(err.into()),
                         }
                     }
                     Err(err) => Err(err),

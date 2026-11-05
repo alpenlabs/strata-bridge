@@ -33,7 +33,6 @@ strata-mosaic-client-api.workspace = true
 zkaleido.workspace = true
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }
 
-bdk_wallet.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd = { workspace = true, features = ["address"] }
 bitcoind-async-client.workspace = true

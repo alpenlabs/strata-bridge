@@ -1,6 +1,5 @@
 //! Error types for the bridge-exec executors.
 
-use bdk_wallet::error::CreateTxError;
 use bitcoin::{Amount, FeeRate, OutPoint, Txid};
 use foundationdb::FdbBindingError;
 use strata_bridge_db::fdb::errors::LayerError;
@@ -33,10 +32,6 @@ pub enum ExecutorError {
     /// Wallet-related error.
     #[error("wallet error: {0}")]
     WalletErr(String),
-
-    /// Error related to creation of [`Psbt`](bitcoin::psbt::Psbt).
-    #[error("psbt error: {0}")]
-    PsbtErr(#[from] CreateTxError),
 
     /// Failed to aggregate partial signatures into final Schnorr signature.
     #[error("signature aggregation failed: {0}")]

@@ -7,7 +7,7 @@
 //!
 //! These tests cover the load-bearing surface of [`OperatorWallet`]:
 //!
-//! - **Lease bookkeeping** is idempotent and additive (lease + release semantics).
+//! - **Lease bookkeeping**: a committed lease holds its outpoints until an explicit release.
 //! - **Reserved-UTXO creation** funds the reserved wallet with the requested denomination +
 //!   quantity, and the resulting UTXOs are discoverable via `reserved_utxos_with_value`.
 //! - **Pool refill** semantics: caller computes batch size from current count, requests only the
@@ -23,7 +23,7 @@
 //! collide. Each test spins up a fresh `bitcoind` so state doesn't leak between cases.
 //!
 //! Signing of the funded PSBTs (the `create_reserved_utxos` happy path) is performed
-//! in-process with the test's known operator privkey: the native general wallet is
+//! in-process with the test's known operator privkey: the general wallet is
 //! descriptor-only, so production goes through secret-service. The test bypasses that by
 //! signing with the same keypair the descriptor was constructed from (BIP-341 key-path with
 //! the empty-merkle-root tap-tweak).
@@ -57,17 +57,13 @@ use bdk_wallet::{
 };
 use corepc_node::{Conf, Node};
 use operator_wallet::{
-    load_or_create, sync::Backend, test_utils::MemoryStore, Error as OperatorWalletError,
-    GeneralUtxoPolicy, GeneralWallet, InitError, NativeGeneralWallet, OperatorWallet,
-    OperatorWalletConfig, SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
+    load_or_create,
+    sync::Backend,
+    test_utils::{MemoryStore, MemoryStoreError},
+    Error as OperatorWalletError, GeneralCustody, GeneralUtxoPolicy, InitError, LeaseOwner,
+    OperatorWallet, OperatorWalletConfig, SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
 };
 use serial_test::serial;
-
-/// The concrete wallet type under test: native general wallet + in-memory stores.
-type TestWallet = OperatorWallet<NativeGeneralWallet<MemoryStore>, MemoryStore>;
-
-/// The production shape: native general wallet + one SQLite file per wallet.
-type SqliteWallet = OperatorWallet<NativeGeneralWallet<SqliteStore>, SqliteStore>;
 
 /// The pair of in-memory stores backing one operator wallet. Clones share storage, so keeping a
 /// `Stores` around and re-opening from it simulates a process restart.
@@ -76,12 +72,6 @@ struct Stores {
     general: MemoryStore,
     reserved: MemoryStore,
 }
-
-/// 1 sat — the smallest possible "anchor" value, used in tests where we don't actually
-/// want any UTXO to look like an anchor. `OperatorWallet`'s anchor exclusion filters on
-/// (value == cpfp_value) AND (confirmations == 0); none of the test outputs are that small
-/// AND unconfirmed-at-query-time, so the filter is a no-op in these tests.
-const SENTINEL_ANCHOR_VALUE: Amount = Amount::from_sat(330);
 
 /// Boots a fresh regtest `bitcoind`, mines coinbase maturity, and returns the node.
 fn setup_bitcoind() -> Node {
@@ -130,8 +120,8 @@ async fn open_wallet(
     stores: &Stores,
     bootstrap_checkpoint: Option<BlockId>,
     persist_every_blocks: NonZeroU32,
-) -> TestWallet {
-    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
+) -> OperatorWallet<MemoryStore> {
+    let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest)
         .with_persist_every_blocks(persist_every_blocks);
     open_wallet_with_config(
         bitcoind,
@@ -152,36 +142,27 @@ async fn open_wallet_with_config(
     stores: &Stores,
     bootstrap_checkpoint: Option<BlockId>,
     config: OperatorWalletConfig,
-) -> TestWallet {
+) -> OperatorWallet<MemoryStore> {
     let (_, general_pubkey) = keypair_from_seed(general_seed);
     let (_, reserved_pubkey) = keypair_from_seed(reserved_seed);
 
-    let general_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let reserved_backend = Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind)));
-    let general = NativeGeneralWallet::load_or_create(
-        general_pubkey,
-        &config,
-        general_backend,
-        stores.general.clone(),
-        bootstrap_checkpoint,
-    )
-    .await
-    .expect("general wallet init");
-    let wallet = OperatorWallet::load_or_create(
-        general,
+    OperatorWallet::load_or_create(
+        GeneralCustody::SecretService {
+            general_key: general_pubkey,
+            store: stores.general.clone(),
+        },
         reserved_pubkey,
         config,
-        reserved_backend,
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind))),
         stores.reserved.clone(),
         bootstrap_checkpoint,
         BTreeSet::new(),
     )
     .await
-    .expect("reserved wallet init");
-    wallet
+    .expect("wallet init")
 }
 
-/// Builds a fully-wired [`TestWallet`] against fresh in-memory stores. Funds the general wallet
+/// Builds a fully-wired [`OperatorWallet`] against fresh in-memory stores. Funds the general wallet
 /// with `general_funding_utxos` UTXOs of `general_funding_value` each via bitcoind's own wallet,
 /// then syncs. The reserved wallet is created from a separate deterministic keypair and starts
 /// empty.
@@ -192,7 +173,7 @@ async fn build_operator_wallet(
     general_funding_utxos: usize,
     general_funding_value: Amount,
 ) -> (
-    TestWallet,
+    OperatorWallet<MemoryStore>,
     Keypair, // general keypair, used by the test to sign funded PSBTs
     XOnlyPublicKey,
 ) {
@@ -227,7 +208,7 @@ async fn build_operator_wallet(
 
 /// Manually signs every input of `psbt` with `keypair` as a Taproot key-path spend
 /// (BIP-341 tap-tweak with empty merkle root). Used by the tests to finalize PSBTs that
-/// the descriptor-only `NativeGeneralWallet` returns unsigned. Returns the extracted
+/// the descriptor-only wallet returns unsigned. Returns the extracted
 /// signed transaction.
 fn sign_and_finalize(psbt: Psbt, keypair: Keypair) -> Transaction {
     let keys = vec![keypair; psbt.inputs.len()];
@@ -266,40 +247,25 @@ fn sign_and_finalize_with(mut psbt: Psbt, keys: &[Keypair]) -> Transaction {
     psbt.extract_tx().expect("extract")
 }
 
+/// The payout descriptor and the wallet's own receive script must be the SAME script:
+/// payouts then arrive as ordinary wallet UTXOs (BDK tracks them) and are spent — including
+/// CPFP force-spends of the unconfirmed payout — with the same tap-tweaking signer as any
+/// funding input. A payout descriptor keyed to anything the funding descriptor doesn't
+/// watch (e.g. the raw, untweaked general key, which BOSD would use verbatim as the output
+/// key) silently strands every payout: invisible to the wallet and unspendable by the
+/// production signers.
 #[tokio::test]
 #[serial]
-async fn lease_release_are_idempotent_and_additive() {
+async fn payout_descriptor_is_the_wallet_receive_script() {
     let bitcoind = setup_bitcoind();
-    let (mut wallet, _kp, _pk) =
+    let (wallet, _kp, _pk) =
         build_operator_wallet(&bitcoind, 1, 2, 1, Amount::from_btc(0.5).unwrap()).await;
 
-    let op_a = OutPoint {
-        txid: bdk_wallet::bitcoin::Txid::from_slice(&[1u8; 32]).unwrap(),
-        vout: 0,
-    };
-    let op_b = OutPoint {
-        txid: bdk_wallet::bitcoin::Txid::from_slice(&[2u8; 32]).unwrap(),
-        vout: 1,
-    };
-
-    assert!(wallet.leased_outpoints().is_empty(), "starts empty");
-    wallet.lease(&[op_a, op_b]);
-    assert_eq!(wallet.leased_outpoints().len(), 2, "two leased");
-    // Idempotent: re-leasing the same outpoints doesn't grow the set.
-    wallet.lease(&[op_a]);
     assert_eq!(
-        wallet.leased_outpoints().len(),
-        2,
-        "still two after re-lease"
+        wallet.descriptor().expect("descriptor").to_script(),
+        wallet.general().script_pubkey(),
+        "secret-service payout descriptor must resolve to the funding wallet's own script"
     );
-
-    wallet.release(&[op_a]);
-    assert_eq!(wallet.leased_outpoints().len(), 1, "one left after release");
-    // Release-of-unleased is safe (no panic; logs a warning we don't capture here).
-    wallet.release(&[op_a]);
-    assert_eq!(wallet.leased_outpoints().len(), 1, "still one");
-    wallet.release(&[op_b]);
-    assert!(wallet.leased_outpoints().is_empty(), "empty again");
 }
 
 #[tokio::test]
@@ -319,29 +285,26 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
             fee_rate,
             utxo_value,
             quantity,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
+            GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("funding must succeed");
 
-    // The wallet should have leased the funding inputs (so concurrent duties don't double-
-    // pick them). The actual leased outpoints come from the funded PSBT's inputs.
+    // The returned lease must hold every funding input, so that a concurrent duty cannot
+    // select one of them.
     let leased = wallet.leased_outpoints();
-    assert!(
-        !leased.is_empty(),
-        "wallet must have leased the funding inputs"
-    );
-    for spent in funded.spent() {
+    assert!(!leased.is_empty(), "the lease must hold the funding inputs");
+    for spent in funded.lease().outpoints() {
         assert!(
-            leased.contains(&spent),
-            "every spent outpoint must be leased; missing {spent}"
+            leased.contains(spent),
+            "every spent outpoint must be held; missing {spent}"
         );
     }
 
     // The PSBT must carry the requested quantity of reserved-wallet outputs.
     let reserved_script = wallet.reserved_script_pubkey();
-    let reserved_output_count = funded
-        .psbt
+    let (psbt, _funding_lease) = funded.into_parts();
+    let reserved_output_count = psbt
         .unsigned_tx
         .output
         .iter()
@@ -352,8 +315,8 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
         "PSBT must contain {quantity} reserved-wallet outputs of {utxo_value}"
     );
 
-    // Sign + broadcast + confirm; resync; the reserved pool now contains the new UTXOs.
-    let signed = sign_and_finalize(funded.psbt, general_kp);
+    // Sign, broadcast, confirm, and resync. The reserved pool then holds the new UTXOs.
+    let signed = sign_and_finalize(psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -375,6 +338,31 @@ async fn create_reserved_utxos_funds_pool_and_leases_inputs() {
         assert_eq!(utxo.amount, utxo_value);
         assert_eq!(utxo.script_pubkey, reserved_script);
     }
+}
+
+#[tokio::test]
+#[serial]
+async fn a_named_input_outside_the_general_wallet_is_an_unknown_input() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, _) = build_operator_wallet(&bitcoind, 13, 14, 0, Amount::ZERO).await;
+
+    let unknown = OutPoint::new(Txid::from_byte_array([7; 32]), 0);
+    let output = TxOut {
+        value: Amount::from_sat(10_000),
+        script_pubkey: wallet.reserved_script_pubkey(),
+    };
+    let err = wallet
+        .fund_v3_transaction_with_inputs(
+            vec![output],
+            &[unknown],
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            LeaseOwner::StakeFunding,
+        )
+        .expect_err("the wallet does not hold this input");
+    assert!(
+        matches!(err, OperatorWalletError::UnknownInput(outpoint) if outpoint == unknown),
+        "got {err:?}"
+    );
 }
 
 #[tokio::test]
@@ -405,59 +393,23 @@ async fn create_reserved_utxos_reports_only_unconfirmed_general_utxos() {
             Amount::from_btc(0.01).unwrap(),
             1,
             GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect_err("unconfirmed general-wallet funds must not be selected");
 
-    match err {
-        OperatorWalletError::NoConfirmedGeneralUtxos {
-            unconfirmed_count,
-            unconfirmed_amount: actual_amount,
-        } => {
-            assert_eq!(unconfirmed_count, 1);
-            assert_eq!(actual_amount, unconfirmed_amount);
-        }
-        other => panic!("expected no-confirmed-UTXO error, got {other:?}"),
-    }
+    assert!(
+        matches!(
+            err,
+            OperatorWalletError::NoConfirmedGeneralUtxos {
+                unconfirmed_count: 1,
+                unconfirmed_amount: amount,
+            } if amount == unconfirmed_amount
+        ),
+        "expected the unconfirmed-only error, got {err:?}"
+    );
     assert!(
         wallet.leased_outpoints().is_empty(),
         "failed refill must not lease the unconfirmed UTXO"
-    );
-}
-
-#[tokio::test]
-#[serial]
-async fn create_reserved_utxos_can_include_unconfirmed_general_utxos_when_allowed() {
-    let bitcoind = setup_bitcoind();
-    let (mut wallet, _, general_pubkey) =
-        build_operator_wallet(&bitcoind, 15, 16, 0, Amount::ZERO).await;
-
-    let unconfirmed_amount = Amount::from_btc(1.0).unwrap();
-    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
-    bitcoind
-        .client
-        .send_to_address(&general_address, unconfirmed_amount)
-        .expect("send unconfirmed funds");
-    wallet.sync().await.expect("sync unconfirmed deposit");
-
-    let unconfirmed_outpoint = wallet.general().list_utxos()[0].outpoint;
-    let funded = wallet
-        .create_reserved_utxos(
-            FeeRate::from_sat_per_vb(5).unwrap(),
-            Amount::from_btc(0.01).unwrap(),
-            1,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
-        )
-        .await
-        .expect("unconfirmed general-wallet funds may be selected when allowed");
-
-    assert!(
-        funded.spent().contains(&unconfirmed_outpoint),
-        "funding transaction should spend the unconfirmed general-wallet UTXO"
-    );
-    assert!(
-        wallet.leased_outpoints().contains(&unconfirmed_outpoint),
-        "selected unconfirmed UTXO must be leased"
     );
 }
 
@@ -489,23 +441,23 @@ async fn create_reserved_utxos_excludes_unconfirmed_when_confirmed_funds_are_ava
             Amount::from_btc(0.01).unwrap(),
             1,
             GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("confirmed funds should fund reserved UTXOs");
 
     assert!(
-        funded.spent().contains(&confirmed_outpoint),
+        funded.lease().outpoints().contains(&confirmed_outpoint),
         "funding transaction should spend the confirmed UTXO"
     );
     assert!(
-        !funded.spent().contains(&unconfirmed_outpoint),
+        !funded.lease().outpoints().contains(&unconfirmed_outpoint),
         "funding transaction must exclude the unconfirmed UTXO"
     );
 }
 
 #[tokio::test]
 #[serial]
-async fn reserve_utxo_with_value_picks_and_leases_one() {
+async fn reserve_settled_picks_and_leases_one() {
     let bitcoind = setup_bitcoind();
     let (mut wallet, general_kp, _) =
         build_operator_wallet(&bitcoind, 5, 6, 3, Amount::from_btc(0.5).unwrap()).await;
@@ -517,11 +469,12 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
             FeeRate::from_sat_per_vb(5).unwrap(),
             utxo_value,
             3,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
+            GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("seed funding");
-    let signed = sign_and_finalize(funded.psbt, general_kp);
+    let (seed_psbt, seed_lease) = funded.into_parts();
+    let signed = sign_and_finalize(seed_psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -533,30 +486,37 @@ async fn reserve_utxo_with_value_picks_and_leases_one() {
         .expect("mine");
     wallet.sync().await.expect("sync");
 
-    // Reset wallet's lease state — the funding-tx inputs were leased; the new reserved
-    // UTXOs themselves haven't been. We're testing reserve_utxo_with_value on the pool.
-    let funding_inputs: Vec<OutPoint> = wallet.leased_outpoints().iter().copied().collect();
-    wallet.release(&funding_inputs);
+    // Clear the lease state. The seed transaction's inputs are held by its lease, and the
+    // sync above already pruned them because the spend confirmed. The new reserved UTXOs are
+    // free. This test covers `reserve_settled` against that pool.
+    drop(seed_lease);
     assert!(wallet.leased_outpoints().is_empty(), "lease state cleared");
 
-    let (picked, remaining) = wallet.reserve_utxo_with_value(utxo_value, |_| false);
-    let picked = picked.expect("must return one outpoint");
-    assert_eq!(remaining, 2, "two more left in the pool");
+    let (picked, picked_lease) = wallet
+        .reserve_settled(utxo_value, 0)
+        .expect("must return one outpoint");
     assert!(
         wallet.leased_outpoints().contains(&picked),
-        "picked outpoint must be leased"
+        "picked outpoint must be held"
     );
 
-    // Picking again skips the leased one; we get a different outpoint.
-    let (picked_again, remaining_again) = wallet.reserve_utxo_with_value(utxo_value, |_| false);
-    let picked_again = picked_again.expect("must return another outpoint");
-    assert_ne!(picked_again, picked, "must pick a different unleased UTXO");
-    assert_eq!(remaining_again, 1, "one more left after second pick");
+    // A second pick skips the held outpoint and returns a different one.
+    let (picked_again, _picked_again_lease) = wallet
+        .reserve_settled(utxo_value, 0)
+        .expect("must return another outpoint");
+    assert_ne!(picked_again, picked, "must pick a different free UTXO");
+
+    // Dropping the first lease returns its outpoint to the pool.
+    drop(picked_lease);
+    assert!(
+        !wallet.leased_outpoints().contains(&picked),
+        "a dropped lease must return its outpoint to the pool"
+    );
 }
 
 #[tokio::test]
 #[serial]
-async fn reserve_utxo_with_value_filters_by_value() {
+async fn reserved_pool_lookup_filters_by_value() {
     let bitcoind = setup_bitcoind();
     let (mut wallet, general_kp, _) =
         build_operator_wallet(&bitcoind, 7, 8, 3, Amount::from_btc(0.5).unwrap()).await;
@@ -570,11 +530,12 @@ async fn reserve_utxo_with_value_filters_by_value() {
                 FeeRate::from_sat_per_vb(5).unwrap(),
                 value,
                 2,
-                GeneralUtxoPolicy::IncludeUnconfirmed,
+                GeneralUtxoPolicy::ConfirmedOnly,
+                LeaseOwner::ClaimFundingRefill,
             )
-            .await
             .unwrap_or_else(|e| panic!("seed funding for {value} failed: {e}"));
-        let signed = sign_and_finalize(funded.psbt, general_kp);
+        let (psbt, _lease) = funded.into_parts();
+        let signed = sign_and_finalize(psbt, general_kp);
         bitcoind
             .client
             .send_raw_transaction(&signed)
@@ -601,59 +562,6 @@ async fn reserve_utxo_with_value_filters_by_value() {
     // Mismatched value yields nothing.
     let missing = wallet.reserved_utxos_with_value(Amount::from_btc(0.99).unwrap());
     assert!(missing.is_empty(), "no UTXOs of unmatched value");
-}
-
-#[tokio::test]
-#[serial]
-async fn reserved_utxo_finds_an_outpoint_of_any_value() {
-    let bitcoind = setup_bitcoind();
-    let (mut wallet, general_kp, _) =
-        build_operator_wallet(&bitcoind, 7, 8, 3, Amount::from_btc(0.5).unwrap()).await;
-
-    let values = [
-        Amount::from_btc(0.01).unwrap(),
-        Amount::from_btc(0.05).unwrap(),
-    ];
-    for value in values {
-        let funded = wallet
-            .create_reserved_utxos(
-                FeeRate::from_sat_per_vb(5).unwrap(),
-                value,
-                1,
-                GeneralUtxoPolicy::IncludeUnconfirmed,
-            )
-            .await
-            .unwrap_or_else(|e| panic!("seed funding for {value} failed: {e}"));
-        let signed = sign_and_finalize(funded.psbt, general_kp);
-        bitcoind
-            .client
-            .send_raw_transaction(&signed)
-            .expect("broadcast");
-        let miner_addr = bitcoind.client.new_address().expect("miner");
-        bitcoind
-            .client
-            .generate_to_address(1, &miner_addr)
-            .expect("mine");
-        wallet.sync().await.expect("sync");
-    }
-
-    for value in values {
-        let pooled = wallet.reserved_utxos_with_value(value);
-        assert_eq!(pooled.len(), 1, "expected one UTXO of {value}");
-        let found = wallet
-            .reserved_utxo(pooled[0].outpoint)
-            .unwrap_or_else(|| panic!("the {value} UTXO must be found by its outpoint"));
-        assert_eq!(
-            (found.outpoint, found.amount),
-            (pooled[0].outpoint, value),
-            "lookup by outpoint must return the {value} UTXO"
-        );
-    }
-    let unknown = OutPoint::new(Txid::all_zeros(), 0);
-    assert!(
-        wallet.reserved_utxo(unknown).is_none(),
-        "an outpoint the reserved wallet does not hold must not be found"
-    );
 }
 
 #[tokio::test]
@@ -686,68 +594,62 @@ async fn settled_accepts_unconfirmed_outputs_only_from_own_refills() {
             utxo_value,
             1,
             GeneralUtxoPolicy::BuriedOnly { bury_depth },
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("refill");
-    let refill_txid = funded.psbt.unsigned_tx.compute_txid();
-    let signed = sign_and_finalize(funded.psbt, general_kp);
+    let (psbt, _refill_lease) = funded.into_parts();
+    let refill_txid = psbt.unsigned_tx.compute_txid();
+    let signed = sign_and_finalize(psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
         .expect("broadcast refill");
     wallet.sync().await.expect("sync mempool");
 
-    let pool = wallet.reserved_utxos_with_value(utxo_value);
-    assert!(
-        pool.iter().all(|u| !wallet.settled(bury_depth + 1)(u)),
-        "refill trust must not exceed its input burial policy"
-    );
-    assert_eq!(pool.len(), 2, "both unconfirmed outputs are in the pool");
-    let settled = wallet.settled(bury_depth);
-    let settled_txids: Vec<_> = pool
-        .iter()
-        .filter(|u| settled(u))
-        .map(|u| u.outpoint.txid)
-        .collect();
+    // The txids of the outputs that are settled at `depth`. The leases drop on return, so each
+    // call sees the whole pool.
+    let settled = |wallet: &mut OperatorWallet<MemoryStore>, depth: u32| -> Vec<Txid> {
+        std::iter::from_fn(|| wallet.reserve_settled(utxo_value, depth))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(outpoint, _lease)| outpoint.txid)
+            .collect()
+    };
+
     assert_eq!(
-        settled_txids,
+        wallet.reserved_utxos_with_value(utxo_value).len(),
+        2,
+        "both unconfirmed outputs are in the pool"
+    );
+    assert_eq!(
+        settled(&mut wallet, bury_depth),
         vec![refill_txid],
         "only the refill output is settled while unconfirmed"
     );
-
-    let (picked, remaining) = wallet.reserve_utxo_with_value(utxo_value, |u| !settled(u));
-    assert_eq!(
-        picked.map(|outpoint| outpoint.txid),
-        Some(refill_txid),
-        "reservation skips the external output"
-    );
-    assert_eq!(remaining, 0, "nothing else is settled");
-
-    let settled_at_zero = wallet.settled(0);
     assert!(
-        pool.iter()
-            .filter(|u| settled_at_zero(u))
-            .all(|u| u.outpoint.txid == refill_txid),
+        settled(&mut wallet, bury_depth + 1).is_empty(),
+        "refill trust must not exceed its input burial policy"
+    );
+    assert_eq!(
+        settled(&mut wallet, 0),
+        vec![refill_txid],
         "depth zero must still reject external mempool outputs"
     );
 
     // Confirmations include the transaction's own block, so burial needs one more.
-    let miner_addr = bitcoind.client.new_address().expect("miner");
     bitcoind
         .client
         .generate_to_address(bury_depth as usize, &miner_addr)
         .expect("mine");
     wallet.sync().await.expect("sync confirmations");
-    let settled = wallet.settled(bury_depth);
-    let pool = wallet.reserved_utxos_with_value(utxo_value);
-    assert!(
-        pool.iter()
-            .filter(|u| u.outpoint.txid != refill_txid)
-            .all(|u| u.confirmations == bury_depth && !settled(u)),
+    assert_eq!(
+        settled(&mut wallet, bury_depth),
+        vec![refill_txid],
         "external outputs at exactly bury_depth confirmations are not buried"
     );
-    assert!(
-        pool.iter().all(wallet.settled(0)),
+    assert_eq!(
+        settled(&mut wallet, 0).len(),
+        2,
         "depth zero accepts mined outputs"
     );
 
@@ -756,79 +658,157 @@ async fn settled_accepts_unconfirmed_outputs_only_from_own_refills() {
         .generate_to_address(1, &miner_addr)
         .expect("mine burial block");
     wallet.sync().await.expect("sync burial");
-    let settled = wallet.settled(bury_depth);
-    let pool = wallet.reserved_utxos_with_value(utxo_value);
-    assert!(
-        pool.iter().all(settled),
+    assert_eq!(
+        settled(&mut wallet, bury_depth).len(),
+        2,
         "buried outputs are settled regardless of origin"
     );
 }
 
 #[tokio::test]
 #[serial]
-async fn sync_prunes_leases_whose_outpoints_have_been_spent() {
+async fn refill_requires_buried_inputs() {
     let bitcoind = setup_bitcoind();
-    let (mut wallet, general_kp, general_pk) =
-        build_operator_wallet(&bitcoind, 9, 10, 2, Amount::from_btc(0.5).unwrap()).await;
+    let (mut wallet, _, _) =
+        build_operator_wallet(&bitcoind, 21, 22, 1, Amount::from_btc(0.5).unwrap()).await;
+    let bury_depth = 2;
+    let miner_addr = bitcoind.client.new_address().expect("miner");
+    let value = Amount::from_btc(0.01).unwrap();
+    let policy = GeneralUtxoPolicy::BuriedOnly { bury_depth };
+    let fee_rate = FeeRate::from_sat_per_vb(5).unwrap();
 
-    // Lease one of the general-wallet UTXOs (manually — represents some prior funding tx
-    // we built but haven't broadcast yet). After the chain spends it from elsewhere
-    // (simulated below by broadcasting a tx that consumes it), `sync` should drop the
-    // lease.
-    let general_utxos: Vec<OutPoint> = wallet
-        .general()
-        .list_utxos()
-        .into_iter()
-        .map(|u| u.outpoint)
-        .collect();
-    let target_outpoint = general_utxos[0];
-    wallet.lease(&[target_outpoint]);
-    assert!(wallet.leased_outpoints().contains(&target_outpoint));
+    for confirmations in 1..=bury_depth {
+        wallet.sync().await.expect("sync input confirmations");
+        assert_eq!(
+            wallet.general().list_utxos()[0].confirmations,
+            confirmations,
+            "the general output has the expected depth"
+        );
+        let err = wallet
+            .create_reserved_utxos(fee_rate, value, 1, policy, LeaseOwner::ClaimFundingRefill)
+            .expect_err("shallow inputs must be rejected");
+        assert!(
+            matches!(
+                err,
+                OperatorWalletError::NoBuriedGeneralUtxos { bury_depth: 2 }
+            ),
+            "an input below the bury depth is refused"
+        );
+        assert!(
+            wallet.leased_outpoints().is_empty(),
+            "a refused refill takes no lease"
+        );
+        bitcoind
+            .client
+            .generate_to_address(1, &miner_addr)
+            .expect("mine");
+    }
 
-    // Spend `target_outpoint` directly via a manually-built tx, broadcast it, mine, sync.
-    let prevout = wallet
-        .general()
-        .list_utxos()
-        .into_iter()
-        .find(|u| u.outpoint == target_outpoint)
-        .expect("prevout found");
-    let fee = Amount::from_sat(2_000);
-    let drain_value = prevout.amount - fee;
-    let drain_script =
-        Address::p2tr(&Secp256k1::new(), general_pk, None, Network::Regtest).script_pubkey();
-    let unsigned_tx = Transaction {
-        version: bdk_wallet::bitcoin::transaction::Version(3),
-        lock_time: bdk_wallet::bitcoin::absolute::LockTime::ZERO,
-        input: vec![bdk_wallet::bitcoin::TxIn {
-            previous_output: target_outpoint,
-            ..Default::default()
-        }],
-        output: vec![bdk_wallet::bitcoin::TxOut {
-            value: drain_value,
-            script_pubkey: drain_script,
-        }],
-    };
-    let mut psbt = Psbt::from_unsigned_tx(unsigned_tx).expect("from_unsigned_tx");
-    psbt.inputs[0].witness_utxo = Some(bdk_wallet::bitcoin::TxOut {
-        value: prevout.amount,
-        script_pubkey: prevout.script_pubkey.clone(),
-    });
-    let signed = sign_and_finalize(psbt, general_kp);
-    bitcoind
-        .client
-        .send_raw_transaction(&signed)
-        .expect("broadcast");
+    wallet.sync().await.expect("sync buried input");
+    let funded = wallet
+        .create_reserved_utxos(fee_rate, value, 1, policy, LeaseOwner::ClaimFundingRefill)
+        .expect("buried input must be accepted");
+    assert_eq!(
+        funded.lease().outpoints().len(),
+        1,
+        "a buried input funds the refill under one lease"
+    );
+}
+
+/// Durable storage holds the outpoints of stored reservations across a restart. A restarted wallet
+/// must hold them from its first selection, and a confirmed spend must end only the spent one.
+#[tokio::test]
+#[serial]
+async fn initial_leases_hold_outpoints_across_a_restart() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let (general_kp, general_pubkey) = keypair_from_seed(75);
+    let (_, reserved_pubkey) = keypair_from_seed(76);
+    let mut wallet = open_wallet(
+        &bitcoind,
+        75,
+        76,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+    let general_script = wallet.general().script_pubkey();
+    let general_address =
+        Address::from_script(&general_script, Network::Regtest).expect("general address");
+    for _ in 0..2 {
+        bitcoind
+            .client
+            .send_to_address(&general_address, Amount::from_btc(0.5).unwrap())
+            .expect("send_to_address");
+    }
     let miner_addr = bitcoind.client.new_address().expect("miner");
     bitcoind
         .client
         .generate_to_address(1, &miner_addr)
         .expect("mine");
-    wallet.sync().await.expect("post-spend sync");
+    wallet.sync().await.expect("sync before the restart");
+    let utxos = wallet.general().list_utxos();
+    let (spent, live) = (utxos[0].clone(), utxos[1].outpoint);
+    drop(wallet);
 
-    // Sync should have observed `target_outpoint` as spent and pruned its lease.
+    let mut wallet = OperatorWallet::load_or_create(
+        GeneralCustody::SecretService {
+            general_key: general_pubkey,
+            store: stores.general.clone(),
+        },
+        reserved_pubkey,
+        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
+        Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
+        stores.reserved.clone(),
+        None,
+        BTreeSet::from([spent.outpoint, live]),
+    )
+    .await
+    .expect("wallet reopens");
+    wallet.sync().await.expect("sync after the restart");
+
+    assert_eq!(
+        wallet.leased_outpoints(),
+        BTreeSet::from([spent.outpoint, live]),
+        "the restarted wallet holds both stored outpoints"
+    );
+    assert_eq!(wallet.general().list_utxos().len(), 2, "both outputs exist");
     assert!(
-        !wallet.leased_outpoints().contains(&target_outpoint),
-        "sync must prune lease whose outpoint is now spent on-chain"
+        wallet
+            .select_general_utxo(LeaseOwner::StakeFunding, Amount::ONE_SAT)
+            .is_none(),
+        "selection must not offer an outpoint that a stored reservation holds"
+    );
+
+    let unsigned_tx = Transaction {
+        version: bdk_wallet::bitcoin::transaction::Version(3),
+        lock_time: bdk_wallet::bitcoin::absolute::LockTime::ZERO,
+        input: vec![bdk_wallet::bitcoin::TxIn {
+            previous_output: spent.outpoint,
+            ..Default::default()
+        }],
+        output: vec![TxOut {
+            value: spent.amount - Amount::from_sat(2_000),
+            script_pubkey: general_script,
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(unsigned_tx).expect("from_unsigned_tx");
+    psbt.inputs[0].witness_utxo = Some(TxOut::from(&spent));
+    bitcoind
+        .client
+        .send_raw_transaction(&sign_and_finalize(psbt, general_kp))
+        .expect("broadcast");
+    bitcoind
+        .client
+        .generate_to_address(1, &miner_addr)
+        .expect("mine");
+    wallet.sync().await.expect("sync after the spend");
+
+    assert_eq!(
+        wallet.leased_outpoints(),
+        BTreeSet::from([live]),
+        "a confirmed spend ends its lease and leaves the other in place"
     );
 }
 
@@ -851,11 +831,12 @@ async fn refill_workflow_skips_existing_pool_members() {
             fee_rate,
             utxo_value,
             2,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
+            GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("first seed");
-    let signed = sign_and_finalize(first.psbt, general_kp);
+    let (first_psbt, _first_lease) = first.into_parts();
+    let signed = sign_and_finalize(first_psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -878,17 +859,18 @@ async fn refill_workflow_skips_existing_pool_members() {
             fee_rate,
             utxo_value,
             2,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
+            GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("refill");
-    for spent in refill.spent() {
+    for spent in refill.lease().outpoints() {
         assert!(
-            !pool_outpoints_first.contains(&spent),
+            !pool_outpoints_first.contains(spent),
             "refill must not spend an existing pool UTXO ({spent})"
         );
     }
-    let signed_refill = sign_and_finalize(refill.psbt, general_kp);
+    let (refill_psbt, _refill_lease) = refill.into_parts();
+    let signed_refill = sign_and_finalize(refill_psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed_refill)
@@ -1036,18 +1018,22 @@ async fn restart_loads_persisted_state_and_applies_only_the_chain_delta() {
         tip_before,
         "loaded wallet resumes at the persisted tip before syncing"
     );
-    let utxos_after_load: BTreeSet<OutPoint> = wallet
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "nothing is spendable before the first sync of this process"
+    );
+
+    wallet.sync().await.expect("post-restart sync");
+    let utxos_after_sync: BTreeSet<OutPoint> = wallet
         .general()
         .list_utxos()
         .into_iter()
         .map(|u| u.outpoint)
         .collect();
     assert_eq!(
-        utxos_after_load, utxos_before,
+        utxos_after_sync, utxos_before,
         "transaction-graph state survives the restart"
     );
-
-    wallet.sync().await.expect("post-restart sync");
     assert_eq!(wallet.local_chain_tip_height(), tip_before + 5);
 
     // Only the five new blocks were applied after the restart: no persisted changeset touches a
@@ -1222,6 +1208,8 @@ async fn reorg_rolls_back_the_persisted_chain_and_reanchors_reserved_utxos() {
     .await;
     assert_eq!(wallet.local_chain_tip_height(), 102);
     assert_eq!(wallet.reserved_tip_hash(), new_102);
+    let mut wallet = wallet;
+    wallet.sync().await.expect("sync after the reopen");
     assert_eq!(wallet.reserved_utxos_with_value(value).len(), 1);
 }
 
@@ -1336,7 +1324,7 @@ async fn a_payment_seen_in_the_mempool_survives_confirmation_and_restart() {
     assert_eq!(pool[0].confirmations, 1);
 
     drop(wallet);
-    let wallet = open_wallet(
+    let mut wallet = open_wallet(
         &bitcoind,
         35,
         36,
@@ -1345,6 +1333,7 @@ async fn a_payment_seen_in_the_mempool_survives_confirmation_and_restart() {
         DEFAULT_PERSIST_EVERY_BLOCKS,
     )
     .await;
+    wallet.sync().await.expect("sync after the restart");
     let pool = wallet.reserved_utxos_with_value(value);
     assert_eq!(
         pool.len(),
@@ -1485,17 +1474,29 @@ async fn a_store_ahead_of_the_node_is_refused() {
     assert!(rpc.get_block_count().expect("count") < u64::from(tip));
 
     let (_, general_pubkey) = keypair_from_seed(39);
-    let err = NativeGeneralWallet::load_or_create(
-        general_pubkey,
-        &OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest),
+    let (_, reserved_pubkey) = keypair_from_seed(40);
+    let err = OperatorWallet::load_or_create(
+        GeneralCustody::SecretService {
+            general_key: general_pubkey,
+            store: stores.general.clone(),
+        },
+        reserved_pubkey,
+        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
         Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
-        stores.general.clone(),
+        stores.reserved.clone(),
         None,
+        BTreeSet::new(),
     )
     .await
     .expect_err("a store ahead of the node must be refused");
+    let OperatorWalletError::GeneralInit(err) = err else {
+        panic!("got {err:?}");
+    };
     assert!(
-        matches!(err, InitError::BackendBehindTip { tip: stored, .. } if stored == tip),
+        matches!(
+            err.downcast_ref::<InitError<MemoryStoreError>>(),
+            Some(InitError::BackendBehindTip { tip: stored, .. }) if *stored == tip
+        ),
         "got {err:?}"
     );
 }
@@ -1526,11 +1527,8 @@ async fn a_lease_survives_its_funding_leaving_the_mempool() {
         .send_to_address(&reserved_addr, value)
         .expect("send to reserved script");
     wallet.sync().await.expect("sync with the payment pending");
-    let leased = wallet
-        .reserve_utxo_with_value(value, |_| false)
-        .0
-        .expect("an unconfirmed pool member is reservable");
-    assert!(wallet.leased_outpoints().contains(&leased));
+    let leased = wallet.reserved_utxos_with_value(value)[0].outpoint;
+    wallet.lease_committed(vec![leased], LeaseOwner::ClaimFunding);
 
     // The payment leaves the mempool, so it is no longer spendable, but nothing has spent it.
     replace(&bitcoind, &rpc, leased.txid);
@@ -1555,7 +1553,7 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
     let stores = Stores::default();
     let (general_kp, general_pubkey) = keypair_from_seed(45);
     // No retries: the injected failure fires once, and a retry would succeed.
-    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest)
+    let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest)
         .with_sync_policy(0, 1, Duration::ZERO);
     let mut wallet = open_wallet_with_config(&bitcoind, 45, 46, &stores, None, config).await;
 
@@ -1576,10 +1574,11 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
             value,
             quantity,
             GeneralUtxoPolicy::ConfirmedOnly,
+            LeaseOwner::ClaimFundingRefill,
         )
-        .await
         .expect("fund the pool");
-    let signed = sign_and_finalize(funded.psbt, general_kp);
+    let (psbt, _funding_lease) = funded.into_parts();
+    let signed = sign_and_finalize(psbt, general_kp);
     bitcoind
         .client
         .send_raw_transaction(&signed)
@@ -1588,7 +1587,7 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
         .sync()
         .await
         .expect("sync with the funding in the mempool");
-    let unconfirmed_general = |wallet: &TestWallet| {
+    let unconfirmed_general = |wallet: &OperatorWallet<MemoryStore>| {
         wallet
             .general()
             .list_utxos()
@@ -1619,10 +1618,6 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
         wallet.reserved_utxos_with_value(value).len(),
         quantity,
         "pool members still spendable"
-    );
-    assert!(
-        wallet.reserve_utxo_with_value(value, |_| false).0.is_some(),
-        "and reservable"
     );
     assert_eq!(
         unconfirmed_general(&wallet),
@@ -1682,10 +1677,10 @@ async fn a_reorg_across_a_restart_reconciles() {
 }
 
 /// A spend reorged out behind a conflict the wallet never sees is on neither the chain nor the
-/// mempool. BDK keeps it canonical in memory, so its inputs stay hidden until a restart.
+/// mempool. BDK keeps it canonical in memory, and its inputs are spendable all the same.
 #[tokio::test]
 #[serial]
-async fn inputs_of_a_reorged_out_spend_return_after_a_restart() {
+async fn inputs_of_a_reorged_out_spend_are_spendable() {
     let bitcoind = setup_bitcoind();
     let rpc = sync_rpc_client(&bitcoind);
     let stores = Stores::default();
@@ -1791,12 +1786,17 @@ async fn inputs_of_a_reorged_out_spend_return_after_a_restart() {
         "the spend is gone from the mempool"
     );
     wallet.sync().await.expect("sync after the reorg");
-    assert!(
-        wallet.general().list_utxos().is_empty(),
-        "hidden until a restart"
-    );
+    let outpoints = |wallet: &OperatorWallet<MemoryStore>| -> Vec<OutPoint> {
+        wallet
+            .general()
+            .list_utxos()
+            .into_iter()
+            .map(|u| u.outpoint)
+            .collect()
+    };
+    assert_eq!(outpoints(&wallet), vec![coin.outpoint], "the coin is back");
 
-    // Nothing about the spend survives a load.
+    // The spend stays in the graph after a load, so the coin stays hidden until a sync finishes.
     drop(wallet);
     let mut wallet = open_wallet(
         &bitcoind,
@@ -1807,17 +1807,550 @@ async fn inputs_of_a_reorged_out_spend_return_after_a_restart() {
         DEFAULT_PERSIST_EVERY_BLOCKS,
     )
     .await;
-    let outpoints = |wallet: &TestWallet| -> Vec<OutPoint> {
-        wallet
-            .general()
-            .list_utxos()
-            .into_iter()
-            .map(|u| u.outpoint)
-            .collect()
-    };
-    assert_eq!(outpoints(&wallet), vec![coin.outpoint], "the coin is back");
+    assert!(outpoints(&wallet).is_empty(), "no sync has finished");
     wallet.sync().await.expect("sync after the restart");
     assert_eq!(outpoints(&wallet), vec![coin.outpoint], "and stays back");
+}
+
+/// One coin in the general wallet of `seed`, confirmed once, with the keypair that signs for it.
+async fn wallet_with_one_buried_coin(
+    bitcoind: &Node,
+    stores: &Stores,
+    seed: u8,
+    bury_depth: u32,
+) -> (
+    OperatorWallet<MemoryStore>,
+    Keypair,
+    operator_wallet::UtxoInfo,
+) {
+    let (general_kp, general_pubkey) = keypair_from_seed(seed);
+    let config = OperatorWalletConfig::new(Amount::from_sat(330), bury_depth, Network::Regtest);
+    let mut wallet = open_wallet_with_config(bitcoind, seed, seed + 1, stores, None, config).await;
+    let general_addr = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_addr, Amount::from_btc(0.5).unwrap())
+        .expect("fund the general wallet");
+    mine(bitcoind, 1);
+    wallet.sync().await.expect("sync");
+    let coin = wallet
+        .general()
+        .list_utxos()
+        .pop()
+        .expect("the general coin");
+    (wallet, general_kp, coin)
+}
+
+/// A signed spend of `coin` to `sink`, plus `extra` inputs signed with `extra_keys`.
+fn spend_of(
+    coin: &operator_wallet::UtxoInfo,
+    coin_key: &Keypair,
+    extra: &[(OutPoint, TxOut, Keypair)],
+    sink: ScriptBuf,
+) -> Transaction {
+    let fee = Amount::from_sat(2_000);
+    let input = |outpoint| TxIn {
+        previous_output: outpoint,
+        script_sig: ScriptBuf::new(),
+        sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+        witness: Witness::new(),
+    };
+    let total = coin.amount
+        + extra
+            .iter()
+            .map(|(_, txout, _)| txout.value)
+            .sum::<Amount>();
+    let spend = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: std::iter::once(input(coin.outpoint))
+            .chain(extra.iter().map(|(outpoint, _, _)| input(*outpoint)))
+            .collect(),
+        output: vec![TxOut {
+            value: total - fee,
+            script_pubkey: sink,
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(spend).expect("psbt");
+    psbt.inputs[0].witness_utxo = Some(TxOut::from(coin));
+    for (i, (_, txout, _)) in extra.iter().enumerate() {
+        psbt.inputs[i + 1].witness_utxo = Some(txout.clone());
+    }
+    let keys: Vec<Keypair> = std::iter::once(*coin_key)
+        .chain(extra.iter().map(|(_, _, key)| *key))
+        .collect();
+    sign_and_finalize_with(psbt, &keys)
+}
+
+/// A committed lease outlives the confirmation of its spend. The sync drops it only once the
+/// spend has more than `bury_depth` confirmations, so a reorg inside the depth cannot free an
+/// outpoint that a durable row still names.
+#[tokio::test]
+#[serial]
+async fn a_lease_holds_until_its_spend_is_buried() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let bury_depth = 2;
+    let (mut wallet, general_kp, coin) =
+        wallet_with_one_buried_coin(&bitcoind, &stores, 61, bury_depth).await;
+    wallet.lease_committed(vec![coin.outpoint], LeaseOwner::WithdrawalFulfillment);
+
+    let sink = bitcoind.client.new_address().expect("sink").script_pubkey();
+    let spend = spend_of(&coin, &general_kp, &[], sink);
+    bitcoind
+        .client
+        .send_raw_transaction(&spend)
+        .expect("broadcast the spend");
+    wallet
+        .sync()
+        .await
+        .expect("sync with the spend in the mempool");
+    assert!(
+        wallet.leased_outpoints().contains(&coin.outpoint),
+        "a mempool spend keeps the lease"
+    );
+
+    for confirmations in 1..=bury_depth {
+        mine(&bitcoind, 1);
+        wallet.sync().await.expect("sync");
+        assert!(
+            wallet.leased_outpoints().contains(&coin.outpoint),
+            "{confirmations} confirmations keep the lease"
+        );
+    }
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync at burial");
+    assert!(
+        wallet.leased_outpoints().is_empty(),
+        "a buried spend drops the lease"
+    );
+}
+
+/// A reorg that removes a once-confirmed spend returns its input to the wallet. The lease is still
+/// there, so no duty can select the input while a durable row names it.
+#[tokio::test]
+#[serial]
+async fn a_lease_survives_a_reorg_of_its_confirmed_spend() {
+    let bitcoind = setup_bitcoind();
+    let rpc = sync_rpc_client(&bitcoind);
+    let stores = Stores::default();
+    let (mut wallet, general_kp, coin) =
+        wallet_with_one_buried_coin(&bitcoind, &stores, 63, 2).await;
+    wallet.lease_committed(vec![coin.outpoint], LeaseOwner::WithdrawalFulfillment);
+
+    // A coin under an unrelated key gives the reorg a conflict that touches no wallet script.
+    let (other_kp, other_pubkey) = keypair_from_seed(65);
+    let other_addr = Address::p2tr(&Secp256k1::new(), other_pubkey, None, Network::Regtest);
+    let other_txid = rpc
+        .send_to_address(
+            &other_addr,
+            Amount::from_btc(0.5).unwrap(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("fund the other key");
+    mine(&bitcoind, 1);
+    let other_tx = rpc
+        .get_raw_transaction(&other_txid, None)
+        .expect("other funding tx");
+    let other_vout = other_tx
+        .output
+        .iter()
+        .position(|o| o.script_pubkey == other_addr.script_pubkey())
+        .expect("output to the other key");
+    let other = OutPoint {
+        txid: other_txid,
+        vout: other_vout as u32,
+    };
+    let other_txout = other_tx.output[other_vout].clone();
+
+    let sink = bitcoind.client.new_address().expect("sink").script_pubkey();
+    let spend = spend_of(
+        &coin,
+        &general_kp,
+        &[(other, other_txout.clone(), other_kp)],
+        sink.clone(),
+    );
+    let spend_txid = rpc
+        .send_raw_transaction(&spend)
+        .expect("broadcast the spend");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync with the spend confirmed");
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "the coin is spent"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&coin.outpoint),
+        "a confirmed spend below the bury depth keeps the lease"
+    );
+
+    // Reorg the spend out behind a block that spends the other coin elsewhere.
+    let height = rpc.get_block_count().expect("height");
+    rpc.invalidate_block(&rpc.get_block_hash(height).expect("block hash"))
+        .expect("invalidate");
+    let conflict = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: other,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        }],
+        output: vec![TxOut {
+            value: other_txout.value - Amount::from_sat(2_000),
+            script_pubkey: sink,
+        }],
+    };
+    let mut psbt = Psbt::from_unsigned_tx(conflict).expect("psbt");
+    psbt.inputs[0].witness_utxo = Some(other_txout);
+    let conflict = sign_and_finalize_with(psbt, &[other_kp]);
+    mine_block_with(&bitcoind, &[&conflict]);
+    assert!(
+        rpc.get_mempool_entry(&spend_txid).is_err(),
+        "the spend is gone from the mempool"
+    );
+    wallet.sync().await.expect("sync after the reorg");
+
+    let listed: Vec<OutPoint> = wallet
+        .general()
+        .list_utxos()
+        .into_iter()
+        .map(|u| u.outpoint)
+        .collect();
+    assert_eq!(
+        listed,
+        vec![coin.outpoint],
+        "the coin is back in the wallet"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&coin.outpoint),
+        "and its lease still holds"
+    );
+    assert!(
+        wallet
+            .select_general_utxo(LeaseOwner::BridgeProof, Amount::ONE_SAT)
+            .is_none(),
+        "no duty can select a held coin"
+    );
+}
+
+/// A funding path that stores its inputs in a durable row selects only buried inputs, so a reorg
+/// no deeper than `bury_depth` cannot remove an input the row names.
+#[tokio::test]
+#[serial]
+async fn row_backed_funding_selects_only_buried_inputs() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let bury_depth = 2;
+    let (mut wallet, _, _) = wallet_with_one_buried_coin(&bitcoind, &stores, 67, bury_depth).await;
+    let sink = bitcoind.client.new_address().expect("sink").script_pubkey();
+    let outputs = vec![TxOut {
+        value: Amount::from_sat(10_000),
+        script_pubkey: sink,
+    }];
+    let fee_rate = FeeRate::from_sat_per_vb(2).unwrap();
+
+    for confirmations in 1..=bury_depth {
+        assert!(
+            matches!(
+                wallet.fund_v3_transaction(
+                    outputs.clone(),
+                    fee_rate,
+                    GeneralUtxoPolicy::BuriedOnly { bury_depth },
+                    LeaseOwner::WithdrawalFulfillment,
+                ),
+                Err(OperatorWalletError::NoBuriedGeneralUtxos { bury_depth: 2 })
+            ),
+            "{confirmations} confirmations do not fund a row"
+        );
+        mine(&bitcoind, 1);
+        wallet.sync().await.expect("sync");
+    }
+    let funded = wallet
+        .fund_v3_transaction(
+            outputs,
+            fee_rate,
+            GeneralUtxoPolicy::BuriedOnly { bury_depth },
+            LeaseOwner::WithdrawalFulfillment,
+        )
+        .expect("a buried coin funds the row");
+    assert_eq!(
+        funded.lease().outpoints().len(),
+        1,
+        "a buried input funds the row-backed transaction under one lease"
+    );
+}
+
+/// `IncludeUnconfirmed` admits a mempool credit.
+#[tokio::test]
+#[serial]
+async fn create_reserved_utxos_can_include_unconfirmed_general_utxos_when_allowed() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, general_pubkey) =
+        build_operator_wallet(&bitcoind, 15, 16, 0, Amount::ZERO).await;
+
+    let unconfirmed_amount = Amount::from_btc(1.0).unwrap();
+    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
+    bitcoind
+        .client
+        .send_to_address(&general_address, unconfirmed_amount)
+        .expect("send unconfirmed funds");
+    wallet.sync().await.expect("sync unconfirmed deposit");
+
+    let unconfirmed_outpoint = wallet.general().list_utxos()[0].outpoint;
+    let funded = wallet
+        .create_reserved_utxos(
+            FeeRate::from_sat_per_vb(5).unwrap(),
+            Amount::from_btc(0.01).unwrap(),
+            1,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::StakeFunding,
+        )
+        .expect("unconfirmed general-wallet funds may be selected when allowed");
+
+    assert!(
+        funded.lease().outpoints().contains(&unconfirmed_outpoint),
+        "funding transaction should spend the unconfirmed general-wallet UTXO"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&unconfirmed_outpoint),
+        "selected unconfirmed UTXO must be leased"
+    );
+}
+
+/// `reserved_utxo` finds a pool member of any denomination by its outpoint, and nothing else.
+#[tokio::test]
+#[serial]
+async fn reserved_utxo_finds_an_outpoint_of_any_value() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, general_kp, _) =
+        build_operator_wallet(&bitcoind, 7, 8, 3, Amount::from_btc(0.5).unwrap()).await;
+
+    let values = [
+        Amount::from_btc(0.01).unwrap(),
+        Amount::from_btc(0.05).unwrap(),
+    ];
+    for value in values {
+        let funded = wallet
+            .create_reserved_utxos(
+                FeeRate::from_sat_per_vb(5).unwrap(),
+                value,
+                1,
+                GeneralUtxoPolicy::ConfirmedOnly,
+                LeaseOwner::StakeFunding,
+            )
+            .unwrap_or_else(|e| panic!("seed funding for {value} failed: {e}"));
+        let (psbt, lease) = funded.into_parts();
+        lease.commit();
+        let signed = sign_and_finalize(psbt, general_kp);
+        bitcoind
+            .client
+            .send_raw_transaction(&signed)
+            .expect("broadcast");
+        mine(&bitcoind, 1);
+        wallet.sync().await.expect("sync");
+    }
+
+    for value in values {
+        let pooled = wallet.reserved_utxos_with_value(value);
+        assert_eq!(pooled.len(), 1, "expected one UTXO of {value}");
+        let found = wallet
+            .reserved_utxo(pooled[0].outpoint)
+            .unwrap_or_else(|| panic!("the {value} UTXO must be found by its outpoint"));
+        assert_eq!(
+            (found.outpoint, found.amount),
+            (pooled[0].outpoint, value),
+            "lookup by outpoint must return the {value} UTXO"
+        );
+    }
+    let unknown = OutPoint::new(Txid::all_zeros(), 0);
+    assert!(
+        wallet.reserved_utxo(unknown).is_none(),
+        "an outpoint the reserved wallet does not hold must not be found"
+    );
+}
+
+/// A settled output is settled by chain data alone, so a reopened wallet gives the answer that the
+/// running wallet gave.
+#[tokio::test]
+#[serial]
+async fn settlement_does_not_change_across_a_restart() {
+    let bitcoind = setup_bitcoind();
+    let stores = Stores::default();
+    let open = || {
+        open_wallet(
+            &bitcoind,
+            56,
+            57,
+            &stores,
+            None,
+            DEFAULT_PERSIST_EVERY_BLOCKS,
+        )
+    };
+    let mut wallet = open().await;
+    let value = Amount::from_btc(0.02).unwrap();
+    let reserved_address = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    bitcoind
+        .client
+        .send_to_address(&reserved_address, value)
+        .expect("pay the reserved script");
+    mine(&bitcoind, 2);
+    wallet.sync().await.expect("sync");
+    assert!(wallet.reserve_settled(value, 2).is_none(), "not yet buried");
+    assert!(wallet.reserve_settled(value, 1).is_some(), "buried at 1");
+
+    drop(wallet);
+    let mut wallet = open().await;
+    wallet.sync().await.expect("sync after the restart");
+    assert!(wallet.reserve_settled(value, 2).is_none(), "not yet buried");
+    assert!(wallet.reserve_settled(value, 1).is_some(), "buried at 1");
+}
+
+/// An outpoint that no wallet knows can be the output of a parent that no block holds yet, or of
+/// a transaction that a reorg removed and that can return. Its lease must not end at a sync.
+#[tokio::test]
+#[serial]
+async fn a_sync_keeps_a_lease_on_an_outpoint_that_no_wallet_knows() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, _) =
+        build_operator_wallet(&bitcoind, 54, 55, 1, Amount::from_btc(0.5).unwrap()).await;
+    let unknown = OutPoint::new(Txid::all_zeros(), 7);
+    wallet.lease_committed(vec![unknown], LeaseOwner::StakeFunding);
+    wallet.sync().await.expect("sync");
+    assert!(
+        wallet.leased_outpoints().contains(&unknown),
+        "a sync keeps a lease that no wallet output backs"
+    );
+}
+
+/// One claim funding output must not go to two graphs. The output is leased and committed, a
+/// spend enters the mempool, and a conflict on its other input evicts it. The output reads as
+/// spendable, the lease keeps it from a second caller, and a confirmed spend ends the lease.
+#[tokio::test]
+#[serial]
+async fn a_committed_lease_outlives_a_spend_that_leaves_the_mempool() {
+    let bitcoind = setup_bitcoind();
+    let rpc = sync_rpc_client(&bitcoind);
+    let stores = Stores::default();
+    let (reserved_kp, _) = keypair_from_seed(52);
+    let mut wallet = open_wallet(
+        &bitcoind,
+        51,
+        52,
+        &stores,
+        None,
+        DEFAULT_PERSIST_EVERY_BLOCKS,
+    )
+    .await;
+
+    // One coin on the reserved script and one under an unrelated key, confirmed together.
+    let value = Amount::from_btc(0.02).unwrap();
+    let reserved_address = Address::from_script(&wallet.reserved_script_pubkey(), Network::Regtest)
+        .expect("reserved address");
+    let (other_kp, other_pubkey) = keypair_from_seed(53);
+    let other_address = Address::p2tr(&Secp256k1::new(), other_pubkey, None, Network::Regtest);
+    rpc.send_to_address(&reserved_address, value, None, None, None, None, None, None)
+        .expect("pay the reserved script");
+    let other_txid = rpc
+        .send_to_address(&other_address, value, None, None, None, None, None, None)
+        .expect("pay the other key");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync the payments");
+    let (coin, lease) = wallet
+        .reserve_settled(value, 0)
+        .expect("one settled output");
+    lease.commit();
+
+    let other_tx = rpc
+        .get_raw_transaction(&other_txid, None)
+        .expect("other funding tx");
+    let other_vout = other_tx
+        .output
+        .iter()
+        .position(|output| output.script_pubkey == other_address.script_pubkey())
+        .expect("output to the other key");
+    let other = OutPoint::new(other_txid, other_vout as u32);
+    let other_txout = other_tx.output[other_vout].clone();
+    let coin_txout = TxOut {
+        value,
+        script_pubkey: wallet.reserved_script_pubkey(),
+    };
+    let sink = bitcoind
+        .client
+        .new_address()
+        .expect("sink address")
+        .script_pubkey();
+    // Every spend pays the node's wallet, so none adds an output to the wallets under test.
+    let spend_of = |inputs: &[(OutPoint, &TxOut)], fee: u64, keys: &[Keypair]| {
+        let total: Amount = inputs.iter().map(|(_, txout)| txout.value).sum();
+        let tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: inputs
+                .iter()
+                .map(|(outpoint, _)| TxIn {
+                    previous_output: *outpoint,
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                    witness: Witness::new(),
+                })
+                .collect(),
+            output: vec![TxOut {
+                value: total - Amount::from_sat(fee),
+                script_pubkey: sink.clone(),
+            }],
+        };
+        let mut psbt = Psbt::from_unsigned_tx(tx).expect("psbt");
+        for (psbt_input, (_, txout)) in psbt.inputs.iter_mut().zip(inputs) {
+            psbt_input.witness_utxo = Some((*txout).clone());
+        }
+        sign_and_finalize_with(psbt, keys)
+    };
+
+    let spend = spend_of(
+        &[(coin, &coin_txout), (other, &other_txout)],
+        2_000,
+        &[reserved_kp, other_kp],
+    );
+    rpc.send_raw_transaction(&spend).expect("broadcast");
+    wallet.sync().await.expect("sync the spend");
+    assert!(
+        wallet.reserved_utxos_with_value(value).is_empty(),
+        "an output a mempool transaction spends is not offered"
+    );
+    assert!(
+        wallet.leased_outpoints().contains(&coin),
+        "a spend in the mempool keeps the lease"
+    );
+
+    let conflict = spend_of(&[(other, &other_txout)], 20_000, &[other_kp]);
+    rpc.send_raw_transaction(&conflict).expect("replace");
+    wallet.sync().await.expect("sync the eviction");
+    assert_eq!(
+        wallet.reserved_utxos_with_value(value).len(),
+        1,
+        "the spend is dead, so the output is spendable"
+    );
+    assert!(
+        wallet.reserve_settled(value, 0).is_none(),
+        "and the lease keeps it from a second graph"
+    );
+
+    let confirmed = spend_of(&[(coin, &coin_txout)], 2_000, &[reserved_kp]);
+    rpc.send_raw_transaction(&confirmed).expect("broadcast");
+    mine(&bitcoind, 1);
+    wallet.sync().await.expect("sync the confirmed spend");
+    assert!(
+        !wallet.leased_outpoints().contains(&coin),
+        "a confirmed spend ends the lease"
+    );
 }
 
 #[tokio::test]
@@ -1923,41 +2456,33 @@ async fn sync_fails_when_the_seed_block_is_pruned() {
     assert_eq!(wallet.local_chain_tip_height(), 700);
 }
 
-/// Opens (loads or creates) a [`SqliteWallet`] whose two stores live in `data_dir`.
+/// Opens (loads or creates) an [`OperatorWallet`] whose two stores live in `data_dir`.
 async fn open_sqlite_wallet(
     bitcoind: &Node,
     general_seed: u8,
     reserved_seed: u8,
     data_dir: &Path,
-) -> SqliteWallet {
+) -> OperatorWallet<SqliteStore> {
     let (_, general_pubkey) = keypair_from_seed(general_seed);
     let (_, reserved_pubkey) = keypair_from_seed(reserved_seed);
     let general_store =
         SqliteStore::open_in_dir(data_dir, WalletKind::General).expect("open general");
     let reserved_store =
         SqliteStore::open_in_dir(data_dir, WalletKind::Reserved).expect("open reserved");
-    let config = OperatorWalletConfig::new(SENTINEL_ANCHOR_VALUE, Network::Regtest);
-    let general = NativeGeneralWallet::load_or_create(
-        general_pubkey,
-        &config,
-        Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind))),
-        general_store,
-        None,
-    )
-    .await
-    .expect("general wallet init");
-    let wallet = OperatorWallet::load_or_create(
-        general,
+    OperatorWallet::load_or_create(
+        GeneralCustody::SecretService {
+            general_key: general_pubkey,
+            store: general_store,
+        },
         reserved_pubkey,
-        config,
+        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
         Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind))),
         reserved_store,
         None,
         BTreeSet::new(),
     )
     .await
-    .expect("reserved wallet init");
-    wallet
+    .expect("wallet init")
 }
 
 #[tokio::test]
@@ -1997,58 +2522,25 @@ async fn sqlite_store_survives_a_restart_and_resumes_at_the_persisted_tip() {
         tip_before,
         "resumes at persisted tip"
     );
-    let utxos_after_load: BTreeSet<OutPoint> = wallet
+    assert!(
+        wallet.general().list_utxos().is_empty(),
+        "nothing is spendable before the first sync of this process"
+    );
+
+    wallet.sync().await.expect("post-restart sync");
+    assert_eq!(
+        wallet.local_chain_tip_height(),
+        tip_before + 5,
+        "the restarted wallet syncs to the new tip"
+    );
+    let utxos_after_sync: BTreeSet<OutPoint> = wallet
         .general()
         .list_utxos()
         .into_iter()
         .map(|u| u.outpoint)
         .collect();
     assert_eq!(
-        utxos_after_load, utxos_before,
+        utxos_after_sync, utxos_before,
         "graph state reloaded from SQLite"
     );
-
-    wallet.sync().await.expect("post-restart sync");
-    assert_eq!(wallet.local_chain_tip_height(), tip_before + 5);
-}
-
-#[tokio::test]
-#[serial]
-async fn refill_requires_buried_inputs() {
-    let bitcoind = setup_bitcoind();
-    let (mut wallet, _, _) =
-        build_operator_wallet(&bitcoind, 21, 22, 1, Amount::from_btc(0.5).unwrap()).await;
-    let bury_depth = 2;
-    let miner_addr = bitcoind.client.new_address().expect("miner");
-    let value = Amount::from_btc(0.01).unwrap();
-    let policy = GeneralUtxoPolicy::BuriedOnly { bury_depth };
-    let fee_rate = FeeRate::from_sat_per_vb(5).unwrap();
-
-    for confirmations in 1..=bury_depth {
-        wallet.sync().await.expect("sync input confirmations");
-        assert_eq!(
-            wallet.general().list_utxos()[0].confirmations,
-            confirmations
-        );
-        let err = wallet
-            .create_reserved_utxos(fee_rate, value, 1, policy)
-            .await
-            .expect_err("shallow inputs must be rejected");
-        assert!(matches!(
-            err,
-            OperatorWalletError::NoBuriedGeneralUtxos { bury_depth: 2 }
-        ));
-        assert!(wallet.leased_outpoints().is_empty());
-        bitcoind
-            .client
-            .generate_to_address(1, &miner_addr)
-            .expect("mine");
-    }
-
-    wallet.sync().await.expect("sync buried input");
-    let funded = wallet
-        .create_reserved_utxos(fee_rate, value, 1, policy)
-        .await
-        .expect("buried input must be accepted");
-    assert_eq!(funded.spent().len(), 1);
 }
