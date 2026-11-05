@@ -44,7 +44,7 @@ pub use crate::{
         OperatorWalletConfig, DEFAULT_PERSIST_EVERY_BLOCKS, DEFAULT_SYNC_BACKOFF,
         DEFAULT_SYNC_BASE_DELAY, DEFAULT_SYNC_RETRIES,
     },
-    general::{native::NativeGeneralWallet, FundedPsbt, GeneralCustody, GeneralWallet},
+    general::GeneralCustody,
     leases::{Lease, LeaseOwner},
     persist::{
         load_or_create, BlockId, InitError, SqliteStore, SqliteStoreError, WalletKind, WalletStore,
