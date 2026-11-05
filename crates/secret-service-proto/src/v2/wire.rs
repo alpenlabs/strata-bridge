@@ -149,6 +149,9 @@ pub enum SerializableTaprootTweak {
         tweak: Option<rkyv_wrappers::TapNodeHash>,
     },
     Script,
+    Bip328Key {
+        tweak: Option<rkyv_wrappers::TapNodeHash>,
+    },
 }
 
 impl From<SerializableTaprootTweak> for TaprootTweak {
@@ -156,6 +159,9 @@ impl From<SerializableTaprootTweak> for TaprootTweak {
         match value {
             SerializableTaprootTweak::Key { tweak } => TaprootTweak::Key {
                 tweak: tweak.map(|t| t.into()),
+            },
+            SerializableTaprootTweak::Bip328Key { tweak } => TaprootTweak::Bip328Key {
+                tweak: tweak.map(Into::into),
             },
             SerializableTaprootTweak::Script => TaprootTweak::Script,
         }
@@ -167,6 +173,9 @@ impl From<TaprootTweak> for SerializableTaprootTweak {
         match value {
             TaprootTweak::Key { tweak } => SerializableTaprootTweak::Key {
                 tweak: tweak.map(|t| t.into()),
+            },
+            TaprootTweak::Bip328Key { tweak } => SerializableTaprootTweak::Bip328Key {
+                tweak: tweak.map(Into::into),
             },
             TaprootTweak::Script => SerializableTaprootTweak::Script,
         }

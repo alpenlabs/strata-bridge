@@ -47,7 +47,12 @@ pub trait Connector {
 
     /// Returns the internal key of the connector.
     ///
-    /// The key will be unspendable for connectors without a key path spend.
+    /// The key is unspendable for connectors without a key path spend.
+    ///
+    /// ## Note to Implementors
+    ///
+    /// If your connector uses a BIP-328 child of a signing key as internal key,
+    /// then this method must return the child (not the signing key).
     fn internal_key(&self) -> XOnlyPublicKey {
         *UNSPENDABLE_PUBLIC_KEY
     }
@@ -383,6 +388,23 @@ impl SigningInfo {
                 .tap_tweak(SECP256K1, tweak)
                 .to_keypair()
                 .sign_schnorr(self.sighash),
+            TaprootTweak::Bip328Key { tweak } => {
+                let derivation_tweak =
+                    strata_bridge_primitives::key_agg::derive_musig_0_0(keypair.public_key())
+                        .expect("valid aggregate derivation")
+                        .1;
+                let secret = match derivation_tweak.not_zero() {
+                    Ok(tweak) => keypair
+                        .secret_key()
+                        .add_tweak(&tweak.into())
+                        .expect("valid child secret"),
+                    Err(_) => keypair.secret_key(),
+                };
+                Keypair::from_secret_key(SECP256K1, &secret)
+                    .tap_tweak(SECP256K1, tweak)
+                    .to_keypair()
+                    .sign_schnorr(self.sighash)
+            }
             TaprootTweak::Script => keypair.sign_schnorr(self.sighash),
         }
     }

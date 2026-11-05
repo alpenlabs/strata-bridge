@@ -128,6 +128,10 @@ pub type ParseResult<T> = Result<T, ParseError>;
 /// [`Musig2`](musig2).
 #[derive(Debug, Clone, Error)]
 pub enum AggError {
+    /// Error while deriving a BIP-328 child key.
+    #[error("could not derive child key: {0}")]
+    DerivationError(#[from] bitcoin::bip32::Error),
+
     /// Error while building the key aggregation context.
     #[error("could not build key aggregation context: {0}")]
     BuildError(#[from] KeyAggError),
