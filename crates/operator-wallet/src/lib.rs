@@ -18,10 +18,8 @@
 
 pub mod config;
 pub mod general;
-#[allow(dead_code)]
 pub mod leases;
 pub mod persist;
-#[allow(dead_code)]
 mod plan;
 pub mod sync;
 #[cfg(any(test, feature = "test-utils"))]
@@ -52,7 +50,7 @@ pub use crate::{
     plan::{FundingInput, IncumbentChild, REPLACEMENT_INCREMENT_SAT_PER_VB},
     sync::SyncError,
     tracked::{TrackedWallet, UtxoInfo},
-    wallet::{GeneralUtxoPolicy, LastSync, LeasedPsbt, OperatorWallet},
+    wallet::{GeneralUtxoPolicy, LastSync, LeasedPsbt, OperatorWallet, PriorChild, ReplacedChild},
 };
 
 /// Errors returned by [`OperatorWallet`] methods. An init error is boxed so that call sites do not
@@ -90,6 +88,34 @@ pub enum Error {
     /// An explicitly named input is not a spendable output of the general wallet.
     #[error("input {0} is not a spendable general-wallet output")]
     UnknownInput(bdk_wallet::bitcoin::OutPoint),
+    /// The output a CPFP child must spend is past the end of the outputs of its parent.
+    #[error("spent vout {vout} out of range for parent with {parent_outputs} outputs")]
+    SpendVoutOutOfRange {
+        /// The requested vout.
+        vout: u32,
+        /// Number of outputs of the parent.
+        parent_outputs: usize,
+    },
+    /// Another lease holds the wallet output of the parent that a CPFP child must spend.
+    #[error("the parent output {outpoint} that the child spends is held by another lease")]
+    ParentOutputHeld {
+        /// The held output of the parent.
+        outpoint: bdk_wallet::bitcoin::OutPoint,
+    },
+    /// The spend of the parent output puts a CPFP child past the TRUC size limit.
+    #[error("a child of {vbytes} vB is past the TRUC size limit")]
+    ChildTooLarge {
+        /// Size of the child with no funding.
+        vbytes: u64,
+    },
+    /// Replacing the live child lifts the package past its cap.
+    #[error("replacement needs a package fee of {needed}, past the cap of {ceiling}")]
+    ChildAboveCap {
+        /// Fee of the (parent, child) package with the replacement.
+        needed: bdk_wallet::bitcoin::Amount,
+        /// Most that the package may pay at its size.
+        ceiling: bdk_wallet::bitcoin::Amount,
+    },
     /// The wallet receive script cannot be represented as a Bitcoin address.
     #[error("wallet receive script is not addressable: {0}")]
     Address(#[from] bdk_wallet::bitcoin::address::FromScriptError),
@@ -105,6 +131,18 @@ pub enum Error {
     /// The reserved wallet could not be loaded from or created in its store.
     #[error("reserved wallet init: {0}")]
     ReservedInit(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<plan::ChildPlanError> for Error {
+    fn from(error: plan::ChildPlanError) -> Self {
+        match error {
+            plan::ChildPlanError::Shortfall(shortfall) => shortfall.into(),
+            plan::ChildPlanError::TooLarge { vbytes } => Self::ChildTooLarge { vbytes },
+            plan::ChildPlanError::AboveCap { needed, ceiling } => {
+                Self::ChildAboveCap { needed, ceiling }
+            }
+        }
+    }
 }
 
 impl From<plan::Shortfall> for Error {

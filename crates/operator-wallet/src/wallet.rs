@@ -26,16 +26,22 @@
 //! the wallet, and then signs, so a wait for a signature never sits under a wallet lock. A failed
 //! signature drops the lease, which returns the inputs.
 
-use std::{collections::BTreeSet, sync::Arc, time::Instant};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    iter,
+    sync::Arc,
+    time::Instant,
+};
 
 use bdk_wallet::{
     bitcoin::{
-        absolute::LockTime, Address, Amount, FeeRate, OutPoint, Psbt, ScriptBuf, TxOut, Txid,
-        XOnlyPublicKey,
+        absolute::LockTime, transaction::InputWeightPrediction, Address, Amount, FeeRate, OutPoint,
+        Psbt, ScriptBuf, Transaction, TxOut, Txid, XOnlyPublicKey,
     },
     chain::BlockId,
     descriptor,
 };
+use strata_bridge_primitives::cpfp::{ChildSigner, ChildSpend};
 use tokio::time::sleep;
 use tracing::{error, warn};
 
@@ -44,9 +50,11 @@ use crate::{
     general::{GeneralCustody, GeneralSigner},
     leases::{Lease, LeaseOwner, LeaseSet},
     persist::WalletStore,
-    plan::{self, FundingInput, FundingPlan, FundingRequest},
+    plan::{
+        self, ChildPlan, ChildRequest, FundingInput, FundingPlan, FundingRequest, IncumbentChild,
+    },
     sync::Backend,
-    tracked::{OutputSpend, TrackedWallet, UtxoInfo},
+    tracked::{OutputSpend, OutputState, TrackedWallet, UtxoInfo},
     Error,
 };
 
@@ -86,6 +94,38 @@ pub struct LastSync {
     pub succeeded: bool,
     /// When the attempt ended.
     pub at: Instant,
+}
+
+/// One earlier child of ours that a rebuild can replace.
+#[derive(Debug, Clone, Copy)]
+pub struct PriorChild<'a> {
+    /// Txid of the child. A node may hold it, so a spend of its inputs by this txid does not end
+    /// them.
+    pub txid: Txid,
+    /// The lease on the inputs of the child. Selection looks past this lease and no other, so an
+    /// outpoint that another duty took stays out of reach, whatever `inputs` names.
+    pub lease: &'a Lease,
+    /// Wallet inputs of the child. They carry their outputs because the wallet stops listing them
+    /// once a sync observes the child. Without them each rebuild consumes a fresh funding set, and
+    /// a wallet with one suitable UTXO cannot fund a rebuild at all.
+    pub inputs: &'a [FundingInput],
+}
+
+/// What a rebuild of a CPFP child replaces via RBF.
+///
+/// The two fields can describe different transactions: `inputs` come from children of this
+/// wallet, and `incumbent` can be a child of another operator. [`ReplacedChild::default`] means
+/// that neither exists.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ReplacedChild<'a> {
+    /// Our earlier children for this parent. A new child conflicts with each of them by
+    /// construction, because all spend the same parent output, so an input that only these
+    /// children spend from the mempool stays selectable.
+    pub prior: &'a [PriorChild<'a>],
+    /// The child that holds the parent in a mempool now, which can be a child of another
+    /// watchtower. The new child outbids it, up to the cap the value carries. `None` when no
+    /// child is live, so `prior` can be set while this is not.
+    pub incumbent: Option<IncumbentChild>,
 }
 
 /// Which general-wallet UTXOs reserved-wallet funding may select from.
@@ -391,6 +431,97 @@ impl<P: WalletStore> OperatorWallet<P> {
         Ok(self.lease_funded(plan, outputs, change_script, owner))
     }
 
+    /// Plans a CPFP child for `parent` that spends the output `spend` describes, plus wallet
+    /// inputs that cover the child's share of the package fee, and returns the unsigned PSBT.
+    ///
+    /// `parent_fee` is the caller-known fee already paid by `parent`. Together with the sizes of
+    /// the parent and the child, it decides the fee that lifts the package to
+    /// `target_pkg_fee_rate`.
+    ///
+    /// `max_package_rate` is a hard limit: a child that lifts the package past it is not built,
+    /// and the error is [`Error::ChildAboveCap`]. A wallet output of the parent that a lease
+    /// outside `replaced` holds is not spent either, and the error is
+    /// [`Error::ParentOutputHeld`].
+    ///
+    /// `replaced` describes what this build supersedes through RBF: the live child to outbid and
+    /// the prior children of this wallet. The lease of a prior child is untouched: a failed build
+    /// leaves it as it was, and the caller drops it once a mempool accepts the new child. An input
+    /// of a prior child that a sync shows as spent elsewhere, or that another duty holds, does not
+    /// enter this child.
+    ///
+    /// The returned lease covers the funding inputs, and covers the parent output only when the
+    /// general wallet signs for it: once the parent confirms, that output is selectable, and the
+    /// lease keeps another duty off it while the child is live. The returned inputs are those the
+    /// lease holds, with the outputs they spend. A rebuild passes them back as
+    /// [`PriorChild::inputs`], because the wallet stops listing them once a sync observes the
+    /// child.
+    pub fn build_cpfp_child(
+        &mut self,
+        parent: &Transaction,
+        parent_fee: Amount,
+        spend: &ChildSpend,
+        target_pkg_fee_rate: FeeRate,
+        max_package_rate: FeeRate,
+        replaced: ReplacedChild<'_>,
+    ) -> Result<(LeasedPsbt, Vec<FundingInput>), Error> {
+        let leases: Vec<&Lease> = replaced.prior.iter().map(|child| child.lease).collect();
+        let held = self.leases.held_excluding(&leases);
+        ensure_spend_free(spend, &held)?;
+        let prior_outpoints = replaced
+            .prior
+            .iter()
+            .flat_map(|child| child.inputs)
+            .map(|input| input.outpoint)
+            .collect();
+        let candidates = with_respendable_inputs(
+            self.confirmed_general_inputs(&held),
+            replaced.prior,
+            &held,
+            &self.general.output_states(&prior_outpoints),
+        );
+        let (psbt, inputs) = child_psbt(
+            parent,
+            parent_fee,
+            spend,
+            target_pkg_fee_rate,
+            max_package_rate,
+            replaced.incumbent,
+            candidates,
+            self.general.script_pubkey(),
+            self.general_signer.input_prediction(),
+        )?;
+
+        let lease = self.leases.take(
+            plan::outpoints(&inputs),
+            LeaseOwner::CpfpChild {
+                parent: spend.outpoint().txid,
+            },
+        );
+        Ok((LeasedPsbt { psbt, lease }, inputs))
+    }
+
+    /// Takes a lease on the wallet inputs of a live child of the unconfirmed v3 parent `parent`.
+    /// The caller holds no record of that child: a restart or a reorg lost it.
+    ///
+    /// `inputs` are every input of the child with the output it spends. The wallet keeps those
+    /// that pay its own script and returns them with the lease. TRUC limits the spenders of an
+    /// unconfirmed v3 parent to one v3 child, so one input of this wallet shows that the child is
+    /// this wallet's. A child of another watchtower has none, and the result is `None`.
+    pub fn adopt_cpfp_child(
+        &self,
+        parent: Txid,
+        inputs: Vec<FundingInput>,
+    ) -> Option<(Lease, Vec<FundingInput>)> {
+        let owned = plan::owned_by(inputs, &self.general.script_pubkey());
+        if owned.is_empty() {
+            return None;
+        }
+        let lease = self
+            .leases
+            .take(plan::outpoints(&owned), LeaseOwner::CpfpChild { parent });
+        Some((lease, owned))
+    }
+
     // ── Cross-wallet (general → reserved) ──────────────────────────────────
 
     /// Creates a PSBT that funds `quantity` reserved-wallet UTXOs of `utxo_value` each,
@@ -507,6 +638,12 @@ impl<P: WalletStore> OperatorWallet<P> {
         Ok(())
     }
 
+    /// Returns how many free general-wallet UTXOs a block holds. These are the candidates for a
+    /// CPFP funding input. Each one can still be too small for a given fee.
+    pub fn free_confirmed_general_utxo_count(&self) -> usize {
+        self.confirmed_general_inputs(&self.leases.held()).len()
+    }
+
     // ── Internal helpers ───────────────────────────────────────────────────
 
     /// Every spendable general-wallet output that is not held, confirmed or not, apart from an
@@ -596,5 +733,791 @@ impl<P: WalletStore> OperatorWallet<P> {
             ),
             lease,
         }
+    }
+}
+
+/// Returns `candidates` with the inputs of `prior` that a new child can spend again. `held` holds
+/// what other leases hold, and `states` the state of each of those inputs.
+fn with_respendable_inputs(
+    mut candidates: Vec<FundingInput>,
+    prior: &[PriorChild<'_>],
+    held: &BTreeSet<OutPoint>,
+    states: &BTreeMap<OutPoint, OutputState>,
+) -> Vec<FundingInput> {
+    let children: Vec<Txid> = prior.iter().map(|child| child.txid).collect();
+    for input in prior.iter().flat_map(|child| child.inputs) {
+        let listed = candidates.iter().any(|c| c.outpoint == input.outpoint);
+        if !listed
+            && !held.contains(&input.outpoint)
+            && respendable(states.get(&input.outpoint), &children)
+        {
+            candidates.push(input.clone());
+        }
+    }
+    candidates
+}
+
+/// Whether a child that replaces `children` can spend an output in `state`, which the wallet no
+/// longer lists.
+///
+/// Only `children` may spend it, and only from the mempool. Any other spender means that the
+/// output is gone, and a child built on it fails at the node on every attempt. An unspent output
+/// needs nothing from here, because the wallet lists it and it is a candidate already. Its own
+/// transaction must be confirmed: a v3 child has one unconfirmed ancestor, and the parent is that
+/// ancestor.
+fn respendable(state: Option<&OutputState>, children: &[Txid]) -> bool {
+    match state {
+        Some(OutputState {
+            confirmations: 1..,
+            spend: OutputSpend::InMempool(spenders),
+        }) => spenders.iter().all(|txid| children.contains(txid)),
+        _ => false,
+    }
+}
+
+/// Fails when `spend` is a wallet output of the parent that `held` names. No duty selects an anchor
+/// or a protocol output, so only a wallet output can be held.
+fn ensure_spend_free(spend: &ChildSpend, held: &BTreeSet<OutPoint>) -> Result<(), Error> {
+    let outpoint = spend.outpoint();
+    if spend.signer() == ChildSigner::GeneralWallet && held.contains(&outpoint) {
+        return Err(Error::ParentOutputHeld { outpoint });
+    }
+    Ok(())
+}
+
+/// Plans a CPFP child and builds its unsigned PSBT. Returns it with the inputs that a lease must
+/// hold: the funding, and the spent output when the general wallet signs for it.
+///
+/// The spent parent output is input 0 and the wallet inputs follow, so the same request always
+/// builds the same transaction. The output comes from `parent` itself, because the parent is
+/// usually not broadcast yet. It costs a wallet input when the general wallet signs for it, and
+/// otherwise what the witness of `spend` costs.
+///
+/// The spent output never joins `candidates`: a confirmed payout that pays the wallet's own
+/// script also appears in the wallet.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "cohesive CPFP inputs; bundling them into a struct would only add indirection"
+)]
+fn child_psbt(
+    parent: &Transaction,
+    parent_fee: Amount,
+    spend: &ChildSpend,
+    target: FeeRate,
+    max_package_rate: FeeRate,
+    incumbent: Option<IncumbentChild>,
+    mut candidates: Vec<FundingInput>,
+    drain_script: ScriptBuf,
+    wallet_input: InputWeightPrediction,
+) -> Result<(Psbt, Vec<FundingInput>), Error> {
+    let outpoint = spend.outpoint();
+    let spent = parent
+        .output
+        .get(outpoint.vout as usize)
+        .ok_or(Error::SpendVoutOutOfRange {
+            vout: outpoint.vout,
+            parent_outputs: parent.output.len(),
+        })?;
+
+    candidates.retain(|candidate| candidate.outpoint != outpoint);
+
+    let request = ChildRequest {
+        // cast: tx vsize is bounded by the 4 MWU consensus limit, far inside u64.
+        parent_vbytes: parent.vsize() as u64,
+        parent_fee,
+        target,
+        max_package_rate,
+        incumbent,
+        spent_value: spent.value,
+        spent_input: match spend.signer() {
+            ChildSigner::GeneralWallet => wallet_input,
+            ChildSigner::Protocol => spend.witness().input_prediction(),
+        },
+        wallet_input,
+        drain_script: &drain_script,
+    };
+    let ChildPlan { funding, drain } = plan::plan_child(&request, candidates)?;
+
+    let spent_input = FundingInput {
+        outpoint,
+        txout: spent.clone(),
+    };
+    let inputs: Vec<FundingInput> = iter::once(spent_input.clone())
+        .chain(funding.iter().cloned())
+        .collect();
+    let output = TxOut {
+        value: drain,
+        script_pubkey: drain_script,
+    };
+    let psbt = plan::unsigned_psbt(&inputs, vec![output], LockTime::ZERO);
+    let held = match spend.signer() {
+        ChildSigner::GeneralWallet => inputs,
+        ChildSigner::Protocol => funding,
+    };
+    Ok((psbt, held))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+
+    use bdk_wallet::bitcoin::{
+        absolute,
+        hashes::Hash,
+        opcodes, script,
+        secp256k1::{Keypair, PublicKey, Secp256k1, SecretKey},
+        taproot::{ControlBlock, LeafVersion, TaprootBuilder},
+        transaction::Version,
+        Network, TxIn, Txid, Witness,
+    };
+    use strata_bridge_primitives::cpfp::ChildWitness;
+
+    use super::*;
+
+    const TAPROOT_INPUT: InputWeightPrediction = InputWeightPrediction::P2TR_KEY_DEFAULT_SIGHASH;
+    const P2WPKH_INPUT: InputWeightPrediction = InputWeightPrediction::P2WPKH_MAX;
+
+    fn xonly(seed: u8) -> XOnlyPublicKey {
+        let secret = SecretKey::from_slice(&[seed; 32]).expect("valid scalar");
+        Keypair::from_secret_key(&Secp256k1::new(), &secret)
+            .x_only_public_key()
+            .0
+    }
+
+    /// The Taproot script of a general wallet.
+    fn wallet_script() -> ScriptBuf {
+        ScriptBuf::new_p2tr(&Secp256k1::new(), xonly(50), None)
+    }
+
+    /// The P2WPKH script of a vault.
+    fn vault_script() -> ScriptBuf {
+        let secret = SecretKey::from_slice(&[51; 32]).expect("valid scalar");
+        let key = PublicKey::from_secret_key(&Secp256k1::new(), &secret);
+        Address::p2wpkh(
+            &bdk_wallet::bitcoin::CompressedPublicKey(key),
+            Network::Regtest,
+        )
+        .script_pubkey()
+    }
+
+    /// A confirmed wallet output of `sats`, unique per `seed`.
+    fn funding(sats: u64, seed: u8) -> FundingInput {
+        FundingInput {
+            outpoint: OutPoint {
+                txid: Txid::from_byte_array([seed; 32]),
+                vout: 0,
+            },
+            txout: TxOut {
+                value: Amount::from_sat(sats),
+                script_pubkey: wallet_script(),
+            },
+        }
+    }
+
+    /// A v3 parent whose only output pays `script_pubkey`.
+    fn parent_with_script_pubkey(script_pubkey: ScriptBuf, value: Amount) -> Transaction {
+        parent_with_outputs(vec![TxOut {
+            value,
+            script_pubkey,
+        }])
+    }
+
+    fn parent_with_outputs(output: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::from_byte_array([9u8; 32]),
+                    vout: 0,
+                },
+                ..Default::default()
+            }],
+            output,
+        }
+    }
+
+    /// A parent whose output `anchor_vout` is a keyed-Taproot anchor of `anchor_value`, after
+    /// dummy outputs, so it looks like a bridge tx with an anchor at a known position.
+    fn parent_with_anchor(anchor_vout: u32, anchor_value: Amount) -> Transaction {
+        let anchor_script = ScriptBuf::new_p2tr(&Secp256k1::new(), xonly(3), None);
+        let mut outputs: Vec<TxOut> = (0..anchor_vout)
+            .map(|_| TxOut {
+                value: Amount::from_sat(10_000),
+                script_pubkey: anchor_script.clone(),
+            })
+            .collect();
+        outputs.push(TxOut {
+            value: anchor_value,
+            script_pubkey: anchor_script,
+        });
+        parent_with_outputs(outputs)
+    }
+
+    /// A `MultiAnchor`-shaped Taproot output: one `<pubkey> OP_CHECKSIG` leaf per watchtower over
+    /// a balanced tree. Returns the first leaf and its control block plus the output script.
+    fn script_path_anchor(n_watchtowers: usize) -> (ScriptBuf, ControlBlock, ScriptBuf) {
+        let secp = Secp256k1::new();
+        let leaves: Vec<ScriptBuf> = (0..n_watchtowers)
+            .map(|i| {
+                script::Builder::new()
+                    .push_slice(xonly(i as u8 + 2).serialize())
+                    .push_opcode(opcodes::all::OP_CHECKSIG)
+                    .into_script()
+            })
+            .collect();
+        let builder =
+            TaprootBuilder::with_huffman_tree(leaves.iter().map(|s| (1u32, s.clone()))).unwrap();
+        let spend_info = builder.finalize(&secp, xonly(99)).unwrap();
+        let control_block = spend_info
+            .control_block(&(leaves[0].clone(), LeafVersion::TapScript))
+            .unwrap();
+        let spk = ScriptBuf::new_p2tr(&secp, xonly(99), spend_info.merkle_root());
+        (leaves[0].clone(), control_block, spk)
+    }
+
+    /// Measures what `tx` will weigh once signed, by attaching witnesses of the real shape and
+    /// letting rust-bitcoin serialize it. This is the independent oracle for the size prediction:
+    /// it shares no arithmetic with the planner.
+    fn signed_vsize_of(tx: &Transaction, spend: &ChildSpend) -> u64 {
+        let mut signed = tx.clone();
+        for input in &mut signed.input {
+            let mut witness = Witness::new();
+            match spend.witness() {
+                ChildWitness::ScriptPath {
+                    leaf_script,
+                    control_block,
+                } if input.previous_output == spend.outpoint() => {
+                    witness.push([0u8; 64]);
+                    witness.push(leaf_script.as_bytes());
+                    witness.push(control_block.serialize());
+                }
+                // Key-path spend and every Taproot wallet input: a bare 64-byte signature.
+                _ => witness.push([0u8; 64]),
+            }
+            input.witness = witness;
+        }
+        signed.vsize() as u64
+    }
+
+    /// Builds a child on a Taproot wallet.
+    fn build(
+        parent: &Transaction,
+        parent_fee: u64,
+        spend: &ChildSpend,
+        target_sat_vb: u64,
+        incumbent: Option<IncumbentChild>,
+        candidates: Vec<FundingInput>,
+    ) -> Result<Psbt, Error> {
+        built(
+            parent,
+            parent_fee,
+            spend,
+            target_sat_vb,
+            incumbent,
+            candidates,
+        )
+        .map(|(psbt, _)| psbt)
+    }
+
+    /// Builds a child on a Taproot wallet, and returns what a lease must hold too.
+    fn built(
+        parent: &Transaction,
+        parent_fee: u64,
+        spend: &ChildSpend,
+        target_sat_vb: u64,
+        incumbent: Option<IncumbentChild>,
+        candidates: Vec<FundingInput>,
+    ) -> Result<(Psbt, Vec<FundingInput>), Error> {
+        child_psbt(
+            parent,
+            Amount::from_sat(parent_fee),
+            spend,
+            FeeRate::from_sat_per_vb(target_sat_vb).unwrap(),
+            FeeRate::from_sat_per_vb(1000).unwrap(),
+            incumbent,
+            candidates,
+            wallet_script(),
+            TAPROOT_INPUT,
+        )
+    }
+
+    fn funding_of(psbt: &Psbt, spend: &ChildSpend) -> Vec<OutPoint> {
+        psbt.unsigned_tx
+            .input
+            .iter()
+            .map(|input| input.previous_output)
+            .filter(|outpoint| *outpoint != spend.outpoint())
+            .collect()
+    }
+
+    /// A replacement child pays the replaced fee plus 1 sat/vB over its own size. At an unchanged
+    /// target the rate-based fee equals the prior fee, which BIP-125 rule 4 rejects.
+    #[test]
+    fn a_replacement_child_pays_the_rbf_floor() {
+        let parent = parent_with_anchor(0, Amount::from_sat(330));
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+        let wallet = vec![funding(1_000_000, 1)];
+
+        let first =
+            build(&parent, 220, &spend, 5, None, wallet.clone()).expect("first child must build");
+        let first_fee = first.fee().expect("witness_utxo on every input");
+        let vbytes = signed_vsize_of(&first.unsigned_tx, &spend);
+
+        let replacement = build(
+            &parent,
+            220,
+            &spend,
+            5,
+            Some(IncumbentChild {
+                fee: first_fee,
+                vbytes: NonZeroU64::new(vbytes).unwrap(),
+            }),
+            wallet,
+        )
+        .expect("replacement must build");
+        assert_eq!(
+            replacement.fee().expect("witness_utxo on every input"),
+            first_fee + Amount::from_sat(vbytes),
+            "replacement fee must sit exactly on the BIP-125 floor"
+        );
+    }
+
+    fn in_mempool(spenders: &[Txid], confirmations: u32) -> OutputState {
+        OutputState {
+            confirmations,
+            spend: OutputSpend::InMempool(spenders.to_vec()),
+        }
+    }
+
+    fn txid(seed: u8) -> Txid {
+        Txid::from_byte_array([seed; 32])
+    }
+
+    /// Once a sync observes the prior child, the wallet stops listing its funding. The rebuild
+    /// re-spends it, which is plain RBF because both children spend the same anchor.
+    #[test]
+    fn an_input_that_a_prior_child_alone_spends_is_respendable() {
+        assert!(
+            respendable(Some(&in_mempool(&[txid(1)], 3)), &[txid(1)]),
+            "an input that only its prior child spends is respendable"
+        );
+        assert!(
+            respendable(
+                Some(&in_mempool(&[txid(1), txid(2)], 3)),
+                &[txid(1), txid(2)]
+            ),
+            "an input that only prior children spend is respendable"
+        );
+    }
+
+    #[test]
+    fn an_input_that_another_transaction_spends_is_not_respendable() {
+        assert!(
+            !respendable(Some(&in_mempool(&[txid(2)], 3)), &[txid(1)]),
+            "an input that a foreign transaction spends is not respendable"
+        );
+        assert!(
+            !respendable(Some(&in_mempool(&[txid(1), txid(2)], 3)), &[txid(1)]),
+            "a foreign spender next to the prior child keeps the input out"
+        );
+    }
+
+    /// A rebuild built on this input fails at the node on every attempt. A stored input of a prior
+    /// child reads like this once a selection from a stale view picked a spent output.
+    #[test]
+    fn an_input_with_a_confirmed_spend_is_not_respendable() {
+        let state = OutputState {
+            confirmations: 3,
+            spend: OutputSpend::Confirmed { confirmations: 1 },
+        };
+        assert!(
+            !respendable(Some(&state), &[txid(1)]),
+            "a confirmed spend ends the input"
+        );
+    }
+
+    /// An unspent output is a candidate already, or another duty holds it.
+    #[test]
+    fn an_unspent_input_does_not_reenter_here() {
+        let state = OutputState {
+            confirmations: 3,
+            spend: OutputSpend::Unspent,
+        };
+        assert!(
+            !respendable(Some(&state), &[txid(1)]),
+            "an unspent input is not respendable through this path"
+        );
+    }
+
+    /// A reorg took the funding of the input out of its block. A v3 child has one unconfirmed
+    /// ancestor, and the parent is that ancestor.
+    #[test]
+    fn an_input_that_no_block_holds_is_not_respendable() {
+        assert!(
+            !respendable(Some(&in_mempool(&[txid(1)], 0)), &[txid(1)]),
+            "an input whose funding no block holds is not respendable"
+        );
+    }
+
+    #[test]
+    fn an_output_that_the_wallet_does_not_know_is_not_respendable() {
+        assert!(
+            !respendable(None, &[txid(1)]),
+            "an output the wallet does not know is not respendable"
+        );
+    }
+
+    /// A prior child with one input, and the state that says only that child spends it.
+    fn spent_by_prior(input: &FundingInput) -> (Txid, BTreeMap<OutPoint, OutputState>) {
+        let child = txid(9);
+        let states = BTreeMap::from([(input.outpoint, in_mempool(&[child], 3))]);
+        (child, states)
+    }
+
+    #[test]
+    fn a_rebuild_adds_the_input_that_its_prior_child_spends() {
+        let input = funding(1_000_000, 1);
+        let (txid, states) = spent_by_prior(&input);
+        let lease = crate::test_utils::empty_lease();
+        let inputs = [input.clone()];
+        let prior = [PriorChild {
+            txid,
+            lease: &lease,
+            inputs: &inputs,
+        }];
+        let listed = funding(5_000, 2);
+        let candidates =
+            with_respendable_inputs(vec![listed.clone()], &prior, &BTreeSet::new(), &states);
+        assert_eq!(
+            candidates,
+            vec![listed, input],
+            "the rebuild adds the input of its prior child after the listed ones"
+        );
+    }
+
+    /// A second duty took the input after a reorg undid the spend that pruned the prior lease. A
+    /// child on it would double-spend that duty.
+    #[test]
+    fn a_rebuild_leaves_an_input_that_another_lease_holds() {
+        let input = funding(1_000_000, 1);
+        let (txid, states) = spent_by_prior(&input);
+        let lease = crate::test_utils::empty_lease();
+        let inputs = [input.clone()];
+        let prior = [PriorChild {
+            txid,
+            lease: &lease,
+            inputs: &inputs,
+        }];
+        let held = BTreeSet::from([input.outpoint]);
+        assert!(
+            with_respendable_inputs(Vec::new(), &prior, &held, &states).is_empty(),
+            "an input that another lease holds does not enter the rebuild"
+        );
+    }
+
+    /// The wallet still lists the input until a sync observes the prior child. It must enter the
+    /// child once.
+    #[test]
+    fn a_rebuild_does_not_add_an_input_that_the_wallet_still_lists() {
+        let input = funding(1_000_000, 1);
+        let (txid, states) = spent_by_prior(&input);
+        let lease = crate::test_utils::empty_lease();
+        let inputs = [input.clone()];
+        let prior = [PriorChild {
+            txid,
+            lease: &lease,
+            inputs: &inputs,
+        }];
+        let candidates =
+            with_respendable_inputs(vec![input.clone()], &prior, &BTreeSet::new(), &states);
+        assert_eq!(
+            candidates,
+            vec![input],
+            "an input the wallet still lists enters the child once"
+        );
+    }
+
+    /// A confirmed payout that pays the wallet's own script appears in the wallet too. It must
+    /// not join the funding, or the child would spend it twice.
+    #[test]
+    fn the_spent_output_never_joins_the_funding() {
+        let parent = parent_with_script_pubkey(wallet_script(), Amount::from_sat(8_000));
+        let outpoint = OutPoint::new(parent.compute_txid(), 0);
+        let spend = ChildSpend::owned_output(outpoint);
+        let listed = FundingInput {
+            outpoint,
+            txout: parent.output[0].clone(),
+        };
+        let err = build(&parent, 0, &spend, 50, None, vec![listed])
+            .expect_err("the only candidate is the output the child already spends");
+        assert!(
+            matches!(err, Error::InsufficientFunds { .. }),
+            "the spent output never funds its own child"
+        );
+    }
+
+    /// The payout-combined shape: the spent output is a full-value payout that pays for the child
+    /// on its own, at the exact package make-up fee.
+    #[test]
+    fn a_payout_pays_the_package_fee_without_funding() {
+        let parent = parent_with_anchor(0, Amount::from_sat(1_000_000));
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+        let psbt = build(&parent, 500, &spend, 20, None, vec![funding(1_000_000, 1)])
+            .expect("payout-combined child must build");
+
+        assert_eq!(
+            psbt.unsigned_tx.input.len(),
+            1,
+            "the payout pays for the child alone"
+        );
+        // 111 vB is the canonical 1-in/1-out Taproot key-path spend.
+        let child_vb = 111;
+        assert_eq!(
+            signed_vsize_of(&psbt.unsigned_tx, &spend),
+            child_vb,
+            "the child has the size of a 1-in/1-out key-path spend"
+        );
+        let expected = 20 * (parent.vsize() as u64 + child_vb) - 500;
+        assert_eq!(
+            psbt.fee().unwrap().to_sat(),
+            expected,
+            "the child pays the package make-up fee"
+        );
+    }
+
+    /// An output that the general wallet signs for costs a wallet input, whatever the spend
+    /// witness says. On a P2WPKH vault that is the signed size of the payout input.
+    #[test]
+    fn an_output_of_the_wallet_costs_a_wallet_input() {
+        let parent = parent_with_script_pubkey(vault_script(), Amount::from_sat(1_000_000));
+        let spend = ChildSpend::owned_output(OutPoint::new(parent.compute_txid(), 0));
+        let psbt = child_psbt(
+            &parent,
+            Amount::ZERO,
+            &spend,
+            FeeRate::from_sat_per_vb(20).unwrap(),
+            FeeRate::from_sat_per_vb(1000).unwrap(),
+            None,
+            Vec::new(),
+            vault_script(),
+            P2WPKH_INPUT,
+        )
+        .expect("the payout pays for the child")
+        .0;
+
+        // 1 P2WPKH input and 1 P2WPKH output, at 73 signature bytes and 33 pubkey bytes.
+        let child_vb = 110;
+        let expected = 20 * (parent.vsize() as u64 + child_vb);
+        assert_eq!(
+            psbt.fee().unwrap().to_sat(),
+            expected,
+            "a wallet output of the parent is priced as a wallet input"
+        );
+    }
+
+    /// An anchor worth slightly more than the fee must not yield a below-dust drain output.
+    /// `InferGeneralPayout` makes this reachable, because it uses a change output as the anchor,
+    /// and change values are arbitrary. The sweep covers the region where the shape flips.
+    #[test]
+    fn an_anchor_near_the_fee_boundary_still_builds() {
+        let parent_vb = parent_with_anchor(0, Amount::from_sat(1)).vsize() as u64;
+        for target in [2u64, 3, 5, 10, 20] {
+            let fee_at = |vb: u64| target * (parent_vb + vb) - 100;
+            // Step 29 is coprime with the 330-sat dust threshold, so the sweep cannot alias past
+            // a narrow failing band.
+            for anchor in (fee_at(111).saturating_sub(400)..=fee_at(169) + 700).step_by(29) {
+                let parent = parent_with_anchor(0, Amount::from_sat(anchor));
+                let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+                let psbt = build(
+                    &parent,
+                    100,
+                    &spend,
+                    target,
+                    None,
+                    vec![funding(1_000_000, 1)],
+                )
+                .unwrap_or_else(|e| panic!("{target} sat/vB, anchor {anchor}: {e:?}"));
+                let drain = &psbt.unsigned_tx.output[0];
+                assert!(
+                    drain.value >= drain.script_pubkey.minimal_non_dust(),
+                    "the drain output stays above dust"
+                );
+            }
+        }
+    }
+
+    /// A script-path child is heavier than a key-path one, and the child pays an absolute fee, so
+    /// a size prediction blind to the witness underpays every contest and bridge-proof-timeout
+    /// bump. The funding is chosen before the fee, so the shape that was priced is the shape that
+    /// got built, and the only slack is rounding.
+    #[test]
+    fn a_script_path_package_meets_the_target_at_every_tree_depth() {
+        for n_watchtowers in [2usize, 3, 5, 9, 16] {
+            let (leaf_script, control_block, anchor_spk) = script_path_anchor(n_watchtowers);
+            let parent = parent_with_script_pubkey(anchor_spk, Amount::from_sat(330));
+            let spend = ChildSpend::multi_anchor(
+                OutPoint::new(parent.compute_txid(), 0),
+                leaf_script,
+                control_block,
+            );
+            let psbt = build(&parent, 500, &spend, 20, None, vec![funding(1_000_000, 1)])
+                .unwrap_or_else(|e| panic!("{n_watchtowers} watchtowers: {e:?}"));
+
+            let package_fee = psbt.fee().unwrap().to_sat() + 500;
+            let package_vb = parent.vsize() as u64 + signed_vsize_of(&psbt.unsigned_tx, &spend);
+            let required = 20 * package_vb;
+            assert!(
+                (required..=required + 1).contains(&package_fee),
+                "{n_watchtowers} watchtowers: package pays {package_fee} sat over {package_vb} vB"
+            );
+        }
+    }
+
+    /// The fee math holds for a child that draws several funding inputs.
+    #[test]
+    fn multi_input_funding_pays_the_exact_package_fee() {
+        let parent = parent_with_anchor(0, Amount::from_sat(330));
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+        let wallet = (0..8)
+            .map(|i| funding(5_000 + u64::from(i) * 137, i))
+            .collect();
+        let psbt =
+            build(&parent, 308, &spend, 50, None, wallet).expect("multi-input child must build");
+
+        assert!(funding_of(&psbt, &spend).len() >= 2, "several inputs drawn");
+        let package_fee = psbt.fee().unwrap().to_sat() + 308;
+        let package_vb = parent.vsize() as u64 + signed_vsize_of(&psbt.unsigned_tx, &spend);
+        let required = 50 * package_vb;
+        assert!(
+            (required..=required + 1).contains(&package_fee),
+            "the package pays the required fee, with at most one sat of rounding"
+        );
+    }
+
+    #[test]
+    fn a_child_spends_the_anchor_first_and_carries_every_prevout() {
+        let parent = parent_with_anchor(2, Amount::from_sat(330));
+        let anchor = OutPoint::new(parent.compute_txid(), 2);
+        let spend = ChildSpend::keyed_anchor(anchor);
+        let psbt = build(&parent, 220, &spend, 5, None, vec![funding(1_000_000, 1)])
+            .expect("non-zero-vout anchor must work");
+
+        assert_eq!(
+            psbt.unsigned_tx.input[0].previous_output, anchor,
+            "the anchor is the first input"
+        );
+        assert_eq!(
+            psbt.unsigned_tx.input.len(),
+            2,
+            "one funding input joins the anchor"
+        );
+        assert_eq!(
+            psbt.unsigned_tx.version,
+            Version(3),
+            "the child is a v3 transaction"
+        );
+        assert!(
+            psbt.inputs.iter().all(|i| i.witness_utxo.is_some()),
+            "every input carries its prevout"
+        );
+        assert!(
+            psbt.inputs.iter().all(|i| i.final_script_witness.is_none()),
+            "the child is unsigned"
+        );
+        assert_eq!(
+            psbt.unsigned_tx.output[0].script_pubkey,
+            wallet_script(),
+            "the drain pays the wallet"
+        );
+    }
+
+    #[test]
+    fn a_lease_holds_the_funding_of_a_child_of_an_anchor() {
+        let parent = parent_with_anchor(0, Amount::from_sat(330));
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+        let wallet = funding(1_000_000, 1);
+        let (_, held) =
+            built(&parent, 220, &spend, 5, None, vec![wallet.clone()]).expect("child must build");
+        assert_eq!(
+            held,
+            vec![wallet],
+            "the lease holds the funding of an anchor child"
+        );
+    }
+
+    /// A payout belongs to the wallet, so it needs the lease as much as the funding does.
+    #[test]
+    fn a_lease_holds_the_spent_output_when_the_general_wallet_signs_for_it() {
+        let parent = parent_with_script_pubkey(wallet_script(), Amount::from_sat(400));
+        let spend = ChildSpend::owned_output(OutPoint::new(parent.compute_txid(), 0));
+        let wallet = funding(1_000_000, 1);
+        let (_, held) =
+            built(&parent, 0, &spend, 5, None, vec![wallet.clone()]).expect("child must build");
+        assert_eq!(
+            plan::outpoints(&held),
+            vec![spend.outpoint(), wallet.outpoint],
+            "the lease holds the spent wallet output and the funding"
+        );
+    }
+
+    /// Another duty can take a wallet output of the parent once the parent confirms. A child of
+    /// that output would double-spend the duty's transaction.
+    #[test]
+    fn a_wallet_output_that_another_lease_holds_is_not_spent() {
+        let spend = ChildSpend::owned_output(OutPoint::new(Txid::all_zeros(), 0));
+        let held = BTreeSet::from([spend.outpoint()]);
+        assert!(
+            matches!(
+                ensure_spend_free(&spend, &held),
+                Err(Error::ParentOutputHeld { outpoint }) if outpoint == spend.outpoint()
+            ),
+            "a held wallet output of the parent is refused"
+        );
+        assert!(
+            ensure_spend_free(&spend, &BTreeSet::new()).is_ok(),
+            "a free wallet output of the parent is spendable"
+        );
+    }
+
+    /// No wallet duty selects an anchor, so a lease on one says nothing about the child.
+    #[test]
+    fn an_anchor_spend_ignores_the_lease_set() {
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(Txid::all_zeros(), 0));
+        assert!(
+            ensure_spend_free(&spend, &BTreeSet::from([spend.outpoint()])).is_ok(),
+            "only a wallet output of the parent is checked against the leases"
+        );
+    }
+
+    #[test]
+    fn a_spent_vout_past_the_parent_outputs_is_refused() {
+        let parent = parent_with_anchor(0, Amount::from_sat(330));
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 5));
+        let err = build(&parent, 220, &spend, 10, None, Vec::new()).unwrap_err();
+        assert!(
+            matches!(err, Error::SpendVoutOutOfRange { vout: 5, .. }),
+            "a vout past the parent outputs is refused"
+        );
+    }
+
+    /// With no incumbent, the same request gives the same child, whatever order the wallet lists
+    /// its outputs in. A retry after a submission with an unknown result then keeps its txid.
+    #[test]
+    fn a_build_with_no_incumbent_does_not_depend_on_the_listing_order() {
+        let parent = parent_with_anchor(0, Amount::from_sat(330));
+        let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+        let mut wallet: Vec<FundingInput> = (0..6)
+            .map(|i| funding(5_030 + u64::from(i) * 91, i))
+            .collect();
+        let first =
+            build(&parent, 308, &spend, 20, None, wallet.clone()).expect("child must build");
+        wallet.reverse();
+        let second = build(&parent, 308, &spend, 20, None, wallet).expect("child must build");
+        assert_eq!(
+            first.unsigned_tx.compute_txid(),
+            second.unsigned_tx.compute_txid(),
+            "the same request builds the same child in any listing order"
+        );
     }
 }
