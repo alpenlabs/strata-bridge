@@ -1,12 +1,24 @@
 import logging
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import toml
+from bitcoinlib.services.bitcoind import BitcoindClient
 
 from factory.bridge_operator.params_cfg import ScheduledOperator
+from utils.bitcoin import mine_block_including
+from utils.dev_cli import DevCli
 from utils.utils import read_operator_key, snapshot_log_offsets, wait_until_bridge_ready
+
+
+@dataclass(frozen=True)
+class OperatorSetUpdate:
+    """An admin operator set update, signed at `seqno`."""
+
+    seqno: int
+    add_keys: list[str] = field(default_factory=list)
+    remove_indices: list[int] = field(default_factory=list)
 
 
 def scheduled_operator(
@@ -96,3 +108,29 @@ def restart_with_operator_schedule(
         wait_until_bridge_ready(node.create_rpc())
 
     return offsets
+
+
+def include_operator_set_updates(
+    dev_cli: DevCli,
+    bitcoin_rpc: BitcoindClient,
+    mining_address: str,
+    updates: list[OperatorSetUpdate],
+    confirmation_depth: int,
+) -> int:
+    """Mine admin operator set `updates` into the next block and return their activation height.
+
+    Block production must be paused, so the updates land in exactly that block. They are mined
+    in the given order, which must follow their seqnos, and ASM enacts them in that order once
+    the block is buried by `confirmation_depth`.
+    """
+    txids = [
+        dev_cli.send_operator_set_update(update.seqno, update.add_keys, update.remove_indices)
+        for update in updates
+    ]
+    inclusion_height = mine_block_including(bitcoin_rpc, mining_address, txids)
+    activation_height = inclusion_height + confirmation_depth
+    logging.info(
+        f"Operator set updates {txids} mined at {inclusion_height}, "
+        f"activating at {activation_height}"
+    )
+    return activation_height

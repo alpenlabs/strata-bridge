@@ -110,6 +110,29 @@ def on_demand_mining_loop(rpc: BitcoindClient, addr, stop_event: Event, trailing
             logging.warning(f"{ex} while mining to {addr}; retrying next tick")
 
 
+def mine_block_including(rpc: BitcoindClient, addr: str, txids: list[str]) -> int:
+    """Mine one block to `addr` holding `txids` in that order, after their unconfirmed
+    ancestors, and return its height.
+
+    Uses `generateblock` with an explicit tx list, so the order is the caller's rather than the
+    mempool's. Block production must be paused, so the transactions land in exactly that block.
+    """
+    mempool = rpc.proxy.getrawmempool(True)
+    ancestors = {
+        ancestor for txid in txids for ancestor in rpc.proxy.getmempoolancestors(txid)
+    } - set(txids)
+    # Ancestors must precede descendants within the block.
+    included = sorted(ancestors, key=lambda txid: mempool[txid]["ancestorcount"]) + txids
+
+    block_hash = rpc.proxy.generateblock(addr, included)["hash"]
+    block = rpc.proxy.getblock(block_hash)
+    assert block["tx"][1:] == included, (
+        f"block {block_hash} must hold exactly {included} after its coinbase, held "
+        f"{block['tx'][1:]}"
+    )
+    return block["height"]
+
+
 def mine_block_excluding(rpc: BitcoindClient, addr: str, exclude_txids: set[str]) -> str:
     """Mine one block containing every mempool tx except `exclude_txids` and their
     in-mempool descendants, and return its hash.
