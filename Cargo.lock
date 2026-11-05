@@ -7925,6 +7925,7 @@ dependencies = [
  "operator-wallet",
  "rand 0.8.8",
  "serial_test",
+ "strata-bridge-primitives",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
