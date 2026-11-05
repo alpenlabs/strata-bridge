@@ -120,11 +120,7 @@ impl GraphSMCtx {
     /// Static keys come from `cfg`; the owner's adaptor pubkey and the per-watchtower fault
     /// pubkeys come from `deposit_params` because they are produced per-deposit by mosaic.
     pub fn generate_key_data(&self, cfg: &GraphSMCfg, deposit_params: &DepositParams) -> KeyData {
-        let n_of_n_pubkey = self
-            .operator_table()
-            .aggregated_btc_key()
-            .x_only_public_key()
-            .0;
+        let n_of_n_pubkey = self.operator_table().aggregated_btc_key();
 
         let owner_idx = self.operator_idx();
         let watchtower_pubkeys = self.watchtower_pubkeys();
@@ -188,7 +184,7 @@ impl GraphSMCtx {
 
         let claim_admin_payout = ClaimAdminPayoutConnector::new(
             protocol.network,
-            n_of_n_pubkey,
+            self.operator_table().aggregated_btc_key(),
             cfg.admin.pubkeys.clone(),
             cfg.admin.threshold,
         );
