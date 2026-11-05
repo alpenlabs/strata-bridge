@@ -48,6 +48,7 @@ use crate::{
     mode::services::{
         btc_client::init_zmq_client,
         health_probes::{spawn_orchestrator_stale_monitor, spawn_tx_driver_probe},
+        operator_wallet::sync_wallet_on_new_blocks,
     },
 };
 
@@ -133,6 +134,20 @@ where
     health_registry.mark_ok(COMPONENT_ASM_SAFE_HARBOUR_FEED, "safe_harbour_subscribed");
 
     let orchestrator_block_sub = zmq_client.subscribe_blocks().await;
+
+    let wallet_block_sub = zmq_client.subscribe_blocks().await;
+    let sync_wallet = wallet.clone();
+    executor.spawn_critical_async_with_shutdown(
+        "operator-wallet-sync",
+        |shutdown_guard| async move {
+            select! {
+                _ = shutdown_guard.wait_for_shutdown() => Ok(()),
+                _ = sync_wallet_on_new_blocks(sync_wallet, wallet_block_sub) => {
+                    Err(anyhow!("the block stream of the operator wallet sync ended"))
+                }
+            }
+        },
+    );
 
     let mosaic_event_sub = mosaic_client.as_ref().subscribe_events().await;
 
