@@ -66,6 +66,7 @@ class OperatorSetChangesTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env(
             OperatorSetChangeEnv(
+                num_operators=len(GENESIS_MEMBERS) + 1,
                 # Assignees claim right after fulfilling instead of first trying a cooperative
                 # payout.
                 bridge_config_params=BridgeConfigParams(cooperative_payout_timeout=0),
@@ -75,7 +76,10 @@ class OperatorSetChangesTest(StrataTestBase):
 
     def main(self, ctx: flexitest.RunContext):
         operator_keys = read_all_operator_keys()
-        nodes = {idx: ctx.get_service(f"bridge_node_{idx}") for idx in range(len(operator_keys))}
+        nodes = {
+            idx: ctx.get_service(f"bridge_node_{idx}")
+            for idx in GENESIS_MEMBERS + [JOINING_OPERATOR]
+        }
         # `Service` is the static type; concrete bridge-node services attach `create_rpc`.
         rpcs = {idx: node.create_rpc() for idx, node in nodes.items()}  # ty: ignore[possibly-missing-attribute]
         self.live_env = cast(StrataLiveEnv, ctx.env)
