@@ -21,6 +21,11 @@ pub fn lease_on(outpoints: Vec<OutPoint>) -> Lease {
     Arc::new(LeaseSet::default()).take(outpoints, LeaseOwner::Rehydrated)
 }
 
+/// A lease that holds nothing, for a test double that must hand out a lease.
+pub fn empty_lease() -> Lease {
+    lease_on(Vec::new())
+}
+
 /// In-memory store. Clones share one store, so a test can rebuild a wallet from a clone to
 /// simulate a restart. Records every persisted changeset and can fail one chosen `persist` call.
 #[derive(Debug, Clone, Default)]

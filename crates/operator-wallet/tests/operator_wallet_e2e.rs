@@ -61,9 +61,11 @@ use operator_wallet::{
     sync::Backend,
     test_utils::{MemoryStore, MemoryStoreError},
     Error as OperatorWalletError, GeneralCustody, GeneralUtxoPolicy, InitError, LeaseOwner,
-    OperatorWallet, OperatorWalletConfig, SqliteStore, WalletKind, DEFAULT_PERSIST_EVERY_BLOCKS,
+    OperatorWallet, OperatorWalletConfig, PriorChild, ReplacedChild, SqliteStore, WalletKind,
+    DEFAULT_PERSIST_EVERY_BLOCKS,
 };
 use serial_test::serial;
+use strata_bridge_primitives::cpfp::ChildSpend;
 
 /// The pair of in-memory stores backing one operator wallet. Clones share storage, so keeping a
 /// `Stores` around and re-opening from it simulates a process restart.
@@ -2551,5 +2553,157 @@ async fn sqlite_store_survives_a_restart_and_resumes_at_the_persisted_tip() {
     assert_eq!(
         utxos_after_sync, utxos_before,
         "graph state reloaded from SQLite"
+    );
+}
+
+/// A rebuild looks past the lease of its prior child, and past no other lease.
+#[tokio::test]
+#[serial]
+async fn a_rebuild_reaches_the_inputs_of_its_prior_child_and_no_other_held_input() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, _) =
+        build_operator_wallet(&bitcoind, 61, 62, 1, Amount::from_btc(0.5).unwrap()).await;
+    wallet.sync().await.expect("sync");
+
+    let parent = Transaction {
+        version: Version(3),
+        lock_time: LockTime::ZERO,
+        input: Vec::new(),
+        output: vec![TxOut {
+            value: Amount::from_sat(330),
+            script_pubkey: wallet.reserved_script_pubkey(),
+        }],
+    };
+    let spend = ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0));
+    let target = FeeRate::from_sat_per_vb(5).unwrap();
+    let cap = FeeRate::from_sat_per_vb(1000).unwrap();
+
+    let (first, inputs) = wallet
+        .build_cpfp_child(
+            &parent,
+            Amount::ZERO,
+            &spend,
+            target,
+            cap,
+            ReplacedChild::default(),
+        )
+        .expect("the first child must build");
+    let (first, lease) = first.into_parts();
+
+    let unrelated = wallet.build_cpfp_child(
+        &parent,
+        Amount::ZERO,
+        &spend,
+        target,
+        cap,
+        ReplacedChild::default(),
+    );
+    assert!(
+        matches!(
+            unrelated,
+            Err(OperatorWalletError::InsufficientFunds { .. })
+        ),
+        "a build with no prior child must not reach a held input, got {unrelated:?}"
+    );
+
+    let prior = [PriorChild {
+        txid: first.unsigned_tx.compute_txid(),
+        lease: &lease,
+        inputs: &inputs,
+    }];
+    let (rebuilt, _) = wallet
+        .build_cpfp_child(
+            &parent,
+            Amount::ZERO,
+            &spend,
+            target,
+            cap,
+            ReplacedChild {
+                prior: &prior,
+                incumbent: None,
+            },
+        )
+        .expect("a rebuild must reach the input of its prior child");
+    assert_eq!(
+        rebuilt.lease().outpoints(),
+        lease.outpoints(),
+        "the rebuild holds the same inputs as its prior child"
+    );
+}
+
+/// Another duty can take a wallet output of the parent once the parent confirms. A child of that
+/// output would double-spend the duty's transaction, so it builds only once that lease drops.
+#[tokio::test]
+#[serial]
+async fn a_child_does_not_spend_a_wallet_output_of_the_parent_that_another_lease_holds() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, _) =
+        build_operator_wallet(&bitcoind, 63, 64, 2, Amount::from_btc(0.5).unwrap()).await;
+    let (payout, duty_lease) = wallet
+        .select_general_utxo(LeaseOwner::StakeFunding, Amount::ONE_SAT)
+        .expect("a confirmed output for the duty");
+    let parent = sync_rpc_client(&bitcoind)
+        .get_raw_transaction(&payout.outpoint.txid, None)
+        .expect("the parent of the held output");
+    let spend = ChildSpend::owned_output(payout.outpoint);
+    let target = FeeRate::from_sat_per_vb(5).unwrap();
+    let cap = FeeRate::from_sat_per_vb(1000).unwrap();
+
+    let held = wallet.build_cpfp_child(
+        &parent,
+        Amount::ZERO,
+        &spend,
+        target,
+        cap,
+        ReplacedChild::default(),
+    );
+    assert!(
+        matches!(
+            held,
+            Err(OperatorWalletError::ParentOutputHeld { outpoint }) if outpoint == payout.outpoint
+        ),
+        "a held wallet output of the parent must be refused, got {held:?}"
+    );
+
+    drop(duty_lease);
+    let free = wallet.build_cpfp_child(
+        &parent,
+        Amount::ZERO,
+        &spend,
+        target,
+        cap,
+        ReplacedChild::default(),
+    );
+    assert!(
+        free.is_ok(),
+        "a free wallet output of the parent must be spendable, got {free:?}"
+    );
+}
+
+/// No duty selects an anchor, so a lease on the spent output does not stop an anchor child.
+#[tokio::test]
+#[serial]
+async fn an_anchor_child_ignores_the_lease_set() {
+    let bitcoind = setup_bitcoind();
+    let (mut wallet, _, _) =
+        build_operator_wallet(&bitcoind, 65, 66, 2, Amount::from_btc(0.5).unwrap()).await;
+    let (output, _duty_lease) = wallet
+        .select_general_utxo(LeaseOwner::StakeFunding, Amount::ONE_SAT)
+        .expect("a confirmed output for the duty");
+    let parent = sync_rpc_client(&bitcoind)
+        .get_raw_transaction(&output.outpoint.txid, None)
+        .expect("the parent of the held output");
+
+    let built = wallet.build_cpfp_child(
+        &parent,
+        Amount::ZERO,
+        &ChildSpend::keyed_anchor(output.outpoint),
+        FeeRate::from_sat_per_vb(5).unwrap(),
+        FeeRate::from_sat_per_vb(1000).unwrap(),
+        ReplacedChild::default(),
+    );
+    assert!(
+        built.is_ok(),
+        "an anchor spend must not be checked against the leases, got {built:?}"
     );
 }
