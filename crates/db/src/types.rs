@@ -1,6 +1,6 @@
 //! Database types that are agnostic to the underlying database implementation.
 
-use std::{fmt, sync::Arc};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use bitcoin::{
     OutPoint, Transaction, TxOut,
@@ -172,6 +172,11 @@ impl<T> FundingAssignment<T> {
 pub struct PersistedState {
     /// Deposit rows, including their durable identities.
     pub deposits: Vec<(DepositIdx, DepositSM)>,
+    /// The config each deposit is pinned to. Deposits stored before configs were pinned have no
+    /// entry.
+    pub deposit_configs: BTreeMap<DepositIdx, ConfigId>,
+    /// Every stored config, by identity.
+    pub configs: BTreeMap<ConfigId, PinnedConfig>,
     /// Graph rows, including their durable identities.
     pub graphs: Vec<(GraphIdx, GraphSM)>,
     /// Historical and current stake rows, including their durable identities.
@@ -189,8 +194,8 @@ pub struct PersistedState {
 /// update both the deposit state machine and the associated graph state machines in a single batch.
 #[derive(Debug, Default, Clone)]
 pub struct WriteBatch {
-    /// Deposit state machines to persist, keyed by deposit index.
-    deposits: Vec<DepositSM>,
+    /// Deposit state machines to persist, each with the config it is pinned to.
+    deposits: Vec<(DepositSM, PinnedConfig)>,
     /// Graph state machines to persist, keyed by graph index.
     graphs: Vec<GraphSM>,
     /// Stake state machines to persist, keyed by covenant and operator index.
@@ -209,8 +214,8 @@ impl WriteBatch {
         }
     }
 
-    /// Returns the deposit state machines in the batch.
-    pub fn deposits(&self) -> &[DepositSM] {
+    /// Returns the deposit state machines in the batch, each with its pinned config.
+    pub fn deposits(&self) -> &[(DepositSM, PinnedConfig)] {
         &self.deposits
     }
 
@@ -234,9 +239,11 @@ impl WriteBatch {
         self.operator_set = Some(operator_set);
     }
 
-    /// Adds a deposit state machine to the batch.
-    pub fn add_deposit(&mut self, deposit_sm: DepositSM) {
-        self.deposits.push(deposit_sm);
+    /// Adds a deposit state machine to the batch, together with the config it is pinned to.
+    ///
+    /// The two are written in one transaction, so a stored deposit always has its config.
+    pub fn add_deposit(&mut self, deposit_sm: DepositSM, config: PinnedConfig) {
+        self.deposits.push((deposit_sm, config));
     }
 
     /// Adds a graph state machine to the batch.

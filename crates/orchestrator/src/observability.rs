@@ -388,6 +388,7 @@ pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
             "registry_invariant"
         }
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
+        PersistError::ConfigMissing(..) => "pinned_config",
     }
 }
 

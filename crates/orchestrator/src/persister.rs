@@ -9,7 +9,12 @@ use std::{
 };
 
 use strata_asm_bridge_types::SafeHarborAddress;
-use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
+use strata_bridge_db::{
+    fdb::client::FdbClient,
+    traits::BridgeDb,
+    types::{ConfigId, WriteBatch},
+};
+use strata_bridge_primitives::types::DepositIdx;
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -235,9 +240,40 @@ impl Persister {
             .await
             .map_err(PersistError::DbErr)?;
         let mut registry = SMRegistry::new(config);
+        let current = registry.current_config().clone();
 
+        let mut unpinned = Vec::new();
         for (deposit_idx, deposit_sm) in persisted.deposits {
-            registry.insert_deposit(deposit_idx, deposit_sm)?;
+            let pinned = match persisted.deposit_configs.get(&deposit_idx) {
+                Some(id) => persisted
+                    .configs
+                    .get(id)
+                    .cloned()
+                    .ok_or(PersistError::ConfigMissing(deposit_idx, *id))?,
+                // Legacy deposits have no stored config. The first upgrade must use the
+                // pre-upgrade configuration; parameter changes are supported only after
+                // this backfill completes.
+                None => {
+                    unpinned.push(deposit_sm.clone());
+                    current.clone()
+                }
+            };
+            registry.insert_pinned_deposit(deposit_idx, deposit_sm, pinned)?;
+        }
+        if !unpinned.is_empty() {
+            info!(
+                count = unpinned.len(),
+                config = %current.id(),
+                "pinning deposits stored before configs were pinned"
+            );
+            let mut batch = WriteBatch::new();
+            for deposit_sm in unpinned {
+                batch.add_deposit(deposit_sm, current.clone());
+            }
+            self.db
+                .persist_batch(&batch)
+                .await
+                .map_err(PersistError::DbErr)?;
         }
         for (graph_idx, graph_sm) in persisted.graphs {
             registry.insert_graph(graph_idx, graph_sm)?;
@@ -275,6 +311,10 @@ pub enum PersistError {
     #[error("registry invariant violation: {0}")]
     RegistryInvariant(#[from] RegistryInsertError),
 
+    /// A deposit is pinned to a config that is not stored.
+    #[error("deposit {0} is pinned to config {1}, which is not stored")]
+    ConfigMissing(DepositIdx, ConfigId),
+
     /// The stored row key conflicts with its stake context.
     #[error("stored stake key does not match its context")]
     StakeIdentityMismatch,
@@ -301,7 +341,10 @@ fn build_write_batch(
                 let deposit_sm = sm_registry
                     .get_deposit(&deposit_idx)
                     .ok_or(PersistError::MissingStateMachine(sm_id))?;
-                write_batch.add_deposit(deposit_sm.clone());
+                let config = sm_registry
+                    .deposit_config(&deposit_idx)
+                    .ok_or(PersistError::MissingStateMachine(sm_id))?;
+                write_batch.add_deposit(deposit_sm.clone(), config.clone());
             }
             SMId::Graph(graph_idx) => {
                 let graph_sm = sm_registry
@@ -764,6 +807,122 @@ mod covenant_storage_tests {
                 "Recovery with offset {offset} must continue after the persisted maximum"
             );
         }
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+}
+
+#[cfg(test)]
+mod pinned_config_tests {
+    use std::{
+        collections::BTreeMap,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use bitcoin::relative;
+    use strata_bridge_db::fdb::{cfg::Config, client::MustDrop};
+
+    use super::*;
+    use crate::testing::{insert_deposit_with_graphs, test_fdb_config, test_populated_registry};
+
+    async fn persister() -> (Persister, Arc<FdbClient>, MustDrop) {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-pinned-config-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        (Persister::new(db.clone()), db, guard)
+    }
+
+    async fn persist_all(persister: &Persister, registry: &SMRegistry) {
+        persister
+            .persist_batch(registry.get_all_ids().into_iter().collect(), registry)
+            .await
+            .unwrap();
+    }
+
+    /// The same config with a longer contest timelock, a value each deposit may differ on.
+    fn with_longer_contest(cfg: &SMConfig) -> SMConfig {
+        let mut graph = (*cfg.graph).clone();
+        graph.game_graph_params.contest_timelock =
+            relative::Height::from_height(graph.game_graph_params.contest_timelock.value() + 10);
+        SMConfig {
+            graph: Arc::new(graph),
+            ..cfg.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn deposits_keep_their_config_across_a_params_change() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(1);
+        persist_all(&persister, &registry).await;
+
+        let changed = with_longer_contest(registry.cfg());
+        let mut restored = persister.recover_registry(changed.clone()).await.unwrap();
+        assert_eq!(restored.deposit_config(&0), Some(registry.current_config()));
+        assert_ne!(restored.current_config(), registry.current_config());
+
+        insert_deposit_with_graphs(&mut restored, 1);
+        let new_config = restored.current_config().clone();
+        assert_eq!(restored.deposit_config(&1), Some(&new_config));
+        persist_all(&persister, &restored).await;
+
+        // Restarting on the original params again moves neither deposit.
+        let again = persister
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        assert_eq!(again.deposit_config(&0), Some(registry.current_config()));
+        assert_eq!(again.deposit_config(&1), Some(&new_config));
+        assert_eq!(db.get_persisted_state().await.unwrap().configs.len(), 2);
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn deposits_stored_before_pinning_are_pinned_on_first_recovery() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(1);
+        persist_all(&persister, &registry).await;
+        // Drop the reference, as a node that stored the deposit before pinning would have.
+        let deposit = registry.get_deposit(&0).unwrap().clone();
+        db.delete_deposit_state(0).await.unwrap();
+        db.set_deposit_state(0, deposit).await.unwrap();
+        assert!(
+            db.get_persisted_state()
+                .await
+                .unwrap()
+                .deposit_configs
+                .is_empty()
+        );
+
+        let restored = persister
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        assert_eq!(restored.deposit_config(&0), Some(registry.current_config()));
+        assert_eq!(
+            db.get_persisted_state().await.unwrap().deposit_configs,
+            BTreeMap::from([(0, registry.current_config().id())])
+        );
+
+        // From then on a params change no longer reaches it.
+        let changed = persister
+            .recover_registry(with_longer_contest(registry.cfg()))
+            .await
+            .unwrap();
+        assert_eq!(changed.deposit_config(&0), Some(registry.current_config()));
 
         drop(persister);
         drop(db);

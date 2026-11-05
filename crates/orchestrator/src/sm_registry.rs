@@ -13,6 +13,7 @@ use bitcoin::{
     hashes::{Hash, sha256},
 };
 use strata_asm_bridge_types::SafeHarborAddress;
+use strata_bridge_db::types::PinnedConfig;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
@@ -45,9 +46,11 @@ use crate::{
 /// Static configuration shared by all state machines.
 #[derive(Debug, Clone)]
 pub struct SMConfig {
-    /// Static configuration for all deposit state machines.
+    /// Configuration for deposits created from now on. A deposit keeps the config it was created
+    /// under; see [`SMRegistry::deposit_config`].
     pub deposit: Arc<DepositSMCfg>,
-    /// Static configuration for all graph state machines.
+    /// Configuration for the graphs of deposits created from now on. A graph uses its deposit's
+    /// pinned config.
     pub graph: Arc<GraphSMCfg>,
     /// Static configuration for all stake state machines.
     pub stake: Arc<StakeSMCfg>,
@@ -85,6 +88,10 @@ const fn is_terminal(state: &DepositState) -> bool {
 pub struct SMRegistry {
     /// Static configuration shared by all state machines.
     cfg: SMConfig,
+    /// The deposit and graph configs of [`Self::cfg`], which new deposits are pinned to.
+    current_config: PinnedConfig,
+    /// The config each deposit and its graphs were created under, indexed by deposit index.
+    deposit_configs: BTreeMap<DepositIdx, PinnedConfig>,
     /// The state machines responsible for processing deposits, indexed by their deposit index.
     deposits: BTreeMap<DepositIdx, DepositSM>,
     /// The state machines responsible for processing graphs, indexed by their graph index.
@@ -158,8 +165,10 @@ pub enum ProcessOutcome {
 
 impl SMRegistry {
     /// Creates a new empty registry with the given configuration.
-    pub const fn new(cfg: SMConfig) -> Self {
+    pub fn new(cfg: SMConfig) -> Self {
         Self {
+            current_config: PinnedConfig::new(cfg.deposit.clone(), cfg.graph.clone()),
+            deposit_configs: BTreeMap::new(),
             cfg,
             deposits: BTreeMap::new(),
             graphs: BTreeMap::new(),
@@ -172,6 +181,16 @@ impl SMRegistry {
     /// Gets a reference to the registry configuration.
     pub const fn cfg(&self) -> &SMConfig {
         &self.cfg
+    }
+
+    /// Returns the config new deposits are pinned to.
+    pub const fn current_config(&self) -> &PinnedConfig {
+        &self.current_config
+    }
+
+    /// Returns the config a deposit and its graphs were created under.
+    pub fn deposit_config(&self, deposit_idx: &DepositIdx) -> Option<&PinnedConfig> {
+        self.deposit_configs.get(deposit_idx)
     }
 
     // ── Safe Harbour ──────────────────────────────────────────────────
@@ -423,7 +442,7 @@ impl SMRegistry {
         self.cfg.deposit_index_offset
     }
 
-    /// Inserts a new deposit state machine into the registry with the given deposit index.
+    /// Inserts a new deposit state machine, pinned to the [current config](Self::current_config).
     ///
     /// Returns an error if a state machine with the same [`DepositIdx`] already exists.
     pub fn insert_deposit(
@@ -431,9 +450,23 @@ impl SMRegistry {
         deposit_idx: DepositIdx,
         sm: DepositSM,
     ) -> Result<(), RegistryInsertError> {
+        let config = self.current_config.clone();
+        self.insert_pinned_deposit(deposit_idx, sm, config)
+    }
+
+    /// Inserts a deposit state machine pinned to `config`, the config it was created under.
+    ///
+    /// Returns an error if a state machine with the same [`DepositIdx`] already exists.
+    pub fn insert_pinned_deposit(
+        &mut self,
+        deposit_idx: DepositIdx,
+        sm: DepositSM,
+        config: PinnedConfig,
+    ) -> Result<(), RegistryInsertError> {
         match self.deposits.entry(deposit_idx) {
             Entry::Vacant(entry) => {
                 entry.insert(sm);
+                self.deposit_configs.insert(deposit_idx, config);
                 Ok(())
             }
             Entry::Occupied(_) => {

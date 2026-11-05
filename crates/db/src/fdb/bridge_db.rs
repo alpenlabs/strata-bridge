@@ -1,5 +1,7 @@
 //! Implementation of the [`BridgeDb`] trait for FdbClient.
 
+use std::collections::BTreeSet;
+
 use bitcoin::{OutPoint, Txid};
 use foundationdb::{FdbBindingError, Transaction, options::TransactionOption};
 use secp256k1::schnorr::Signature;
@@ -18,6 +20,7 @@ use crate::{
         client::FdbClient,
         errors::LayerError,
         row_spec::{
+            configs::{ConfigKey, ConfigRowSpec, DepositConfigKey, DepositConfigRowSpec},
             deposits::{DepositStateKey, DepositStateRowSpec},
             funds::{
                 ClaimFundingReservationKey, ClaimFundingReservationRowSpec,
@@ -101,8 +104,7 @@ impl BridgeDb for FdbClient {
     }
 
     async fn delete_deposit_state(&self, deposit_idx: DepositIdx) -> Result<(), Self::Error> {
-        self.basic_delete::<DepositStateRowSpec>(DepositStateKey { deposit_idx })
-            .await
+        self.delete_deposit_rows(deposit_idx).await
     }
 
     // ── Graph States ─────────────────────────────────────────────────
@@ -349,6 +351,31 @@ impl BridgeDb for FdbClient {
                 .into_iter()
                 .map(|(key, sm)| (key.deposit_idx, sm))
                 .collect(),
+            deposit_configs: self
+                .read_rows_paged::<DepositConfigRowSpec>(|dirs| &dirs.deposit_configs)
+                .await?
+                .into_iter()
+                .map(|(key, id)| (key.deposit_idx, id))
+                .collect(),
+            configs: self
+                .read_rows_paged::<ConfigRowSpec>(|dirs| &dirs.configs)
+                .await?
+                .into_iter()
+                .map(|(key, config)| {
+                    // A row whose bytes no longer hash to its key would pin deposits to configs
+                    // other than the ones they were created under.
+                    if key.id != config.id() {
+                        return Err(OneOf::new(LayerError::failed_to_deserialize_value(
+                            format!(
+                                "config row {} holds bytes hashing to {}",
+                                key.id,
+                                config.id()
+                            ),
+                        )));
+                    }
+                    Ok((key.id, config))
+                })
+                .collect::<Result<_, _>>()?,
             graphs: self
                 .read_rows_paged::<GraphStateRowSpec>(|dirs| &dirs.graphs)
                 .await?
@@ -417,14 +444,28 @@ impl FdbClient {
     /// Stages a complete batch in the caller's transaction without committing it.
     /// Dropping or cancelling the transaction discards every mutation.
     fn persist_batch_in(&self, trx: &Transaction, batch: &WriteBatch) -> Result<(), LayerError> {
-        for sm in batch.deposits() {
+        let mut configs_written = BTreeSet::new();
+        for (sm, config) in batch.deposits() {
+            let deposit_idx = sm.context.deposit_idx;
             self.basic_set_in::<DepositStateRowSpec>(
                 trx,
-                DepositStateKey {
-                    deposit_idx: sm.context.deposit_idx,
-                },
+                DepositStateKey { deposit_idx },
                 sm.clone(),
             )?;
+            self.basic_set_in::<DepositConfigRowSpec>(
+                trx,
+                DepositConfigKey { deposit_idx },
+                config.id(),
+            )?;
+            // Written without reading first: the key is the hash of the value, so a repeat write
+            // stores identical bytes and needs no coordination.
+            if configs_written.insert(config.id()) {
+                self.basic_set_in::<ConfigRowSpec>(
+                    trx,
+                    ConfigKey { id: config.id() },
+                    config.clone(),
+                )?;
+            }
         }
         for sm in batch.graphs() {
             self.basic_set_in::<GraphStateRowSpec>(
@@ -650,6 +691,55 @@ mod tests {
         assert_eq!(decoded.deposit(), config.deposit());
         assert_eq!(decoded.graph(), config.graph());
         assert_ne!(make_config(2_000).id(), config.id());
+    }
+
+    #[test]
+    fn deposits_reference_their_config_and_lose_the_reference_on_delete() {
+        let config = make_config(1_000);
+        let (first, second): (DepositIdx, DepositIdx) = (random(), random());
+        let deposit = |idx| {
+            make_deposit_sm(
+                idx,
+                OutPoint::new(generate_txid(), 0),
+                test_operator_table(3, 0),
+                DepositState::Deposited {
+                    last_block_height: 101,
+                },
+            )
+        };
+        block_on(async {
+            let client = get_client();
+            let mut batch = WriteBatch::new();
+            batch.add_deposit(deposit(first), config.clone());
+            batch.add_deposit(deposit(second), config.clone());
+            client.persist_batch(&batch).await.unwrap();
+
+            let state = client.get_persisted_state().await.unwrap();
+            assert_eq!(state.deposit_configs.get(&first), Some(&config.id()));
+            assert_eq!(state.deposit_configs.get(&second), Some(&config.id()));
+            assert_eq!(state.configs.get(&config.id()), Some(&config));
+
+            client.delete_deposit_state(first).await.unwrap();
+            client.delete_deposit(second).await.unwrap();
+            let state = client.get_persisted_state().await.unwrap();
+            assert!(!state.deposit_configs.contains_key(&first));
+            assert!(!state.deposit_configs.contains_key(&second));
+            // Configs are never deleted; other deposits may still be pinned to them.
+            assert_eq!(state.configs.get(&config.id()), Some(&config));
+        });
+    }
+
+    #[test]
+    fn a_config_row_that_does_not_hash_to_its_key_fails_recovery() {
+        let (config, other) = (make_config(1_000), make_config(2_000));
+        block_on(async {
+            let client = get_client();
+            client
+                .basic_set::<ConfigRowSpec>(ConfigKey { id: other.id() }, config)
+                .await
+                .unwrap();
+            assert!(client.get_persisted_state().await.is_err());
+        });
     }
 
     /// Builds a [`StakeSM`] for the given operator from the operator table and state.
@@ -945,14 +1035,17 @@ mod tests {
         assert_eq!(after.stakes().len(), 2);
         after.set_operator_set(membership);
         let outpoint = OutPoint::new(generate_txid(), 0);
-        after.add_deposit(make_deposit_sm(
-            0,
-            outpoint,
-            table.clone(),
-            DepositState::Deposited {
-                last_block_height: 101,
-            },
-        ));
+        after.add_deposit(
+            make_deposit_sm(
+                0,
+                outpoint,
+                table.clone(),
+                DepositState::Deposited {
+                    last_block_height: 101,
+                },
+            ),
+            make_config(1_000),
+        );
         after.add_graph(make_graph_sm(
             GraphIdx {
                 deposit: 0,
@@ -990,7 +1083,7 @@ mod tests {
                         .contains(&(stake.context().stake_key(), stake.clone()))
                 );
             }
-            assert_eq!(recovered.deposits, vec![(0, after.deposits()[0].clone())]);
+            assert_eq!(recovered.deposits, vec![(0, after.deposits()[0].0.clone())]);
             assert_eq!(
                 recovered.graphs,
                 vec![(
@@ -1077,14 +1170,17 @@ mod tests {
             let mut expected_graphs = Vec::new();
             for deposit in 0..257 {
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(make_deposit_sm(
-                    deposit,
-                    outpoint,
-                    table.clone(),
-                    DepositState::Deposited {
-                        last_block_height: u64::from(deposit) + 1,
-                    },
-                ));
+                batch.add_deposit(
+                    make_deposit_sm(
+                        deposit,
+                        outpoint,
+                        table.clone(),
+                        DepositState::Deposited {
+                            last_block_height: u64::from(deposit) + 1,
+                        },
+                    ),
+                    make_config(1_000),
+                );
                 batch.add_graph(make_graph_sm(
                     GraphIdx {
                         deposit,
@@ -1096,7 +1192,7 @@ mod tests {
                         last_block_height: u64::from(deposit) + 1,
                     },
                 ));
-                expected_deposits.push((deposit, batch.deposits()[0].clone()));
+                expected_deposits.push((deposit, batch.deposits()[0].0.clone()));
                 expected_graphs.push((
                     GraphIdx {
                         deposit,
@@ -1163,14 +1259,17 @@ mod tests {
             let client = get_client();
             for deposit in 0..1_000 {
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(make_deposit_sm(
-                    deposit,
-                    outpoint,
-                    table.clone(),
-                    DepositState::Deposited {
-                        last_block_height: 100,
-                    },
-                ));
+                batch.add_deposit(
+                    make_deposit_sm(
+                        deposit,
+                        outpoint,
+                        table.clone(),
+                        DepositState::Deposited {
+                            last_block_height: 100,
+                        },
+                    ),
+                    make_config(1_000),
+                );
                 for operator in 0..15 {
                     batch.add_graph(make_graph_sm(
                         GraphIdx { deposit, operator },
@@ -2291,7 +2390,7 @@ mod tests {
                 let client = get_client();
 
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(deposit_sm.clone());
+                batch.add_deposit(deposit_sm.clone(), make_config(1_000));
                 batch.add_graph(graph_sm.clone());
                 batch.add_stake(stake_sm.clone());
 
@@ -2351,8 +2450,8 @@ mod tests {
                 let client = get_client();
 
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(dep_a.clone());
-                batch.add_deposit(dep_b.clone());
+                batch.add_deposit(dep_a.clone(), make_config(1_000));
+                batch.add_deposit(dep_b.clone(), make_config(1_000));
                 batch.add_graph(graph_a.clone());
                 batch.add_graph(graph_b.clone());
 
@@ -2412,7 +2511,7 @@ mod tests {
 
                 // Overwrite via batch.
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(new_deposit.clone());
+                batch.add_deposit(new_deposit.clone(), make_config(1_000));
                 batch.add_graph(new_graph.clone());
                 client.persist_batch(&batch).await.unwrap();
 
@@ -2443,7 +2542,7 @@ mod tests {
                 let client = get_client();
 
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(deposit_sm.clone());
+                batch.add_deposit(deposit_sm.clone(), make_config(1_000));
 
                 client.persist_batch(&batch).await.unwrap();
 
@@ -2517,8 +2616,8 @@ mod tests {
                 let client = get_client();
 
                 let mut batch = WriteBatch::new();
-                batch.add_deposit(dep_a.clone());
-                batch.add_deposit(dep_b.clone());
+                batch.add_deposit(dep_a.clone(), make_config(1_000));
+                batch.add_deposit(dep_b.clone(), make_config(1_000));
                 batch.add_graph(graph_a.clone());
                 batch.add_graph(graph_b.clone());
 
@@ -2661,7 +2760,7 @@ mod tests {
             let client = get_client();
 
             let mut batch = WriteBatch::new();
-            batch.add_deposit(deposit_sm.clone());
+            batch.add_deposit(deposit_sm.clone(), make_config(1_000));
             graph_sms
                 .into_iter()
                 .for_each(|graph_sm| batch.add_graph(graph_sm));
