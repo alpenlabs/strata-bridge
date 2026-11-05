@@ -15,15 +15,17 @@ from .live_env import StrataLiveEnv
 
 
 class OperatorSetChangeEnv(BaseEnv):
-    """Env provisioning every fixture operator, of which only the genesis operators run.
+    """Env provisioning fixture operators, of which only the genesis operators run.
 
-    The first `num_genesis_operators` operators form ASM's genesis operator set and start on a
-    genesis schedule. Every other operator's services are created and funded, but its bridge
-    node stays stopped until a test registers it in an edited operator schedule.
+    The first `num_operators` fixture operators are provisioned, and the first
+    `num_genesis_operators` of them form ASM's genesis operator set and start on a genesis
+    schedule. Every other operator's services are created and funded, but its bridge node stays
+    stopped until a test registers it in an edited operator schedule.
     """
 
     def __init__(
         self,
+        num_operators: int = len(read_all_operator_keys()),
         num_genesis_operators: int = BRIDGE_NETWORK_SIZE,
         bridge_protocol_params=BridgeProtocolParams(),  # noqa: B008
         bridge_config_params=BridgeConfigParams(),  # noqa: B008
@@ -31,7 +33,7 @@ class OperatorSetChangeEnv(BaseEnv):
         asm_config: AsmEnvConfig | None = None,
     ):
         super().__init__(
-            len(read_all_operator_keys()),
+            num_operators,
             bridge_protocol_params,
             bridge_config_params,
             btc_config,
