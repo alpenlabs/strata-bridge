@@ -523,16 +523,6 @@ async fn fulfill_withdrawal(
         });
     }
 
-    // Check if fee rate exceeds maximum configured rate
-    if fee_rate > cfg.maximum_fee_rate {
-        warn!(
-            %fee_rate,
-            maximum_fee_rate = %cfg.maximum_fee_rate,
-            "fee rate exceeds maximum, skipping fulfillment"
-        );
-        return Ok(());
-    }
-
     info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
 
     // Create unfunded WithdrawalFulfillmentTx with outputs only
