@@ -389,6 +389,7 @@ pub(crate) const fn persist_error_class(error: &PersistError) -> &'static str {
         }
         PersistError::MissingStateMachine(_) => "state_machine_not_found",
         PersistError::ConfigMissing(..) => "pinned_config",
+        PersistError::BackfillSerialization(_) => "serialization",
     }
 }
 

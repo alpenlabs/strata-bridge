@@ -4,17 +4,19 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     collections::{BTreeSet, HashMap},
+    iter::Peekable,
     sync::Arc,
     time::Instant,
 };
 
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_db::{
-    fdb::client::FdbClient,
+    fdb::{client::FdbClient, row_spec::kv::SerializableValue},
     traits::BridgeDb,
-    types::{ConfigId, WriteBatch},
+    types::{ConfigId, PinnedConfig, WriteBatch},
 };
 use strata_bridge_primitives::types::DepositIdx;
+use strata_bridge_sm::deposit::machine::DepositSM;
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -23,6 +25,10 @@ use crate::{
     sm_registry::{RegistryInsertError, SMConfig, SMRegistry},
     sm_types::SMId,
 };
+
+// Stay well below FoundationDB's 10 MB limit, including keys and conflict ranges.
+const CONFIG_BACKFILL_BATCH_BYTES: usize = 1_000_000;
+const CONFIG_BACKFILL_ROW_OVERHEAD: usize = 1024;
 
 /// An internal ID for tracking persistence batches.
 type GroupId = usize;
@@ -266,14 +272,15 @@ impl Persister {
                 config = %current.id(),
                 "pinning deposits stored before configs were pinned"
             );
-            let mut batch = WriteBatch::new();
-            for deposit_sm in unpinned {
-                batch.add_deposit(deposit_sm, current.clone());
+            let mut deposits = unpinned.into_iter().peekable();
+            while deposits.peek().is_some() {
+                let batch =
+                    next_backfill_batch(&mut deposits, &current, CONFIG_BACKFILL_BATCH_BYTES)?;
+                self.db
+                    .persist_batch(&batch)
+                    .await
+                    .map_err(PersistError::DbErr)?;
             }
-            self.db
-                .persist_batch(&batch)
-                .await
-                .map_err(PersistError::DbErr)?;
         }
         for (graph_idx, graph_sm) in persisted.graphs {
             registry.insert_graph(graph_idx, graph_sm)?;
@@ -311,6 +318,10 @@ pub enum PersistError {
     #[error("registry invariant violation: {0}")]
     RegistryInvariant(#[from] RegistryInsertError),
 
+    /// A legacy deposit could not be serialized while sizing its backfill batch.
+    #[error("failed to size legacy deposit: {0}")]
+    BackfillSerialization(<DepositSM as SerializableValue>::SerializeError),
+
     /// A deposit is pinned to a config that is not stored.
     #[error("deposit {0} is pinned to config {1}, which is not stored")]
     ConfigMissing(DepositIdx, ConfigId),
@@ -321,6 +332,29 @@ pub enum PersistError {
     /// A tracked state machine was absent when its atomic write batch was constructed.
     #[error("state machine {0} is missing from the registry during persistence")]
     MissingStateMachine(SMId),
+}
+
+fn next_backfill_batch(
+    deposits: &mut Peekable<impl Iterator<Item = DepositSM>>,
+    config: &PinnedConfig,
+    max_bytes: usize,
+) -> Result<WriteBatch, PersistError> {
+    let mut batch = WriteBatch::new();
+    let mut bytes = config.bytes().len() + CONFIG_BACKFILL_ROW_OVERHEAD;
+    while let Some(deposit) = deposits.peek() {
+        let row_bytes = deposit
+            .serialize()
+            .map_err(PersistError::BackfillSerialization)?
+            .len()
+            + CONFIG_BACKFILL_ROW_OVERHEAD;
+        // Always admit one row: an individually valid FDB value fits the production budget.
+        if !batch.deposits().is_empty() && bytes + row_bytes > max_bytes {
+            break;
+        }
+        bytes += row_bytes;
+        batch.add_deposit(deposits.next().expect("peeked deposit"), config.clone());
+    }
+    Ok(batch)
 }
 
 fn build_write_batch(
@@ -979,6 +1013,95 @@ mod pinned_config_tests {
             .unwrap();
         assert_eq!(changed.deposit_config(&0), Some(registry.current_config()));
 
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn legacy_backfill_is_bounded_and_resumes_after_partial_completion() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(5);
+        let config = registry.current_config();
+        let deposits: Vec<_> = (0..5)
+            .map(|idx| registry.get_deposit(&idx).unwrap().clone())
+            .collect();
+        for deposit in &deposits {
+            db.set_deposit_state(deposit.context.deposit_idx, deposit.clone())
+                .await
+                .unwrap();
+        }
+        let row_sizes: Vec<_> = deposits
+            .iter()
+            .map(|deposit| deposit.serialize().unwrap().len() + CONFIG_BACKFILL_ROW_OVERHEAD)
+            .collect();
+        let base = config.bytes().len() + CONFIG_BACKFILL_ROW_OVERHEAD;
+        let budget = base + row_sizes[0] + row_sizes[1];
+        let mut remaining = deposits.clone().into_iter().peekable();
+        let first = next_backfill_batch(&mut remaining, config, budget).unwrap();
+        assert_eq!(first.deposits().len(), 2);
+        db.persist_batch(&first).await.unwrap();
+        assert_eq!(
+            db.get_persisted_state()
+                .await
+                .unwrap()
+                .deposit_configs
+                .len(),
+            2
+        );
+
+        // Check every subsequent chunk is bounded and no deposit is lost or repeated.
+        let mut indices = vec![0, 1];
+        while remaining.peek().is_some() {
+            let batch = next_backfill_batch(&mut remaining, config, budget).unwrap();
+            let size = base
+                + batch
+                    .deposits()
+                    .iter()
+                    .map(|(deposit, _)| {
+                        deposit.serialize().unwrap().len() + CONFIG_BACKFILL_ROW_OVERHEAD
+                    })
+                    .sum::<usize>();
+            assert!(size <= budget);
+            indices.extend(
+                batch
+                    .deposits()
+                    .iter()
+                    .map(|(deposit, _)| deposit.context.deposit_idx),
+            );
+        }
+        assert_eq!(indices, vec![0, 1, 2, 3, 4]);
+
+        // Restart with only the first chunk committed, keeping the pre-upgrade params.
+        let restored = persister
+            .recover_registry(registry.cfg().clone())
+            .await
+            .unwrap();
+        let persisted = db.get_persisted_state().await.unwrap();
+        assert_eq!(persisted.deposit_configs.len(), 5);
+        assert_eq!(persisted.configs.len(), 1);
+        for deposit in &deposits {
+            let idx = deposit.context.deposit_idx;
+            assert_eq!(restored.deposit_config(&idx), Some(config));
+            assert_eq!(
+                persisted
+                    .deposits
+                    .iter()
+                    .find(|(key, _)| *key == idx)
+                    .unwrap()
+                    .1
+                    .serialize()
+                    .unwrap(),
+                deposit.serialize().unwrap()
+            );
+        }
+        let again = persister
+            .recover_registry(with_longer_contest(registry.cfg()))
+            .await
+            .unwrap();
+        for idx in 0..5 {
+            assert_eq!(again.deposit_config(&idx), Some(config));
+        }
         drop(persister);
         drop(db);
         drop(guard);
