@@ -13,7 +13,7 @@ use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
-use operator_wallet::GeneralUtxoPolicy;
+use operator_wallet::{GeneralUtxoPolicy, LeaseOwner, LeasedPsbt, OperatorWallet, SqliteStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
 use strata_bridge_connectors::prelude::UnstakingIntentOutput;
 use strata_bridge_db::{
@@ -74,6 +74,8 @@ pub(crate) async fn publish_stake_data(
     info!(%unstaking_image, "fetched unstaking intent preimage and computed the unstaking image");
 
     info!("constructing the unstaking output descriptor");
+    // Custody-aware receive destination: where this operator gets its unstaking funds, so the
+    // funds land somewhere it can actually spend: the general wallet's own receive script.
     let output_desc = output_handles
         .wallet
         .read()
@@ -106,7 +108,6 @@ async fn read_or_create_stake_funding(
 ) -> Result<StakeFundingReservation, ExecutorError> {
     let operator_idx = stake_key.operator;
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
-
     let mut wallet = output_handles.wallet.write().await;
 
     match wallet.sync().await {
@@ -134,7 +135,10 @@ async fn read_or_create_stake_funding(
             .iter()
             .map(|txin| txin.previous_output)
             .collect();
-        wallet.lease(&inputs);
+        // The database row keeps this reservation across restarts, so the lease has no owning
+        // value to drop. Startup rehydration holds the same outpoints. This call covers the case
+        // where the row was written after startup read the funds.
+        wallet.lease_committed(inputs, LeaseOwner::StakeFunding);
         return Ok(reservation);
     }
 
@@ -142,26 +146,11 @@ async fn read_or_create_stake_funding(
     let fee_rate = estimate_funding_fee_rate(cfg, output_handles).await?;
 
     info!(%fee_rate, %funding_amount, "creating stake funding transaction");
-    // Stake funding is one reserved-wallet UTXO of `funding_amount`. The reserved-utxo API
-    // takes denomination + quantity uniformly (claim-funding pool uses larger quantity
-    // with a smaller per-UTXO value); for the stake-funding case it's always quantity 1.
-    let funded = wallet
-        .create_reserved_utxos(
-            fee_rate,
-            funding_amount,
-            1,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
-        )
-        .await
-        .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))?;
-    let reservation = reservation_from_psbt(&funded.psbt);
-
-    let candidate_inputs: Vec<OutPoint> = reservation
-        .unsigned_tx
-        .input
-        .iter()
-        .map(|txin| txin.previous_output)
-        .collect();
+    // `candidate` holds the inputs that the wallet selected. Each path below that does not
+    // become the stored reservation drops it, which returns those inputs to the pool.
+    let candidate = select_stake_funding(&mut wallet, fee_rate, funding_amount)?;
+    let (candidate_psbt, candidate_lease) = candidate.into_parts();
+    let reservation = reservation_from_psbt(&candidate_psbt);
 
     info!(%operator_idx, "persisting stake funding reservation");
     let assignment = output_handles
@@ -170,33 +159,29 @@ async fn read_or_create_stake_funding(
         .await;
 
     match assignment {
-        Ok(FundingAssignment::Created(reservation)) => Ok(reservation),
+        Ok(FundingAssignment::Created(reservation)) => {
+            candidate_lease.commit();
+            Ok(reservation)
+        }
         Ok(FundingAssignment::Existing(reservation)) => {
             info!(%operator_idx, "using existing stake funding reservation saved by another duty");
+            // The candidate's inputs return to the pool; the stored row names the inputs to hold.
+            drop(candidate_lease);
+            validate_reservation(
+                &reservation,
+                &wallet.reserved_script_pubkey(),
+                funding_amount,
+            )?;
             let assigned_inputs: Vec<OutPoint> = reservation
                 .unsigned_tx
                 .input
                 .iter()
                 .map(|txin| txin.previous_output)
                 .collect();
-            let stale_candidate_inputs: Vec<_> = candidate_inputs
-                .iter()
-                .copied()
-                .filter(|outpoint| !assigned_inputs.contains(outpoint))
-                .collect();
-            wallet.release(&stale_candidate_inputs);
-            validate_reservation(
-                &reservation,
-                &wallet.reserved_script_pubkey(),
-                funding_amount,
-            )?;
-            wallet.lease(&assigned_inputs);
+            wallet.lease_committed(assigned_inputs, LeaseOwner::StakeFunding);
             Ok(reservation)
         }
-        Err(err) => {
-            wallet.release(&candidate_inputs);
-            Err(err.into())
-        }
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -227,6 +212,23 @@ async fn estimate_funding_fee_rate(
     }
 
     Ok(fee_rate)
+}
+
+/// Funds one reserved-wallet output of `funding_amount` from general-wallet outputs.
+fn select_stake_funding(
+    wallet: &mut OperatorWallet<SqliteStore>,
+    fee_rate: FeeRate,
+    funding_amount: Amount,
+) -> Result<LeasedPsbt, ExecutorError> {
+    wallet
+        .create_reserved_utxos(
+            fee_rate,
+            funding_amount,
+            1,
+            GeneralUtxoPolicy::IncludeUnconfirmed,
+            LeaseOwner::StakeFunding,
+        )
+        .map_err(|e| ExecutorError::WalletErr(format!("stake funding failed: {e}")))
 }
 
 fn validate_reservation(
@@ -267,22 +269,10 @@ fn validate_reservation(
 }
 
 fn reservation_from_psbt(psbt: &Psbt) -> StakeFundingReservation {
-    let prevouts = psbt
-        .inputs
-        .iter()
-        .map(|input| {
-            input
-                .witness_utxo
-                .as_ref()
-                .expect("stake funding PSBT input must have a witness utxo")
-                .clone()
-        })
-        .collect();
-    // The stake funding PSBT is built with `TxOrdering::Untouched` and a single recipient at
-    // index 0; change (if any) is appended after.
+    // The stake funding PSBT has a single recipient at index 0; change (if any) follows it.
     StakeFundingReservation {
         unsigned_tx: psbt.unsigned_tx.clone(),
-        prevouts,
+        prevouts: chain::psbt_prevouts(psbt),
         stake_output_vout: 0,
     }
 }

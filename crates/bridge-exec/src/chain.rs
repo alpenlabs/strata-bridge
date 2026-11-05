@@ -1,16 +1,31 @@
 //! Shared Bitcoin chain helpers for executors.
 
 use bitcoin::{
-    OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
+    Amount, FeeRate, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
     sighash::{Prevouts, SighashCache},
+    transaction::InputWeightPrediction,
 };
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
 use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
+use operator_wallet::{FundingInput, Lease, LeaseOwner, OperatorWallet, WalletStore};
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_primitives::scripts::taproot::create_key_spend_hash;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{errors::ExecutorError, output_handles::OutputHandles};
+
+/// The fee of `tx` once one wallet input of `wallet_input` size is added, at `fee_rate`. `None`
+/// when the fee does not fit an [`Amount`].
+///
+/// A caller that hand-builds a transaction with one connector input uses this to size the wallet
+/// funding it needs before the planner sees the transaction.
+pub(crate) fn funded_tx_fee(
+    tx: &Transaction,
+    wallet_input: InputWeightPrediction,
+    fee_rate: FeeRate,
+) -> Option<Amount> {
+    fee_rate.fee_wu(tx.weight() + wallet_input.weight())
+}
 
 /// The prevouts of a wallet-funded PSBT, in input order. The planner sets `witness_utxo` on every
 /// input, which is what a signer reads.
@@ -28,20 +43,30 @@ pub(crate) fn psbt_prevouts(psbt: &Psbt) -> Vec<TxOut> {
 
 /// Signs the general-wallet inputs at `input_indices` of `tx`.
 ///
-/// Each input is a `tr(general_key)` input that the secret-service general signer signs with the
-/// default sighash.
+/// The custody signs the inputs it holds the key for first. Every input it leaves unsigned is a
+/// `tr(general_key)` input that the secret-service general signer signs with the default sighash.
 pub(crate) async fn sign_general_inputs(
     output_handles: &OutputHandles,
     tx: &Transaction,
     input_indices: &[usize],
     prevouts: &[TxOut],
 ) -> Result<Transaction, ExecutorError> {
+    let signer = output_handles.wallet.read().await.general_signer();
+    let signer_witnesses = signer
+        .sign_owned_inputs(tx, input_indices, prevouts)
+        .await
+        .map_err(|e| ExecutorError::WalletErr(format!("wallet signing failed: {e}")))?;
+
     let prevouts = Prevouts::All(prevouts);
     let mut sighash_cache = SighashCache::new(tx);
     let s2_signer = output_handles.s2_client.general_wallet_signer();
 
     let mut signed_tx = tx.clone();
-    for &input_index in input_indices {
+    for (&input_index, signer_witness) in input_indices.iter().zip(signer_witnesses) {
+        if let Some(witness) = signer_witness {
+            signed_tx.input[input_index].witness = witness;
+            continue;
+        }
         let sighash = create_key_spend_hash(
             &mut sighash_cache,
             prevouts.clone(),
@@ -111,14 +136,13 @@ pub(crate) async fn is_outpoint_unspent(
         // field.
         Err(ClientError::Other(ref msg)) if msg == "Empty data received" => Ok(false),
         Err(e) => {
-            warn!(%outpoint, ?e, "could not determine if outpoint is unspent");
+            warn!(%outpoint, ?e, "could not read outpoint");
             Err(e)
         }
     }
 }
 
-/// Publishes a signed transaction to Bitcoin and waits for the provided transaction status
-/// condition to be met.
+/// Publishes a signed transaction and waits until its status meets `wait_condition`.
 pub(crate) async fn publish_signed_transaction(
     tx_driver: &TxDriver,
     signed_tx: &Transaction,
@@ -138,6 +162,134 @@ pub(crate) async fn publish_signed_transaction(
 
     info!(%txid, %label, "transaction reached target status");
     Ok(())
+}
+
+/// Publishes a transaction whose wallet inputs `lease` holds.
+///
+/// Success commits the lease: the transaction spends the inputs, and the lease stays in place
+/// until a sync shows that spend buried. A failure releases the lease through
+/// [`release_after_sync`]: a failed publish can still have reached a mempool, so the inputs return
+/// to the pool only against a fresh view, and they stay held when that view cannot be read.
+pub(crate) async fn publish_leased_transaction(
+    output_handles: &OutputHandles,
+    signed_tx: &Transaction,
+    label: &str,
+    wait_condition: fn(&TxStatus) -> bool,
+    lease: Lease,
+) -> Result<(), ExecutorError> {
+    let result =
+        publish_signed_transaction(&output_handles.tx_driver, signed_tx, label, wait_condition)
+            .await;
+    match result {
+        Ok(()) => lease.commit(),
+        Err(_) => {
+            let mut wallet = output_handles.wallet.write().await;
+            if let Err(e) = release_after_sync(&mut wallet, lease).await {
+                warn!(%label, ?e, "wallet sync failed after a failed publish; the inputs stay held");
+            }
+        }
+    }
+    result
+}
+
+/// Syncs, then gives up `lease` on the inputs of a transaction that can be on the network.
+///
+/// A successful sync makes the wallet view authoritative: the wallet hides the inputs of a
+/// broadcast transaction, and dropping the lease returns only the inputs that no transaction
+/// spends. A failed sync leaves the view stale, and a release against stale data hands a live
+/// transaction's inputs to the next duty, which then broadcasts a conflicting spend. The lease
+/// commits in that case. An input of a transaction that never reached the network then stays out
+/// of selection until a restart, so this logs the outpoints at error, and the operator restarts
+/// when funding runs out.
+pub(crate) async fn release_after_sync<P: WalletStore>(
+    wallet: &mut OperatorWallet<P>,
+    lease: Lease,
+) -> Result<(), operator_wallet::Error> {
+    if let Err(e) = wallet.sync().await {
+        error!(inputs = ?lease.outpoints(), "wallet sync failed; holding the inputs");
+        lease.commit();
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// One general-wallet input that funds a transaction with a connector input, and the change that
+/// it leaves.
+#[derive(Debug)]
+pub(crate) struct ConnectorFunding {
+    /// The selected input.
+    pub(crate) input: FundingInput,
+    /// The lease on [`Self::input`].
+    pub(crate) lease: Lease,
+    /// The change output, always above dust.
+    pub(crate) change: TxOut,
+}
+
+/// Selects and leases a confirmed general-wallet UTXO that, with `connector_value`, pays the fee
+/// of `template` at `fee_rate` and leaves non-dust change.
+///
+/// One wallet input funds the transaction, because the callers hand-build a fixed shape. A wallet
+/// with enough total value in smaller outputs fails here, and the log states that total.
+///
+/// `template` is the funded transaction as [`funded_tx_fee`] reads it. The selection reads
+/// confirmed outputs only: these transactions are v3, and TRUC rejects a v3 transaction on an
+/// unconfirmed non-v3 parent.
+pub(crate) fn select_connector_funding<P: WalletStore>(
+    wallet: &mut OperatorWallet<P>,
+    owner: LeaseOwner,
+    template: &Transaction,
+    connector_value: Amount,
+    fee_rate: FeeRate,
+) -> Result<ConnectorFunding, ExecutorError> {
+    let overflow = || ExecutorError::WalletErr("connector funding amount overflow".into());
+    let change_script = wallet.general().script_pubkey();
+    let fee = funded_tx_fee(
+        template,
+        wallet.general_signer().input_prediction(),
+        fee_rate,
+    )
+    .ok_or_else(overflow)?;
+    let min_funding = fee
+        .checked_add(change_script.minimal_non_dust())
+        .ok_or_else(overflow)?
+        .checked_sub(connector_value)
+        .unwrap_or(Amount::ZERO);
+
+    let (input, lease) = wallet
+        .select_general_utxo(owner, min_funding)
+        .ok_or_else(|| {
+            let confirmed_total: Amount = wallet
+                .general()
+                .list_utxos()
+                .iter()
+                .filter(|utxo| utxo.confirmations > 0)
+                .map(|utxo| utxo.amount)
+                .sum();
+            error!(
+                %fee,
+                %fee_rate,
+                %min_funding,
+                %confirmed_total,
+                ?owner,
+                "no single general wallet UTXO covers this fee"
+            );
+            ExecutorError::WalletErr(format!(
+                "no general wallet UTXO of at least {min_funding} funds {owner:?}"
+            ))
+        })?;
+    let change_value = connector_value
+        .checked_add(input.txout.value)
+        .and_then(|inputs| inputs.checked_sub(fee))
+        .ok_or_else(overflow)?;
+    info!(funding = %input.outpoint, %fee, %fee_rate, ?owner, "leased general wallet funding");
+    Ok(ConnectorFunding {
+        input,
+        lease,
+        change: TxOut {
+            value: change_value,
+            script_pubkey: change_script,
+        },
+    })
 }
 
 #[cfg(test)]

@@ -12026,7 +12026,6 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "bdk_bitcoind_rpc",
- "bdk_wallet",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoind-async-client",
