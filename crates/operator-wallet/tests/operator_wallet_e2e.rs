@@ -1602,6 +1602,11 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
         "the change output is unconfirmed"
     );
 
+    assert!(
+        wallet.last_sync().is_some_and(|last| last.succeeded),
+        "the last sync attempt succeeded"
+    );
+
     // Fail the next commit of each store. An empty block gives both wallets something to commit
     // while the funding transaction stays unconfirmed.
     stores
@@ -1612,6 +1617,10 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
         .fail_on_persist_call(stores.reserved.persist_calls() + 1);
     mine_block_with(&bitcoind, &[]);
     wallet.sync().await.expect_err("injected persist failure");
+    assert!(
+        wallet.last_sync().is_some_and(|last| !last.succeeded),
+        "the last sync attempt records the failure"
+    );
 
     // Both wallets still show what the last successful sync saw.
     assert_eq!(

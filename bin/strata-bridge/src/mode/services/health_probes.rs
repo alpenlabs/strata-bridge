@@ -5,7 +5,7 @@ use std::{fmt::Display, future::Future, sync::Arc, time::Duration};
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::tx_driver::TxDriverHealthHandle;
 use jsonrpsee::http_client::HttpClient;
-use operator_wallet::{OperatorWallet, SqliteStore};
+use operator_wallet::{LastSync, OperatorWallet, SqliteStore};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_asm_rpc::traits::AsmControlApiClient;
@@ -207,8 +207,9 @@ pub(in crate::mode) fn spawn_wallet_probe(
             match timeout(DEFAULT_HEALTH_PROBE_TIMEOUT, wallet.read()).await {
                 Ok(guard) => {
                     let height = guard.local_chain_tip_height();
+                    let last_sync = guard.last_sync();
                     drop(guard);
-                    health_registry.mark_ok(COMPONENT_WALLET, format!("synced_to_height_{height}"));
+                    report_wallet(&health_registry, height, last_sync);
                 }
                 Err(_) => {
                     health_registry.mark_unhealthy(COMPONENT_WALLET, "probe_timed_out");
@@ -217,6 +218,17 @@ pub(in crate::mode) fn spawn_wallet_probe(
             }
         }
     });
+}
+
+/// Records the wallet verdict at `height`: unhealthy when the last sync attempt failed, and ok
+/// otherwise. The height alone cannot tell: it comes from the reserved wallet, which keeps syncing
+/// while the general wallet fails.
+fn report_wallet(health_registry: &HealthRegistry, height: u32, last_sync: Option<LastSync>) {
+    if last_sync.is_some_and(|sync| !sync.succeeded) {
+        health_registry.mark_unhealthy(COMPONENT_WALLET, format!("sync_failed_at_height_{height}"));
+    } else {
+        health_registry.mark_ok(COMPONENT_WALLET, format!("synced_to_height_{height}"));
+    }
 }
 
 /// Starts a periodic transaction-driver liveness probe.
@@ -292,6 +304,64 @@ async fn run_external_probe<T, E, F>(
         Err(_) => {
             health_registry.mark_unhealthy(component, "probe_timed_out");
             error!(component, probe_name, "health probe timed out");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+    use crate::health::HealthStatus;
+
+    fn wallet_health(health_registry: &HealthRegistry) -> (HealthStatus, String) {
+        let wallet = health_registry
+            .snapshot()
+            .components
+            .into_iter()
+            .find(|component| component.component == COMPONENT_WALLET)
+            .expect("the registry tracks the wallet");
+        (wallet.status, wallet.reason)
+    }
+
+    fn sync(succeeded: bool) -> Option<LastSync> {
+        Some(LastSync {
+            succeeded,
+            at: Instant::now(),
+        })
+    }
+
+    /// The reserved tip keeps advancing while the general wallet fails its syncs, so a failed
+    /// attempt decides the verdict whatever the height says.
+    #[test]
+    fn a_failed_last_sync_marks_the_wallet_unhealthy() {
+        let health_registry = HealthRegistry::new();
+
+        report_wallet(&health_registry, 7, sync(false));
+
+        assert_eq!(
+            wallet_health(&health_registry),
+            (
+                HealthStatus::Unhealthy,
+                "sync_failed_at_height_7".to_string()
+            ),
+            "a failed sync attempt must not read as healthy"
+        );
+    }
+
+    #[test]
+    fn a_successful_or_pending_first_sync_marks_the_wallet_ok() {
+        for last_sync in [sync(true), None] {
+            let health_registry = HealthRegistry::new();
+
+            report_wallet(&health_registry, 7, last_sync);
+
+            assert_eq!(
+                wallet_health(&health_registry),
+                (HealthStatus::Ok, "synced_to_height_7".to_string()),
+                "last sync {last_sync:?} must read as healthy"
+            );
         }
     }
 }
