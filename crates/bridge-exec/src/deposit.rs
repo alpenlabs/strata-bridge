@@ -6,21 +6,20 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, OutPoint, TapSighashType, Transaction, Txid,
+    Amount, OutPoint, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
-    sighash::{Prevouts, SighashCache},
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_tracker::event::TxStatus;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
-use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
 use strata_bridge_connectors::SigningInfo;
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
-    scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
+    scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
@@ -33,7 +32,7 @@ use strata_bridge_tx_graph::{
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::{is_txid_onchain, publish_signed_transaction},
+    chain::{self, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     output_handles::OutputHandles,
@@ -633,42 +632,14 @@ async fn fulfill_withdrawal(
     let txid = wft_psbt.unsigned_tx.compute_txid();
     info!(%deposit_idx, %txid, "signing withdrawal fulfillment transaction");
 
-    let sign_result: Result<Transaction, ExecutorError> = async {
-        let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
-
-        let prevouts: Vec<_> = wft_psbt
-            .inputs
-            .iter()
-            .filter_map(|input| input.witness_utxo.clone())
-            .collect();
-        let prevouts = Prevouts::All(&prevouts);
-
-        let mut signed_tx = wft_psbt.unsigned_tx.clone();
-        for (input_index, _) in wft_psbt.inputs.iter().enumerate() {
-            let msg = create_message_hash(
-                &mut sighash_cache,
-                prevouts.clone(),
-                &TaprootWitness::Key,
-                TapSighashType::Default,
-                input_index,
-            )
-            .map_err(|e| ExecutorError::WalletErr(format!("sighash error: {e}")))?;
-
-            let signature = output_handles
-                .s2_client
-                .general_wallet_signer()
-                .sign(msg.as_ref(), None)
-                .await?;
-
-            signed_tx.input[input_index]
-                .witness
-                .push(signature.serialize());
-        }
-        Ok(signed_tx)
-    }
-    .await;
-
-    let signed_tx = match sign_result {
+    let signed_tx = match chain::sign_general_inputs(
+        output_handles,
+        &wft_psbt.unsigned_tx,
+        &(0..wft_psbt.unsigned_tx.input.len()).collect::<Vec<_>>(),
+        &chain::psbt_prevouts(&wft_psbt),
+    )
+    .await
+    {
         Ok(tx) => tx,
         Err(e) => {
             error!(%deposit_idx, ?e, "failed to sign withdrawal fulfillment transaction");
