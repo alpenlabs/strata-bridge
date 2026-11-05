@@ -29,8 +29,11 @@ use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::pre
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
-    output_handles::OutputHandles, stake::utils::get_preimage,
+    chain::{self, publish_signed_transaction},
+    config::ExecutionConfig,
+    errors::ExecutorError,
+    output_handles::OutputHandles,
+    stake::utils::get_preimage,
 };
 
 pub(crate) async fn publish_stake_data(
@@ -50,7 +53,13 @@ pub(crate) async fn publish_stake_data(
     };
 
     info!(%operator_idx, %stake_funding_txid, "submitting stake funding transaction");
-    let signed_tx = sign_reservation(output_handles, &reservation).await?;
+    let signed_tx = chain::sign_general_inputs(
+        output_handles,
+        &reservation.unsigned_tx,
+        &(0..reservation.unsigned_tx.input.len()).collect::<Vec<_>>(),
+        &reservation.prevouts,
+    )
+    .await?;
     publish_signed_transaction(
         &output_handles.tx_driver,
         &signed_tx,
@@ -276,43 +285,6 @@ fn reservation_from_psbt(psbt: &Psbt) -> StakeFundingReservation {
         prevouts,
         stake_output_vout: 0,
     }
-}
-
-async fn sign_reservation(
-    output_handles: &OutputHandles,
-    reservation: &StakeFundingReservation,
-) -> Result<Transaction, ExecutorError> {
-    let prevouts = Prevouts::All(&reservation.prevouts);
-
-    const DEFAULT_SIGHASH_TYPE: TapSighashType = TapSighashType::Default;
-
-    let mut sighash_cache = SighashCache::new(&reservation.unsigned_tx);
-    let sighashes = (0..reservation.unsigned_tx.input.len()).map(|input_index| {
-        create_key_spend_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            DEFAULT_SIGHASH_TYPE,
-            input_index,
-        )
-        .expect("must be able to create key spend hash")
-    });
-
-    let s2_signer = output_handles.s2_client.general_wallet_signer();
-    let mut signatures = Vec::with_capacity(reservation.unsigned_tx.input.len());
-    for sighash in sighashes {
-        let signature = s2_signer
-            .sign(sighash.as_ref(), None)
-            .await
-            .map_err(ExecutorError::SecretServiceErr)?;
-        signatures.push(signature);
-    }
-
-    let mut signed_tx = reservation.unsigned_tx.clone();
-    for (input, signature) in signed_tx.input.iter_mut().zip(signatures) {
-        input.witness.push(signature.serialize());
-    }
-
-    Ok(signed_tx)
 }
 
 pub(crate) async fn publish_unstaking_nonces(

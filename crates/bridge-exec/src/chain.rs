@@ -1,11 +1,65 @@
 //! Shared Bitcoin chain helpers for executors.
 
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{
+    OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
+    sighash::{Prevouts, SighashCache},
+};
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
 use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
+use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use strata_bridge_primitives::scripts::taproot::create_key_spend_hash;
 use tracing::{debug, info, warn};
 
-use crate::errors::ExecutorError;
+use crate::{errors::ExecutorError, output_handles::OutputHandles};
+
+/// The prevouts of a wallet-funded PSBT, in input order. The planner sets `witness_utxo` on every
+/// input, which is what a signer reads.
+pub(crate) fn psbt_prevouts(psbt: &Psbt) -> Vec<TxOut> {
+    psbt.inputs
+        .iter()
+        .map(|input| {
+            input
+                .witness_utxo
+                .clone()
+                .expect("a wallet-funded PSBT carries witness_utxo on every input")
+        })
+        .collect()
+}
+
+/// Signs the general-wallet inputs at `input_indices` of `tx`.
+///
+/// Each input is a `tr(general_key)` input that the secret-service general signer signs with the
+/// default sighash.
+pub(crate) async fn sign_general_inputs(
+    output_handles: &OutputHandles,
+    tx: &Transaction,
+    input_indices: &[usize],
+    prevouts: &[TxOut],
+) -> Result<Transaction, ExecutorError> {
+    let prevouts = Prevouts::All(prevouts);
+    let mut sighash_cache = SighashCache::new(tx);
+    let s2_signer = output_handles.s2_client.general_wallet_signer();
+
+    let mut signed_tx = tx.clone();
+    for &input_index in input_indices {
+        let sighash = create_key_spend_hash(
+            &mut sighash_cache,
+            prevouts.clone(),
+            TapSighashType::Default,
+            input_index,
+        )
+        .map_err(|e| ExecutorError::WalletErr(format!("key spend hash: {e}")))?;
+        let signature = s2_signer
+            .sign(sighash.as_ref(), None)
+            .await
+            .map_err(ExecutorError::SecretServiceErr)?;
+        signed_tx.input[input_index]
+            .witness
+            .push(signature.serialize());
+    }
+
+    Ok(signed_tx)
+}
 
 /// Returns the confirmation count of a transaction that the node knows, or `None` for an unknown
 /// transaction. A mempool transaction has zero. A confirmed transaction stays known after its
