@@ -1,11 +1,8 @@
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import cast
 
 import flexitest
 
-from constants import BLOCK_GENERATION_INTERVAL_SECS
 from envs import AsmEnvConfig, OperatorSetChangeEnv, StrataLiveEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
@@ -15,6 +12,8 @@ from utils.deposit import make_deposit, wait_until_asm_deposit
 from utils.dev_cli import DevCli
 from utils.network import wait_until_p2p_connected
 from utils.operator_set import (
+    OperatorSetUpdate,
+    include_operator_set_updates,
     restart_with_operator_schedule,
     scheduled_operator,
     write_operator_schedule,
@@ -82,12 +81,17 @@ class OperatorSetChangesTest(StrataTestBase):
         }
         # `Service` is the static type; concrete bridge-node services attach `create_rpc`.
         rpcs = {idx: node.create_rpc() for idx, node in nodes.items()}  # ty: ignore[possibly-missing-attribute]
-        self.live_env = cast(StrataLiveEnv, ctx.env)
+        live_env = cast(StrataLiveEnv, ctx.env)
         bitcoin = ctx.get_service("bitcoin")
         self.bitcoin_rpc = bitcoin.create_rpc()
         self.asm_rpc = ctx.get_service("asm_rpc").create_rpc()
-        self.mining_address = self.bitcoin_rpc.proxy.getnewaddress()
+        mining_address = self.bitcoin_rpc.proxy.getnewaddress()
         dev_cli = DevCli(bitcoin.props, operator_keys)
+
+        def include_update(update: OperatorSetUpdate) -> int:
+            return include_operator_set_updates(
+                dev_cli, self.bitcoin_rpc, mining_address, [update], OPERATOR_UPDATE_DEPTH
+            )
 
         def member_rpcs(members: list[int]) -> list:
             return [rpcs[idx] for idx in members]
@@ -106,9 +110,9 @@ class OperatorSetChangesTest(StrataTestBase):
         self.logger.info(f"Planned addition: operator {JOINING_OPERATOR} joins")
         addition_members = GENESIS_MEMBERS + [JOINING_OPERATOR]
         # No node may process the activation block before it restarts on the edited schedule.
-        with self._mining_paused():
-            addition_height = self._include_operator_set_update(
-                dev_cli, seqno=1, add_keys=[operator_keys[JOINING_OPERATOR].MUSIG2_KEY]
+        with live_env.mining_paused(self.bitcoin_rpc, mining_address):
+            addition_height = include_update(
+                OperatorSetUpdate(seqno=1, add_keys=[operator_keys[JOINING_OPERATOR].MUSIG2_KEY])
             )
             addition_schedule = [scheduled_operator(idx, genesis_height) for idx in GENESIS_MEMBERS]
             addition_schedule.append(scheduled_operator(JOINING_OPERATOR, addition_height))
@@ -162,9 +166,9 @@ class OperatorSetChangesTest(StrataTestBase):
         self.logger.info(f"Planned removal: operator {LEAVING_OPERATOR} leaves")
         removal_members = [idx for idx in addition_members if idx != LEAVING_OPERATOR]
         # No node may process the activation block before it restarts on the edited schedule.
-        with self._mining_paused():
-            removal_height = self._include_operator_set_update(
-                dev_cli, seqno=2, remove_indices=[LEAVING_OPERATOR]
+        with live_env.mining_paused(self.bitcoin_rpc, mining_address):
+            removal_height = include_update(
+                OperatorSetUpdate(seqno=2, remove_indices=[LEAVING_OPERATOR])
             )
             removal_schedule = [
                 scheduled_operator(
@@ -250,36 +254,4 @@ class OperatorSetChangesTest(StrataTestBase):
                 "configuration" in line
             ),
             error_msg=f"the node must name registration {mismatched_idx} as rewritten",
-        )
-
-    def _include_operator_set_update(
-        self,
-        dev_cli: DevCli,
-        seqno: int,
-        add_keys: list[str] | None = None,
-        remove_indices: list[int] | None = None,
-    ) -> int:
-        """Mine an admin operator set update into the next block and return its activation height.
-
-        Mining must be paused, so the update lands in exactly that block.
-        """
-        txid = dev_cli.send_operator_set_update(seqno, add_keys, remove_indices)
-        [block_hash] = self.bitcoin_rpc.proxy.generatetoaddress(1, self.mining_address)
-        block = self.bitcoin_rpc.proxy.getblock(block_hash)
-        assert txid in block["tx"], f"operator set update {txid} must be mined in {block_hash}"
-
-        activation_height = block["height"] + OPERATOR_UPDATE_DEPTH
-        self.logger.info(
-            f"Operator set update {txid} mined at {block['height']}, "
-            f"activating at {activation_height}"
-        )
-        return activation_height
-
-    @contextmanager
-    def _mining_paused(self) -> Iterator[None]:
-        """Pause block production for the duration of the block, resuming it afterwards."""
-        self.live_env.stop_miner()
-        yield
-        self.live_env.start_miner(
-            self.bitcoin_rpc, BLOCK_GENERATION_INTERVAL_SECS, self.mining_address
         )
