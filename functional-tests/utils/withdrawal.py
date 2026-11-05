@@ -347,6 +347,18 @@ def fulfill_withdrawal(
     )
 
 
+def assert_cooperative_payout(bitcoin_rpc, payout_txid: str, deposit_txid: str) -> None:
+    """Assert `payout_txid` is a cooperative payout, whose only input is the deposit UTXO.
+
+    A unilateral payout also spends the claim's outputs.
+    """
+    inputs = tx_inputs(bitcoin_rpc, payout_txid)
+    assert inputs == [(deposit_txid, DT_DEPOSIT_VOUT)], (
+        f"payout {payout_txid} must spend only deposit {deposit_txid}:{DT_DEPOSIT_VOUT} "
+        f"cooperatively, spent {inputs}"
+    )
+
+
 def wait_until_paid_out(
     bitcoin_rpc,
     deposit_txid: str,
