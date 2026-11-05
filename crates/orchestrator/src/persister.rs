@@ -823,9 +823,21 @@ mod pinned_config_tests {
 
     use bitcoin::relative;
     use strata_bridge_db::fdb::{cfg::Config, client::MustDrop};
+    use strata_bridge_p2p_types::NagRequestPayload;
+    use strata_bridge_primitives::types::GraphIdx;
+    use strata_bridge_sm::graph::{
+        duties::GraphDuty,
+        events::{GraphEvent, NagReceivedEvent},
+    };
 
     use super::*;
-    use crate::testing::{insert_deposit_with_graphs, test_fdb_config, test_populated_registry};
+    use crate::{
+        sm_registry::ProcessOutcome,
+        sm_types::UnifiedDuty,
+        testing::{
+            TEST_POV_IDX, insert_deposit_with_graphs, test_fdb_config, test_populated_registry,
+        },
+    };
 
     async fn persister() -> (Persister, Arc<FdbClient>, MustDrop) {
         let suffix = SystemTime::now()
@@ -884,6 +896,49 @@ mod pinned_config_tests {
         assert_eq!(again.deposit_config(&0), Some(registry.current_config()));
         assert_eq!(again.deposit_config(&1), Some(&new_config));
         assert_eq!(db.get_persisted_state().await.unwrap().configs.len(), 2);
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn graph_duties_carry_the_deposits_config_after_a_params_change() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(1);
+        persist_all(&persister, &registry).await;
+
+        let mut restored = persister
+            .recover_registry(with_longer_contest(registry.cfg()))
+            .await
+            .unwrap();
+        let graph_idx = GraphIdx {
+            deposit: 0,
+            operator: TEST_POV_IDX,
+        };
+        let outcome = restored
+            .process_event(
+                &SMId::Graph(graph_idx),
+                GraphEvent::NagReceived(NagReceivedEvent {
+                    payload: NagRequestPayload::GraphData { graph_idx },
+                    sender_operator_idx: TEST_POV_IDX + 1,
+                })
+                .into(),
+            )
+            .unwrap();
+        let ProcessOutcome::Applied(output) = outcome else {
+            panic!("graph data nag must apply, got {outcome:?}");
+        };
+        let [UnifiedDuty::Graph(GraphDuty::GenerateGraphData { cfg, .. })] =
+            output.duties.as_slice()
+        else {
+            panic!(
+                "expected one GenerateGraphData duty, got {:?}",
+                output.duties
+            );
+        };
+        assert_eq!(cfg.0, registry.cfg().graph);
+        assert_ne!(cfg.0, restored.cfg().graph);
 
         drop(persister);
         drop(db);

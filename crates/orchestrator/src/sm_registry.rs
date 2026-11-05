@@ -681,12 +681,17 @@ impl SMRegistry {
                     .deposits
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
+                let cfg = self
+                    .deposit_configs
+                    .get(idx)
+                    .ok_or(ProcessError::SMNotFound(*id))?
+                    .deposit();
                 let event = SMEvent::Deposit(deposit_event.clone());
-                sm.process_event(self.cfg.deposit.clone(), *deposit_event)
+                sm.process_event(cfg.clone(), *deposit_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Deposit)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -697,12 +702,17 @@ impl SMRegistry {
                     .graphs
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
+                let cfg = self
+                    .deposit_configs
+                    .get(&idx.deposit)
+                    .ok_or(ProcessError::SMNotFound(SMId::Deposit(idx.deposit)))?
+                    .graph();
                 let event = SMEvent::Graph(graph_event.clone());
-                sm.process_event(self.cfg.graph.clone(), *graph_event)
+                sm.process_event(cfg.clone(), *graph_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Graph)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
