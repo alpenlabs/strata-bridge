@@ -5,6 +5,7 @@ use bitcoin::{
     Amount, OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
 };
+use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use btc_tracker::event::TxStatus;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
@@ -250,8 +251,9 @@ async fn ensure_claim_funding_outpoint(
 /// output that settled while this duty waited for the refill lock.
 ///
 /// The refill spends buried general-wallet inputs at the protocol fee rate, so a duty can reserve
-/// one of its outputs as soon as the refill transaction is in the node's mempool. The batch is the
-/// whole pool size: the reservation before the refill found no free settled member.
+/// one of its outputs as soon as the refill transaction is in the node's mempool; the claim itself
+/// publishes once the refill is in a block (see `funding_confirmed`). The batch is the whole
+/// pool size: the reservation before the refill found no free settled member.
 ///
 /// One refill runs at a time. The refill lock is held across signing and the wait for the mempool,
 /// so a second duty that finds the pool empty waits for this refill and then takes one of its
@@ -678,7 +680,65 @@ pub(super) async fn publish_graph_partials(
     Ok(())
 }
 
+/// Returns the output that a claim spends.
+///
+/// The reserved wallet lists the output while it is unspent. Once the claim is in a mempool, the
+/// wallet no longer offers the output, and a retry of this duty still signs: the node then
+/// supplies the output from the funding transaction.
+async fn claim_prevout(
+    output_handles: &OutputHandles,
+    claim_funding_outpoint: OutPoint,
+) -> Result<TxOut, ExecutorError> {
+    if let Some(utxo) = output_handles
+        .wallet
+        .read()
+        .await
+        .reserved_utxo(claim_funding_outpoint)
+    {
+        return Ok(TxOut::from(utxo));
+    }
+    let funding_tx = output_handles
+        .bitcoind_rpc_client
+        .get_raw_transaction_verbosity_zero(&claim_funding_outpoint.txid)
+        .await
+        .map_err(|e| {
+            warn!(%claim_funding_outpoint, ?e, "the claim funding output is not in the wallet");
+            ExecutorError::ClaimFundingOutPointMissing(claim_funding_outpoint)
+        })?
+        .0;
+    funding_tx
+        .output
+        .get(claim_funding_outpoint.vout as usize)
+        .cloned()
+        .ok_or(ExecutorError::ClaimFundingOutPointMissing(
+            claim_funding_outpoint,
+        ))
+}
+
+/// Whether a block holds the transaction that creates `claim_funding_outpoint`.
+///
+/// A claim is a v3 transaction, and an unconfirmed v3 transaction takes one child at most, so a
+/// claim on an unconfirmed refill would take the only child of the refill. A transaction the node
+/// does not know fails as a missing outpoint.
+async fn funding_confirmed(
+    bitcoind_rpc_client: &BitcoinClient,
+    claim_funding_outpoint: OutPoint,
+) -> Result<bool, ExecutorError> {
+    match chain::tx_confirmations(bitcoind_rpc_client, &claim_funding_outpoint.txid).await {
+        Ok(Some(depth)) => Ok(depth > 0),
+        Ok(None) => Err(ExecutorError::ClaimFundingOutPointMissing(
+            claim_funding_outpoint,
+        )),
+        Err(e) => Err(ExecutorError::BitcoinRpcErr(e)),
+    }
+}
+
 /// Publishes the claim transaction to Bitcoin.
+///
+/// The prevout comes from the reserved wallet, or from the node once a transaction spends the
+/// output and the wallet stops listing it: a retry after the claim reached a mempool must still
+/// sign. A claim waits for its funding transaction to confirm. Until then the duty returns without
+/// publishing, and the retry tick runs it again.
 pub(super) async fn publish_claim(
     output_handles: &OutputHandles,
     claim_tx: &ClaimTx,
@@ -691,20 +751,15 @@ pub(super) async fn publish_claim(
     );
 
     let claim_funding_outpoint = unsigned_claim_tx.input[0].previous_output;
-    let claim_prevout: TxOut = {
-        let wallet = output_handles.wallet.read().await;
-        wallet
-            .reserved_utxo(claim_funding_outpoint)
-            .ok_or_else(|| {
-                warn!(
-                    %claim_txid,
-                    %claim_funding_outpoint,
-                    "claim funding outpoint not found in wallet"
-                );
-                ExecutorError::ClaimFundingOutPointMissing(claim_funding_outpoint)
-            })?
-            .into()
-    };
+    let claim_prevout = claim_prevout(output_handles, claim_funding_outpoint).await?;
+    if !funding_confirmed(&output_handles.bitcoind_rpc_client, claim_funding_outpoint).await? {
+        info!(
+            %claim_txid,
+            %claim_funding_outpoint,
+            "waiting for the claim funding tx to confirm"
+        );
+        return Ok(());
+    }
 
     let prevouts = Prevouts::All(&[claim_prevout]);
 
@@ -775,6 +830,7 @@ mod tests {
         sighash::{Prevouts, SighashCache},
         transaction::{InputWeightPrediction, Version},
     };
+    use bitcoind_async_client::{Auth as RpcAuth, Client as BitcoinClient};
     use corepc_node::{Conf, Node};
     use operator_wallet::{
         FundingInput, GeneralCustody, LeaseOwner, OperatorWallet, OperatorWalletConfig,
@@ -784,7 +840,7 @@ mod tests {
     use strata_bridge_test_utils::bridge_fixtures::test_operator_table;
 
     use super::{
-        ExecutorError, chain, check_claim_funding, hold_stored_claim_funding,
+        ExecutorError, chain, check_claim_funding, funding_confirmed, hold_stored_claim_funding,
         reserve_synced_claim_funding, watchtower_idxs,
     };
 
@@ -1102,6 +1158,101 @@ mod tests {
                 .select_general_utxo(LeaseOwner::ClaimFundingRefill, Amount::ONE_SAT)
                 .is_none(),
             "an input that a mempool transaction spends is not offered again"
+        );
+    }
+
+    /// A claim on a refill that is not confirmed waits, a claim on a refill the node does not know
+    /// is missing its outpoint, and a claim whose funding output is spent must still pass, because
+    /// a retry signs after the claim reached a mempool.
+    #[tokio::test]
+    async fn a_claim_needs_a_confirmed_funding_tx_and_survives_its_spend() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind starts");
+        let cookie = bitcoind
+            .params
+            .get_cookie_values()
+            .expect("cookie file reads")
+            .expect("cookie file holds credentials");
+        let client = BitcoinClient::new(
+            bitcoind.rpc_url(),
+            RpcAuth::UserPass(cookie.user, cookie.password),
+            None,
+            None,
+            None,
+        )
+        .expect("rpc client");
+        let miner = bitcoind.client.new_address().expect("miner");
+        bitcoind
+            .client
+            .generate_to_address(101, &miner)
+            .expect("mature funds");
+        let address = bitcoind.client.new_address().expect("address");
+        let funding = bitcoind
+            .client
+            .send_to_address(&address, Amount::from_sat(100_000))
+            .expect("funding")
+            .txid()
+            .expect("txid");
+        let outpoint = OutPoint::new(funding, 0);
+
+        assert!(
+            matches!(funding_confirmed(&client, outpoint).await, Ok(false)),
+            "a funding tx in the mempool is not confirmed yet"
+        );
+        assert!(
+            matches!(
+                funding_confirmed(&client, OutPoint::new(Txid::all_zeros(), 0)).await,
+                Err(ExecutorError::ClaimFundingOutPointMissing(_))
+            ),
+            "a funding tx the node does not know is missing"
+        );
+
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm");
+        assert!(
+            funding_confirmed(&client, outpoint)
+                .await
+                .expect("a confirmed funding tx reads"),
+            "a confirmed funding tx passes"
+        );
+
+        bitcoind
+            .client
+            .call::<serde_json::Value>("sendall", &[serde_json::json!([miner.to_string()])])
+            .expect("spend every wallet output");
+        bitcoind
+            .client
+            .generate_to_address(1, &miner)
+            .expect("confirm the spend");
+        assert!(
+            funding_confirmed(&client, outpoint)
+                .await
+                .expect("a spent output does not change the funding tx"),
+            "the funding tx stays confirmed after the claim spends its output"
+        );
+    }
+
+    /// A failed read of the funding tx is no answer, so the claim waits for the next retry tick
+    /// rather than take the only child slot of a refill that may be unconfirmed.
+    #[tokio::test]
+    async fn a_failed_read_of_the_funding_tx_holds_the_claim() {
+        let unreachable = BitcoinClient::new(
+            "http://127.0.0.1:1".to_string(),
+            RpcAuth::UserPass("user".to_string(), "password".to_string()),
+            Some(1),
+            Some(0),
+            None,
+        )
+        .expect("rpc client");
+
+        let confirmed = funding_confirmed(&unreachable, OutPoint::new(Txid::all_zeros(), 0)).await;
+
+        assert!(
+            matches!(confirmed, Err(ExecutorError::BitcoinRpcErr(_))),
+            "an unread funding tx is not confirmed, got {confirmed:?}"
         );
     }
 

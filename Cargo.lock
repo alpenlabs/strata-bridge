@@ -12267,6 +12267,7 @@ dependencies = [
  "operator-wallet",
  "secret-service-client",
  "secret-service-proto",
+ "serde_json",
  "ssz",
  "strata-asm-proto-bridge",
  "strata-asm-proto-bridge-txs",
