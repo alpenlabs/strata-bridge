@@ -8,7 +8,7 @@ mod tests {
     use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 
     use crate::graph::{
-        duties::GraphDuty,
+        duties::{DutyConfig, GraphDuty},
         errors::GSMError,
         events::{GraphEvent, NagReceivedEvent},
         machine::generate_game_graph,
@@ -241,8 +241,9 @@ mod tests {
 
     #[test]
     fn test_nag_received_graph_data_in_created_emits_generate_graph_data() {
+        let cfg = test_graph_sm_cfg();
         test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
+            cfg.clone(),
             GraphHandlerOutput {
                 state: GraphState::Created {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -257,6 +258,7 @@ mod tests {
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
                     unstaking_image: test_graph_sm_ctx().unstaking_image(),
                     operator_table: test_graph_sm_ctx().operator_table().clone(),
+                    cfg: DutyConfig(cfg.clone()),
                 }],
             },
         );
@@ -264,8 +266,9 @@ mod tests {
 
     #[test]
     fn test_nag_received_graph_data_in_graph_generated_emits_generate_graph_data() {
+        let cfg = test_graph_sm_cfg();
         test_pov_owned_handler_output(
-            test_graph_sm_cfg(),
+            cfg.clone(),
             GraphHandlerOutput {
                 state: test_graph_generated_state(),
                 event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::GraphData {
@@ -278,6 +281,7 @@ mod tests {
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
                     unstaking_image: test_graph_sm_ctx().unstaking_image(),
                     operator_table: test_graph_sm_ctx().operator_table().clone(),
+                    cfg: DutyConfig(cfg.clone()),
                 }],
             },
         );
@@ -290,7 +294,7 @@ mod tests {
         let graph_summary = graph.summarize();
 
         test_pov_owned_handler_output(
-            cfg,
+            cfg.clone(),
             GraphHandlerOutput {
                 state: adaptors_verified_state(deposit_params, graph_summary),
                 event: GraphEvent::NagReceived(create_nag_event(NagRequestPayload::GraphData {
@@ -303,6 +307,7 @@ mod tests {
                     stake_outpoint: test_graph_sm_ctx().stake_outpoint(),
                     unstaking_image: test_graph_sm_ctx().unstaking_image(),
                     operator_table: test_graph_sm_ctx().operator_table().clone(),
+                    cfg: DutyConfig(cfg.clone()),
                 }],
             },
         );

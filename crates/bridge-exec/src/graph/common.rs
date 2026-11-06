@@ -22,7 +22,9 @@ use strata_bridge_primitives::{
     scripts::taproot::{TaprootTweak, TaprootWitness, create_message_hash},
     types::{GameIndex, GraphIdx, OperatorIdx},
 };
-use strata_bridge_sm::graph::{context::GraphSMCtx, machine::generate_game_graph};
+use strata_bridge_sm::graph::{
+    config::GraphSMCfg, context::GraphSMCtx, machine::generate_game_graph,
+};
 use strata_bridge_tx_graph::{
     fee,
     game_graph::{DepositParams, GameGraph},
@@ -44,6 +46,7 @@ use crate::{
 
 pub(super) async fn generate_graph_data(
     cfg: &ExecutionConfig,
+    graph_cfg: &GraphSMCfg,
     output_handles: &OutputHandles,
     ctx: &GraphSMCtx,
 ) -> Result<(), ExecutorError> {
@@ -61,7 +64,8 @@ pub(super) async fn generate_graph_data(
     let game_index = GameIndex::try_from(graph_idx.deposit)
         .expect("deposit index does not overflow when mapped to game index");
 
-    let funding_outpoint = ensure_claim_funding_outpoint(cfg, output_handles, ctx).await?;
+    let funding_outpoint =
+        ensure_claim_funding_outpoint(cfg, graph_cfg, output_handles, ctx).await?;
     info!(?graph_idx, %funding_outpoint, "funding outpoint acquired");
 
     let (adaptor_pubkeys, fault_pubkeys) = fetch_graph_keys(
@@ -95,7 +99,7 @@ pub(super) async fn generate_graph_data(
             .collect::<Result<_, _>>()
             .map_err(invalid_mosaic_key)?,
     };
-    let game_graph = generate_game_graph(&cfg.graph_sm_cfg, ctx, &deposit_params);
+    let game_graph = generate_game_graph(graph_cfg, ctx, &deposit_params);
     info!(?graph_idx, "game graph constructed");
 
     init_evaluator_with_peers(
@@ -168,12 +172,13 @@ fn check_claim_funding(
 /// if it holds exactly that amount.
 async fn ensure_claim_funding_outpoint(
     cfg: &ExecutionConfig,
+    graph_cfg: &GraphSMCfg,
     output_handles: &OutputHandles,
     ctx: &GraphSMCtx,
 ) -> Result<OutPoint, ExecutorError> {
     let covenant = ctx.covenant;
     let graph_idx = ctx.graph_idx();
-    let value = ctx.claim_funding_value(&cfg.graph_sm_cfg);
+    let value = ctx.claim_funding_value(graph_cfg);
     if let Ok(Some(reservation)) = output_handles
         .db
         .get_claim_funding_reservation(covenant, graph_idx)

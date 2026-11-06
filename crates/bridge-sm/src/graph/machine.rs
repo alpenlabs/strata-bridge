@@ -18,7 +18,7 @@ use crate::{
     graph::{
         config::GraphSMCfg,
         context::GraphSMCtx,
-        duties::GraphDuty,
+        duties::{DutyConfig, GraphDuty},
         errors::{GSMError, GSMResult},
         events::GraphEvent,
         state::GraphState,
@@ -124,7 +124,11 @@ impl GraphSM {
     ///
     /// The state machine starts in [`GraphState::Created`] by constructing the
     /// initial [`GraphState`] via [`GraphState::new`].
-    pub fn new(context: GraphSMCtx, block_height: BitcoinBlockHeight) -> (Self, Option<GraphDuty>) {
+    pub fn new(
+        cfg: &Arc<GraphSMCfg>,
+        context: GraphSMCtx,
+        block_height: BitcoinBlockHeight,
+    ) -> (Self, Option<GraphDuty>) {
         let sm = Self {
             context,
             state: GraphState::new(block_height),
@@ -138,6 +142,7 @@ impl GraphSM {
             stake_outpoint: sm.context().stake_outpoint(),
             unstaking_image: sm.context().unstaking_image(),
             operator_table: sm.context().operator_table().clone(),
+            cfg: DutyConfig(cfg.clone()),
         });
 
         (sm, duty)
@@ -207,7 +212,7 @@ impl GraphSM {
     #[expect(clippy::too_many_arguments)]
     pub(super) fn potential_counterproof_duty(
         &self,
-        cfg: &GraphSMCfg,
+        cfg: &Arc<GraphSMCfg>,
         graph_data: &DepositParams,
         signatures: &[Signature],
         last_block_height: BitcoinBlockHeight,
@@ -245,6 +250,7 @@ impl GraphSM {
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
             operator_table: self.context().operator_table().clone(),
+            cfg: DutyConfig(cfg.clone()),
         })
     }
 }

@@ -56,6 +56,14 @@ pub struct Directories {
     /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     pub stakes: DirectorySubspace,
 
+    /// Subspace for storing state machine configs, keyed by the hash of their stored bytes.
+    pub configs: DirectorySubspace,
+
+    /// Subspace for storing which config each deposit is pinned to, keyed by `DepositIdx`.
+    ///
+    /// Kept beside the deposit row rather than inside it so the Deposit SM encoding is unchanged.
+    pub deposit_configs: DirectorySubspace,
+
     /// Subspace for storing claim-funding reservations, keyed by covenant and graph.
     pub claim_funding_reservations: DirectorySubspace,
 
@@ -90,6 +98,8 @@ impl Directories {
         let deposits = open_subdir(&root, txn, SubSpaceId::Deposits).await?;
         let graphs = open_subdir(&root, txn, SubSpaceId::Graphs).await?;
         let stakes = open_subdir(&root, txn, SubSpaceId::Stakes).await?;
+        let configs = open_subdir(&root, txn, SubSpaceId::Configs).await?;
+        let deposit_configs = open_subdir(&root, txn, SubSpaceId::DepositConfigs).await?;
         let claim_funding_reservations =
             open_subdir(&root, txn, SubSpaceId::ClaimFundingReservations).await?;
         let stake_funding_reservations =
@@ -105,6 +115,8 @@ impl Directories {
             deposits,
             graphs,
             stakes,
+            configs,
+            deposit_configs,
             claim_funding_reservations,
             stake_funding_reservations,
             fulfillment_funds: withdrawal_funding_outpoints,
@@ -148,6 +160,10 @@ pub enum SubSpaceId {
     Graphs,
     /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
     Stakes,
+    /// Subspace for storing state machine configs, keyed by content hash.
+    Configs,
+    /// Subspace for storing each deposit's config reference, keyed by `DepositIdx`.
+    DepositConfigs,
     /// Subspace for storing claim-funding reservations, keyed by covenant and graph.
     ClaimFundingReservations,
     /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
@@ -168,6 +184,8 @@ impl From<SubSpaceId> for &'static str {
             SubSpaceId::Deposits => "deposits",
             SubSpaceId::Graphs => "graphs",
             SubSpaceId::Stakes => "stakes",
+            SubSpaceId::Configs => "configs",
+            SubSpaceId::DepositConfigs => "deposit_configs",
             SubSpaceId::ClaimFundingReservations => "claim_funding_reservations",
             SubSpaceId::StakeFundingReservations => "stake_funding_reservations",
             SubSpaceId::FulfillmentFunds => "fulfillment_funds",

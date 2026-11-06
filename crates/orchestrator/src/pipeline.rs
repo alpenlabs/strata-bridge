@@ -2160,7 +2160,15 @@ mod stake_initialization_tests {
                     .unwrap();
                 peer.insert_graph(id, graph).unwrap();
             }
-            let nags = apply_routed(&mut peer, UnifiedEvent::NagTick).duties;
+            // Graphs run under their deposit's pinned config, so the peer holds the deposits too.
+            for (&id, deposit) in restored.deposits() {
+                peer.insert_deposit(id, deposit.clone()).unwrap();
+            }
+            let nags: Vec<_> = apply_routed(&mut peer, UnifiedEvent::NagTick)
+                .duties
+                .into_iter()
+                .filter(|duty| matches!(duty, UnifiedDuty::Graph(_)))
+                .collect();
             assert_eq!(
                 nags.len(),
                 4,

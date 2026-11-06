@@ -45,6 +45,8 @@ mod tests {
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc,
                 deposit_amount: TEST_DEPOSIT_AMOUNT,
+                operator_fee: TEST_OPERATOR_FEE,
+                magic_bytes: TEST_MAGIC_BYTES.into(),
             }],
         });
     }
