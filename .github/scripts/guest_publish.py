@@ -14,8 +14,12 @@ Subcommands:
     summarize   Verify built artifacts, write the bridge manifest, and append a
                 traceability block to $GITHUB_STEP_SUMMARY.
     upload      Copy the bridge guests (+vkeys) to
-                s3://<bucket>/<prefix>/bridge/<env>-<version>/, each with a
-                `<name>.sha256` sidecar in `sha256sum -c` format.
+                s3://<bucket>/<prefix>/bridge/<version>/, each with a
+                `<name>.sha256` sidecar in `sha256sum -c` format. Every object
+                is written create-only: an existing key fails the run.
+
+<version> is `<env>-<genesis>-<bridge_sha8>-<YYYYMMDDTHHMMSSZ>`, fixed once by
+`summarize` and stored in manifest.json; the circuit job reads it from there.
 
 Each subcommand reads its inputs from environment variables documented on the
 per-command function. Shared helpers live in ci_common.py.
@@ -32,9 +36,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from ci_common import (
-    VERSION_RE,
     fail,
     genesis_l1_height,
+    manifest_version,
+    publish_timestamp,
+    publish_version,
+    require_conditional_put,
+    s3_put_new,
     set_outputs,
     sha256_hex,
     validate_env,
@@ -101,6 +109,9 @@ def cmd_validate() -> None:
             fail("ref must not contain whitespace")
         if not REF_RE.fullmatch(ref):
             fail("ref contains unsupported characters")
+
+    # The create-only upload runs after the ~90-minute build; check the CLI now.
+    require_conditional_put()
 
 
 # ---- fetch -----------------------------------------------------------------
@@ -277,10 +288,10 @@ def cmd_summarize() -> None:
     counter_vkey_hex = (elf_dir / "counterproof-vkey.bin").read_bytes().hex()
     digests = {name: sha256_hex(elf_dir / name) for name in EXPECTED_ARTIFACTS}
 
-    # The manifest carries env + genesis + run id so `upload` and the circuit job both
-    # derive `<env>-<genesis>-<bridge_sha8>` from one source of truth.
     asm_params = json.loads((inputs_dir / "asm-params.json").read_text())
     genesis = genesis_l1_height(asm_params)
+    published_at = publish_timestamp()
+    version = publish_version(env, genesis, bridge_sha[:8], published_at)
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     guests = json.loads((inputs_dir / GUESTS_FILE).read_text())
 
@@ -294,8 +305,10 @@ def cmd_summarize() -> None:
     input_digests = {name: sha256_hex(elf_dir / name) for name in BUNDLED_INPUTS}
 
     manifest = {
-        "schema": 4,
+        "schema": 5,
         "env": env,
+        "version": version,
+        "published_at": published_at,
         "guests": guests,
         "asm_params_url": asm_params_url,
         "asm_genesis_l1_height": genesis,
@@ -320,6 +333,7 @@ def cmd_summarize() -> None:
         "## SP1 bridge guest publish",
         "",
         f"- env: `{env}`",
+        f"- version: `{version}`",
         *(
             f"- {name}.elf: `{g['elf_sha256']}` ({g['repo']} `{g['tag']}` @ `{g['rev']}`)"
             for name, g in guests.items()
@@ -357,6 +371,7 @@ def cmd_summarize() -> None:
 
 # ---- upload ----------------------------------------------------------------
 
+# manifest.json goes last: its presence marks a tree that finished uploading.
 BRIDGE_UPLOAD_FILES = (
     "bridge-proof.elf",
     "counterproof.elf",
@@ -369,22 +384,14 @@ BRIDGE_UPLOAD_FILES = (
 NO_SIDECAR = frozenset({"manifest.json"})
 
 
-def s3_cp(src: Path, dst: str) -> None:
-    """Copy a single non-empty file to S3, failing fast if it's missing/empty."""
-    if not src.is_file() or src.stat().st_size == 0:
-        fail(f"expected upload artifact missing or empty: {src}")
-    print(f"uploading {src} -> {dst}")
-    subprocess.run(["aws", "s3", "cp", str(src), dst], check=True)
-
-
 def upload_tree(
     names: tuple[str, ...], src_dir: Path, base: str, digests: dict[str, str]
 ) -> list[str]:
-    """Upload each of `names` from `src_dir` to `<base>/<name>`, following every
+    """Create each of `names` from `src_dir` at `<base>/<name>`, following every
     non-manifest object with its `<name>.sha256` sidecar.
 
     Digests come from the manifest `summarize` already wrote, so a sidecar can
-    never disagree with the manifest that sits next to it.
+    never disagree with the manifest beside it.
     """
     # Resolve every digest up front: a missing one means summarize and upload
     # disagree about what was built, and failing mid-loop would half-publish the tree.
@@ -395,12 +402,12 @@ def upload_tree(
     uris: list[str] = []
     for name in names:
         dst = f"{base}/{name}"
-        s3_cp(src_dir / name, dst)
+        s3_put_new(src_dir / name, dst)
         uris.append(dst)
         if name in NO_SIDECAR:
             continue
         sidecar = write_sha256_sidecar(digests[name], name, src_dir)
-        s3_cp(sidecar, f"{dst}.sha256")
+        s3_put_new(sidecar, f"{dst}.sha256")
         uris.append(f"{dst}.sha256")
     return uris
 
@@ -409,28 +416,18 @@ def cmd_upload() -> None:
     """Env: ELF_DIR, S3_BUCKET, S3_PREFIX (default elfs), GITHUB_OUTPUT,
     GITHUB_STEP_SUMMARY.
 
-    Uploads <prefix>/bridge/<env>-<genesis>-<bridge_sha8>/ (built guests + vkeys +
-    manifest), each ELF/vkey followed by its `<name>.sha256` sidecar. The asm and
-    moho ELFs are not republished; their releases are the source of truth.
+    Uploads <prefix>/bridge/<version>/ (built guests + vkeys + manifest), each
+    ELF/vkey followed by its `<name>.sha256` sidecar. The asm and moho ELFs are
+    not republished; their releases are the source of truth.
     """
     elf_dir = Path(os.environ["ELF_DIR"])
     bucket = os.environ["S3_BUCKET"]
     prefix = os.environ.get("S3_PREFIX", "elfs")
 
-    # bridge tree — version from the manifest summarize wrote (single source of truth).
     manifest = json.loads((elf_dir / "manifest.json").read_text())
-    genesis = manifest.get("asm_genesis_l1_height")
-    bridge_sha = (manifest.get("strata_bridge") or {}).get("sha", "")[:8]
-    if genesis is None or not bridge_sha:
-        fail("manifest.json missing asm_genesis_l1_height or strata_bridge.sha")
-    # Read env back from the manifest rather than the environment, so the published
-    # key can only ever be the one summarize recorded.
-    env = validate_env(manifest.get("env", ""))
-    bridge_version = f"{env}-{genesis}-{bridge_sha}"
-    if not VERSION_RE.fullmatch(bridge_version):
-        fail(f"bridge version is not S3-key-safe: {bridge_version!r}")
-
-    bridge_base = f"s3://{bucket}/{prefix}/bridge/{bridge_version}"
+    bridge_version = manifest_version(manifest)
+    bridge_key_prefix = f"{prefix}/bridge/{bridge_version}"
+    bridge_base = f"s3://{bucket}/{bridge_key_prefix}"
 
     uris = upload_tree(
         BRIDGE_UPLOAD_FILES, elf_dir, bridge_base, manifest.get("sha256") or {}
@@ -448,6 +445,13 @@ def cmd_upload() -> None:
         f"- bridge: `{bridge_base}/`",
         "",
         *(f"- `{uri}`" for uri in uris),
+        "",
+        "### Deployment pins",
+        "",
+        "```yaml",
+        f"bucket: {bucket}",
+        f"prefix: {bridge_key_prefix}",
+        "```",
         "",
     ]
     with summary_path.open("a", encoding="utf-8") as f:

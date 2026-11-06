@@ -122,6 +122,8 @@ jobs:
         if: always()
         env:
           S3_URI: ${{ steps.upload.outputs.s3_uri }}
+          S3_BUCKET: ${{ env.S3_BUCKET }}
+          S3_PREFIX: ${{ env.S3_PREFIX }}
           VERSION: ${{ steps.version.outputs.version }}
           DEPLOY_ENV: ${{ steps.version.outputs.env }}
           PUBLISH_RUN_ID: ${{ github.run_id }}

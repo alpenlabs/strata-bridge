@@ -3,7 +3,7 @@
 
 Drives the g16 boolean-circuit generation that runs *after* the "Publish SP1
 Bridge Guests" guest build in the same pipeline run: it validates disk and
-tooling, derives the S3 version string from the guest-build artifact, uploads
+tooling, reads the S3 version string from the guest-build artifact, uploads
 the (~142 GB) `v5c.ckt` to S3, and writes a traceability summary.
 
 Pure-stdlib so it runs on any runner without an install step, mirroring
@@ -12,10 +12,18 @@ its inputs from environment variables documented on the per-command function.
 
 Subcommands:
     preflight   Check free disk on the runs-dir mount and required CLIs.
-    version     Validate the vkey and derive `<env>-<genesis_l1_height>-<bridge_sha8>`.
-    upload      Copy `v5c.ckt` to s3://<bucket>/<prefix>/<version>/g16.v5c, plus a
-                `g16.v5c.sha256` sidecar in `sha256sum -c` format.
+    version     Validate the vkey and read the publish version from the guest
+                manifest (`<env>-<genesis>-<bridge_sha8>-<YYYYMMDDTHHMMSSZ>`).
+    upload      Claim s3://<bucket>/<prefix>/<version>/, then copy `v5c.ckt` to
+                `<version>/g16.v5c`, plus a `g16.v5c.sha256` sidecar in
+                `sha256sum -c` format.
     summarize   Append a traceability block to $GITHUB_STEP_SUMMARY.
+
+No-overwrite: `aws s3 cp` can't make its multipart upload create-only, so
+`upload` first creates `<version>/publish-claim.json` create-only. Whichever run
+creates it owns the prefix; any other run fails before uploading. A "re-run
+failed jobs" of the owning run may continue only while `g16.v5c` is provably
+absent; otherwise re-run the whole pipeline, which mints a new version.
 """
 
 import argparse
@@ -29,9 +37,14 @@ from ci_common import (
     VERSION_RE,
     fail,
     genesis_l1_height,
+    manifest_version,
+    require_conditional_put,
+    s3_object_exists,
+    s3_put_new,
+    s3_read_json,
+    s3_try_put_new,
     set_outputs,
     sha256_hex,
-    validate_env,
     write_sha256_sidecar,
 )
 
@@ -41,6 +54,8 @@ ASM_PARAMS_NAME = "asm-params.json"
 VKEY_LEN = 32
 # The circuit is `v5c.ckt` on disk but ships under this name in S3.
 S3_CIRCUIT_NAME = "g16.v5c"
+# Created create-only before the circuit upload; whoever creates it owns the prefix.
+CLAIM_NAME = "publish-claim.json"
 
 
 # ---- preflight -------------------------------------------------------------
@@ -74,6 +89,7 @@ def cmd_preflight() -> None:
     missing = [c for c in REQUIRED_CLIS if shutil.which(c) is None]
     if missing:
         fail(f"required CLI(s) not found on PATH: {', '.join(missing)}")
+    require_conditional_put()
 
 
 # ---- version ---------------------------------------------------------------
@@ -91,8 +107,8 @@ def _find_one(root: Path, name: str) -> Path:
 def cmd_version() -> None:
     """Env: ARTIFACT_DIR, GITHUB_OUTPUT.
 
-    Validate the counterproof vkey and derive the S3 version string (and env) from
-    the publish run's bundled manifest + asm-params.
+    Validate the counterproof vkey and read the S3 version (and env) from the
+    publish run's bundled manifest, so the circuit shares the guest tree's suffix.
     """
     artifact_dir = Path(os.environ["ARTIFACT_DIR"])
     if not artifact_dir.is_dir():
@@ -106,25 +122,21 @@ def cmd_version() -> None:
         )
 
     manifest = json.loads(_find_one(artifact_dir, MANIFEST_NAME).read_text())
-    bridge_sha_full = (manifest.get("strata_bridge") or {}).get("sha", "")
-    bridge_sha = bridge_sha_full[:8]
-    if not bridge_sha:
-        fail("manifest.json missing strata_bridge.sha")
-    # Taken from the same manifest as bridge_sha, so the circuit's key can never name a
-    # different env than the bridge tree it was generated from.
-    env = validate_env(manifest.get("env", ""))
+    version = manifest_version(manifest)
+    genesis = manifest["asm_genesis_l1_height"]
 
     asm_params = json.loads(_find_one(artifact_dir, ASM_PARAMS_NAME).read_text())
-    genesis = genesis_l1_height(asm_params)
-
-    version = f"{env}-{genesis}-{bridge_sha}"
-    if not VERSION_RE.fullmatch(version):
-        fail(f"derived version is not S3-key-safe: {version!r}")
+    params_genesis = genesis_l1_height(asm_params)
+    if params_genesis != genesis:
+        fail(
+            f"{ASM_PARAMS_NAME} genesis_l1_height {params_genesis} "
+            f"does not match manifest {genesis}"
+        )
 
     set_outputs(
         version=version,
-        env=env,
-        bridge_sha=bridge_sha,
+        env=manifest["env"],
+        bridge_sha=manifest["strata_bridge"]["sha"][:8],
         genesis_l1_height=str(genesis),
         vkey_sha256=sha256_hex(vkey_path),
         vkey_path=str(vkey_path),
@@ -132,6 +144,24 @@ def cmd_version() -> None:
 
 
 # ---- upload ----------------------------------------------------------------
+
+
+def _resume_own_claim(claim_uri: str, circuit_uri: str, run_id: str) -> None:
+    """Let a "re-run failed jobs" of the claiming run continue, but only while the
+    circuit is provably absent; fail otherwise."""
+    owner = (s3_read_json(claim_uri) or {}).get("run_id")
+    if not run_id or owner != run_id:
+        fail(
+            f"{claim_uri} is held by run {owner or '(unreadable)'}; "
+            "re-run the whole pipeline for a new version"
+        )
+    exists = s3_object_exists(circuit_uri)
+    if exists is not False:
+        state = "already exists" if exists else "may exist (S3 would not say)"
+        fail(
+            f"{circuit_uri} {state}; refusing to overwrite. Re-run the whole pipeline."
+        )
+    print(f"resuming run {run_id}'s claim at {claim_uri}; {circuit_uri} is absent")
 
 
 def _locate_v5c(runs_dir: Path) -> Path:
@@ -147,12 +177,15 @@ def _locate_v5c(runs_dir: Path) -> Path:
 
 def cmd_upload() -> None:
     """Env: RUNS_DIR, VERSION, S3_BUCKET, S3_PREFIX (default mosaic-circuits),
-    MULTIPART_CHUNKSIZE (default 64MB), GITHUB_OUTPUT."""
+    MULTIPART_CHUNKSIZE (default 64MB), GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
+    GITHUB_OUTPUT."""
     runs_dir = Path(os.environ["RUNS_DIR"])
     version = os.environ["VERSION"]
     bucket = os.environ["S3_BUCKET"]
     prefix = os.environ.get("S3_PREFIX", "mosaic-circuits")
     chunk = os.environ.get("MULTIPART_CHUNKSIZE", "64MB")
+    run_id = os.environ.get("GITHUB_RUN_ID", "")
+    run_attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "")
 
     if not VERSION_RE.fullmatch(version):
         fail(f"version is not S3-key-safe: {version!r}")
@@ -162,7 +195,17 @@ def cmd_upload() -> None:
     if size_bytes == 0:
         fail(f"v5c.ckt is empty: {v5c}")
 
-    s3_uri = f"s3://{bucket}/{prefix}/{version}/{S3_CIRCUIT_NAME}"
+    s3_base = f"s3://{bucket}/{prefix}/{version}"
+    s3_uri = f"{s3_base}/{S3_CIRCUIT_NAME}"
+    claim_uri = f"{s3_base}/{CLAIM_NAME}"
+
+    # Claim the prefix before hours of hashing and transfer; if another run holds
+    # it, stop now with its objects untouched.
+    claim = {"version": version, "run_id": run_id, "run_attempt": run_attempt}
+    claim_path = v5c.parent / CLAIM_NAME
+    claim_path.write_text(json.dumps(claim, indent=2) + "\n", encoding="utf-8")
+    if not s3_try_put_new(claim_path, claim_uri):
+        _resume_own_claim(claim_uri, s3_uri, run_id)
 
     # Hash before the transfer so a read error surfaces before we push 142 GB.
     # The pass is disk-bound and silent for minutes; announce it or the log looks hung.
@@ -181,8 +224,7 @@ def cmd_upload() -> None:
 
     # Sidecar last, so its presence marks a circuit that finished uploading.
     sidecar = write_sha256_sidecar(digest, S3_CIRCUIT_NAME, v5c.parent)
-    print(f"uploading {sidecar} -> {s3_uri}.sha256")
-    subprocess.run(["aws", "s3", "cp", str(sidecar), f"{s3_uri}.sha256"], check=True)
+    s3_put_new(sidecar, f"{s3_uri}.sha256")
 
     set_outputs(
         s3_uri=s3_uri, circuit_size_bytes=str(size_bytes), circuit_sha256=digest
@@ -193,9 +235,9 @@ def cmd_upload() -> None:
 
 
 def cmd_summarize() -> None:
-    """Env: VERSION, DEPLOY_ENV, S3_URI, PUBLISH_RUN_ID, G16_REF, VKEY_SHA256,
-    CIRCUIT_SHA256, GENESIS_L1_HEIGHT, BRIDGE_SHA, CIRCUIT_SIZE_BYTES,
-    GITHUB_STEP_SUMMARY.
+    """Env: VERSION, DEPLOY_ENV, S3_URI, S3_BUCKET, S3_PREFIX, PUBLISH_RUN_ID,
+    G16_REF, VKEY_SHA256, CIRCUIT_SHA256, GENESIS_L1_HEIGHT, BRIDGE_SHA,
+    CIRCUIT_SIZE_BYTES, GITHUB_STEP_SUMMARY.
 
     Runs with `if: always()`, so upstream step outputs may be empty on failure.
     """
@@ -231,6 +273,21 @@ def cmd_summarize() -> None:
         f"- counterproof vkey sha256: `{vkey_sha256}`",
         "",
     ]
+    # Only once the circuit is fully uploaded: a pin to a partial prefix would fail
+    # the chart's sidecar check at deploy time.
+    if s3_uri:
+        bucket = os.environ.get("S3_BUCKET", "")
+        prefix = os.environ.get("S3_PREFIX", "mosaic-circuits")
+        lines += [
+            "### Deployment pins",
+            "",
+            "```yaml",
+            f"bucket: {bucket}",
+            f"prefix: {prefix}/{version}",
+            f"fileName: {S3_CIRCUIT_NAME}",
+            "```",
+            "",
+        ]
 
     summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
     with summary_path.open("a", encoding="utf-8") as f:
