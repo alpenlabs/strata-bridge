@@ -34,6 +34,7 @@
 
 pub mod address;
 pub mod derive;
+pub mod key_agg;
 mod keys;
 
 // Internal module - paths are obscured to prevent direct usage and ensure consistency

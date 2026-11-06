@@ -2,9 +2,9 @@
 
 use bitcoin::{Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, PublicKey, XOnlyPublicKey};
-use strata_bridge_primitives::{
-    key_agg::derive_musig_0_0,
-    scripts::{prelude::threshold_multisig_script, taproot::TaprootTweak},
+use strata_bridge_key_deriv::key_agg::derive_musig_0_0;
+use strata_bridge_primitives::scripts::{
+    prelude::threshold_multisig_script, taproot::TaprootTweak,
 };
 
 use crate::{Connector, TaprootWitness};

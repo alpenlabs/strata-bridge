@@ -25,6 +25,7 @@ use bitcoin::{
     Address, Amount, Network, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxOut,
 };
 use secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
+use strata_bridge_key_deriv::key_agg::derive_musig_0_0;
 use strata_bridge_primitives::scripts::{
     prelude::{
         create_key_spend_hash, create_script_spend_hash, create_taproot_addr, finalize_input,
@@ -384,10 +385,9 @@ impl SigningInfo {
                 .to_keypair()
                 .sign_schnorr(self.sighash),
             TaprootTweak::Bip328Key { tweak } => {
-                let derivation_tweak =
-                    strata_bridge_primitives::key_agg::derive_musig_0_0(keypair.public_key())
-                        .expect("valid aggregate derivation")
-                        .1;
+                let derivation_tweak = derive_musig_0_0(keypair.public_key())
+                    .expect("valid aggregate derivation")
+                    .1;
                 let secret = match derivation_tweak.not_zero() {
                     Ok(tweak) => keypair
                         .secret_key()
