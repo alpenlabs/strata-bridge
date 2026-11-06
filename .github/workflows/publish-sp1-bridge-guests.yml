@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       env:
-        description: Deployment environment. Prefixes the S3 version segment, keeping each env's artifacts distinct.
+        description: Deployment environment. Prefixes the S3 version `<env>-<genesis>-<sha8>-<UTC timestamp>`; every run publishes to a fresh, never-overwritten path.
         required: true
         type: choice
         options:
