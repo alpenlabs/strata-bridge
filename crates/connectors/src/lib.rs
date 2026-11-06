@@ -22,10 +22,10 @@ use bitcoin::{
     script,
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
-    Address, Amount, Network, OutPoint, ScriptBuf, Sequence, TapNodeHash, TapSighashType,
-    Transaction, TxOut,
+    Address, Amount, Network, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxOut,
 };
 use secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
+use strata_bridge_key_deriv::key_agg::derive_musig_0_0;
 use strata_bridge_primitives::scripts::{
     prelude::{
         create_key_spend_hash, create_script_spend_hash, create_taproot_addr, finalize_input,
@@ -47,7 +47,12 @@ pub trait Connector {
 
     /// Returns the internal key of the connector.
     ///
-    /// The key will be unspendable for connectors without a key path spend.
+    /// The key is unspendable for connectors without a key path spend.
+    ///
+    /// ## Note to Implementors
+    ///
+    /// If your connector uses a BIP-328 child of a signing key as internal key,
+    /// then this method must return the child (not the signing key).
     fn internal_key(&self) -> XOnlyPublicKey {
         *UNSPENDABLE_PUBLIC_KEY
     }
@@ -141,11 +146,11 @@ pub trait Connector {
         .1
     }
 
-    /// Returns the tap tweak that transforms the internal key into the output key.
-    ///
-    /// The tap tweak is equal to the merkle root of the tap tree.
-    fn tweak(&self) -> Option<TapNodeHash> {
-        self.spend_info().merkle_root()
+    /// Returns the signing tweak for a key-path spend of this connector.
+    fn tweak(&self) -> TaprootTweak {
+        TaprootTweak::Key {
+            tweak: self.spend_info().merkle_root(),
+        }
     }
 
     /// Returns the sequence number for the given spend path.
@@ -179,9 +184,7 @@ pub trait Connector {
         .expect("should be able to compute the sighash");
 
         let tweak = if leaf_index.is_none() {
-            TaprootTweak::Key {
-                tweak: self.tweak(),
-            }
+            self.tweak()
         } else {
             TaprootTweak::Script
         };
@@ -210,9 +213,7 @@ pub trait Connector {
         .expect("should be able to compute the sighash");
 
         let tweak = if leaf_index.is_none() {
-            TaprootTweak::Key {
-                tweak: self.tweak(),
-            }
+            self.tweak()
         } else {
             TaprootTweak::Script
         };
@@ -383,6 +384,22 @@ impl SigningInfo {
                 .tap_tweak(SECP256K1, tweak)
                 .to_keypair()
                 .sign_schnorr(self.sighash),
+            TaprootTweak::Bip328Key { tweak } => {
+                let derivation_tweak = derive_musig_0_0(keypair.public_key())
+                    .expect("valid aggregate derivation")
+                    .1;
+                let secret = match derivation_tweak.not_zero() {
+                    Ok(tweak) => keypair
+                        .secret_key()
+                        .add_tweak(&tweak.into())
+                        .expect("valid child secret"),
+                    Err(_) => keypair.secret_key(),
+                };
+                Keypair::from_secret_key(SECP256K1, &secret)
+                    .tap_tweak(SECP256K1, tweak)
+                    .to_keypair()
+                    .sign_schnorr(self.sighash)
+            }
             TaprootTweak::Script => keypair.sign_schnorr(self.sighash),
         }
     }
