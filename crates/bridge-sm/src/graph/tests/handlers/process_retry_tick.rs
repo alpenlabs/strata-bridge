@@ -30,18 +30,20 @@ mod tests {
                 FULFILLMENT_BLOCK_HEIGHT, GraphHandlerOutput, INITIAL_BLOCK_HEIGHT,
                 LATER_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_DEPOSIT_IDX,
                 TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm, dummy_proof_receipt,
-                expected_potential_counterproof_duty, mock_game_signatures,
+                expected_bridge_proof_duty_at, expected_potential_counterproof_duty,
+                mock_game_signatures,
                 mock_states::{
                     assigned_state, bridge_proof_posted_state, bridge_proof_posted_state_with,
-                    claimed_state, contested_state, counter_proof_posted_state,
-                    counter_proof_posted_state_with, counter_proof_posted_state_with_signatures,
+                    claimed_state, contested_state, contested_state_with_heights,
+                    counter_proof_posted_state, counter_proof_posted_state_with,
+                    counter_proof_posted_state_with_signatures,
                     counter_proof_posted_without_refuted_proof_state, faulty_claimed_state,
                     graph_signed_state, terminal_states, test_graph_generated_state,
-                    test_nonce_context,
+                    test_nonce_context, with_counter_proof_posted_heights,
                 },
-                test_deposit_params, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary,
-                test_nonpov_owned_handler_output, test_operator_table,
-                test_pov_owned_handler_output, test_recipient_desc,
+                test_deposit_params, test_graph_sm_cfg, test_graph_sm_cfg_with_delay,
+                test_graph_sm_ctx, test_graph_summary, test_nonpov_owned_handler_output,
+                test_operator_table, test_pov_owned_handler_output, test_recipient_desc,
             },
             watchtower::watchtower_slot_for_operator,
         },
@@ -134,8 +136,42 @@ mod tests {
     fn test_retry_tick_emits_bridge_proof_in_contested_for_pov_graph() {
         let cfg = test_graph_sm_cfg();
         let state = contested_state();
-        let sm = create_sm(state.clone());
-        let expected_duty = expected_bridge_proof_duty(&cfg, &sm, &state);
+        let expected_duty = expected_bridge_proof_duty(&cfg, &state);
+
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    // (graph owner: PoV, delay not elapsed) -> []
+    #[test]
+    fn test_retry_tick_noop_in_contested_before_delay() {
+        test_pov_owned_handler_output(
+            test_graph_sm_cfg_with_delay(3),
+            GraphHandlerOutput {
+                state: contested_state_with_heights(
+                    LATER_BLOCK_HEIGHT + 2,
+                    LATER_BLOCK_HEIGHT,
+                    vec![],
+                ),
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![],
+            },
+        );
+    }
+
+    // (graph owner: PoV, delay elapsed) -> [bridge_proof] anchored at the current tip
+    #[test]
+    fn test_retry_tick_emits_bridge_proof_in_contested_after_delay() {
+        let cfg = test_graph_sm_cfg_with_delay(3);
+        let state =
+            contested_state_with_heights(LATER_BLOCK_HEIGHT + 3, LATER_BLOCK_HEIGHT, vec![]);
+        let expected_duty = expected_bridge_proof_duty(&cfg, &state);
 
         test_pov_owned_handler_output(
             cfg,
@@ -557,39 +593,22 @@ mod tests {
     //   Some, invalid,  no              -> [counterproof]
     //   Some, invalid,  yes             -> []
 
+    /// The bridge proof duty for `state`, anchored at its `last_block_height`.
     fn expected_bridge_proof_duty(
         cfg: &Arc<crate::graph::config::GraphSMCfg>,
-        sm: &GraphSM,
         state: &GraphState,
     ) -> GraphDuty {
-        let (last_block_height, graph_data, graph_summary) = match state {
-            GraphState::Contested {
-                last_block_height,
-                graph_data,
-                graph_summary,
-                ..
-            }
-            | GraphState::CounterProofPosted {
-                last_block_height,
-                graph_data,
-                graph_summary,
-                ..
-            } => (*last_block_height, graph_data, graph_summary),
-            _ => panic!("expected Contested or CounterProofPosted state"),
+        let (GraphState::Contested {
+            last_block_height, ..
+        }
+        | GraphState::CounterProofPosted {
+            last_block_height, ..
+        }) = state
+        else {
+            panic!("expected Contested or CounterProofPosted state");
         };
 
-        let setup_params = sm.context().generate_setup_params(cfg, graph_data);
-        let connectors =
-            GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
-
-        GraphDuty::GenerateAndPublishBridgeProof {
-            graph_idx: sm.context().graph_idx(),
-            last_block_height,
-            contest_txid: graph_summary.contest,
-            game_index: graph_data.game_index,
-            contest_proof_connector: connectors.contest_proof,
-            operator_pubkey: sm.context().owner_btc_x_only_key(),
-        }
+        expected_bridge_proof_duty_at(cfg, *last_block_height)
     }
 
     fn expected_counterproof_duty(
@@ -675,8 +694,7 @@ mod tests {
      {
         let cfg = test_graph_sm_cfg();
         let state = counter_proof_posted_without_refuted_proof_state();
-        let sm = create_sm(state.clone());
-        let expected_duty = expected_bridge_proof_duty(&cfg, &sm, &state);
+        let expected_duty = expected_bridge_proof_duty(&cfg, &state);
 
         test_pov_owned_handler_output(
             cfg,
@@ -695,7 +713,7 @@ mod tests {
         let state = counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX], &[]);
         let sm = create_sm(state.clone());
         let expected_duties = vec![
-            expected_bridge_proof_duty(&cfg, &sm, &state),
+            expected_bridge_proof_duty(&cfg, &state),
             expected_counterproof_nack_duty(&cfg, &sm, &state, TEST_NONPOV_IDX),
         ];
 
@@ -719,7 +737,7 @@ mod tests {
             counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX, SECOND_NONPOV_IDX], &[]);
         let sm = create_sm(state.clone());
         let expected_duties = vec![
-            expected_bridge_proof_duty(&cfg, &sm, &state),
+            expected_bridge_proof_duty(&cfg, &state),
             expected_counterproof_nack_duty(&cfg, &sm, &state, TEST_NONPOV_IDX),
             expected_counterproof_nack_duty(&cfg, &sm, &state, SECOND_NONPOV_IDX),
         ];
@@ -739,8 +757,55 @@ mod tests {
     fn test_retry_tick_emits_only_bridge_proof_when_counterproof_already_nacked() {
         let cfg = test_graph_sm_cfg();
         let state = counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX], &[TEST_NONPOV_IDX]);
+        let expected_duty = expected_bridge_proof_duty(&cfg, &state);
+
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    // (refuted_proof: None,    NACK queue: one pending, delay not elapsed) -> [nack]
+    #[test]
+    fn test_retry_tick_emits_only_nack_in_counter_proof_posted_before_delay() {
+        let cfg = test_graph_sm_cfg_with_delay(3);
+        let state = with_counter_proof_posted_heights(
+            counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX], &[]),
+            LATER_BLOCK_HEIGHT + 2,
+            LATER_BLOCK_HEIGHT,
+        );
         let sm = create_sm(state.clone());
-        let expected_duty = expected_bridge_proof_duty(&cfg, &sm, &state);
+        let expected_duties = vec![expected_counterproof_nack_duty(
+            &cfg,
+            &sm,
+            &state,
+            TEST_NONPOV_IDX,
+        )];
+
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties,
+            },
+        );
+    }
+
+    // (refuted_proof: None,    NACK queue: empty, delay elapsed) -> [bridge_proof]
+    #[test]
+    fn test_retry_tick_emits_bridge_proof_in_counter_proof_posted_after_delay() {
+        let cfg = test_graph_sm_cfg_with_delay(3);
+        let state = with_counter_proof_posted_heights(
+            counter_proof_posted_without_refuted_proof_state(),
+            LATER_BLOCK_HEIGHT + 3,
+            LATER_BLOCK_HEIGHT,
+        );
+        let expected_duty = expected_bridge_proof_duty(&cfg, &state);
 
         test_pov_owned_handler_output(
             cfg,

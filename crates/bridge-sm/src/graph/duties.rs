@@ -230,8 +230,8 @@ pub enum GraphDuty {
         /// The index of the graph this duty is associated with.
         graph_idx: GraphIdx,
 
-        /// The last Bitcoin block height seen by the graph state.
-        last_block_height: BitcoinBlockHeight,
+        /// The Bitcoin block height the bridge proof is anchored at.
+        anchor_height: BitcoinBlockHeight,
 
         /// The ID of the contest transaction to spend from.
         contest_txid: Txid,

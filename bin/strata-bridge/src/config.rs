@@ -65,6 +65,16 @@ pub(crate) struct Config {
     /// from its peers in this case.
     pub cooperative_payout_timeout: u16,
 
+    /// Number of Bitcoin blocks the graph owner waits after the contest transaction confirms
+    /// before anchoring and generating the bridge proof. A larger value commits more accumulated
+    /// work in the proof.
+    ///
+    /// Absent or `0` anchors at the contest block itself. Together with `bury_depth` it should
+    /// stay well below `proof_timelock`, leaving room to prove and bury the proof before the
+    /// timeout.
+    #[serde(default)]
+    pub bridge_proof_delay_blocks: u16,
+
     /// The maximum fee rate for any transaction (in sats/vb).
     pub max_fee_rate: u64,
 
@@ -451,6 +461,7 @@ pub(crate) fn test_config() -> Config {
             min_withdrawal_fulfillment_window = 143
             shutdown_timeout = { secs = 15, nanos = 0 }
             cooperative_payout_timeout = 144 # ~24 hours
+            bridge_proof_delay_blocks = 6
             max_fee_rate = 10 # sats/vbyte
             max_active_deposits = 2
 
@@ -568,6 +579,21 @@ mod tests {
         let config = toml::from_str::<Config>(&without_cap).unwrap();
 
         assert_eq!(config.max_active_deposits, None);
+    }
+
+    #[test]
+    fn bridge_proof_delay_blocks_absent_means_zero() {
+        assert_eq!(test_config().bridge_proof_delay_blocks, 6);
+
+        let without_delay: String = toml::to_string(&test_config())
+            .unwrap()
+            .lines()
+            .filter(|line| !line.starts_with("bridge_proof_delay_blocks"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let config = toml::from_str::<Config>(&without_delay).unwrap();
+
+        assert_eq!(config.bridge_proof_delay_blocks, 0);
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin

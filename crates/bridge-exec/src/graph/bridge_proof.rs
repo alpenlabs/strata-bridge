@@ -33,7 +33,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_index: OperatorIdx,
-    last_block_height: BitcoinBlockHeight,
+    anchor_height: BitcoinBlockHeight,
     contest_txid: bitcoin::Txid,
     game_index: NonZero<u32>,
     contest_proof_connector: ContestProofConnector,
@@ -42,19 +42,14 @@ pub(super) async fn generate_and_publish_bridge_proof(
     info!(
         %deposit_idx,
         %operator_index,
-        %last_block_height,
+        %anchor_height,
         %contest_txid,
         %game_index,
         "generating and publishing bridge proof transaction"
     );
 
-    let proof_bytes = generate_bridge_proof(
-        output_handles,
-        deposit_idx,
-        last_block_height,
-        operator_pubkey,
-    )
-    .await?;
+    let proof_bytes =
+        generate_bridge_proof(output_handles, deposit_idx, anchor_height, operator_pubkey).await?;
 
     let data = BridgeProofData {
         contest_txid,
@@ -79,7 +74,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
         .map_err(|e| {
             warn!(
                 %operator_index,
-                %last_block_height,
+                %anchor_height,
                 %contest_txid,
                 %game_index,
                 ?e,
@@ -105,18 +100,14 @@ pub(super) async fn generate_and_publish_bridge_proof(
 async fn generate_bridge_proof(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
-    last_block_height: BitcoinBlockHeight,
+    anchor_height: BitcoinBlockHeight,
     operator_pubkey: XOnlyPublicKey,
 ) -> Result<Vec<u8>, ExecutorError> {
-    let proof_input = fetch_bridge_proof_input(
-        output_handles,
-        deposit_idx,
-        last_block_height,
-        operator_pubkey,
-    )
-    .await?;
+    let proof_input =
+        fetch_bridge_proof_input(output_handles, deposit_idx, anchor_height, operator_pubkey)
+            .await?;
 
-    info!(%last_block_height, "generating bridge proof");
+    info!(%anchor_height, "generating bridge proof");
     let prove_start = std::time::Instant::now();
     let receipt = match output_handles.bridge_proof_host.clone() {
         BridgeProofHost::Native(host) => prove::<BridgeProofProgram, _>(proof_input, host).await?,
@@ -124,7 +115,7 @@ async fn generate_bridge_proof(
         BridgeProofHost::Sp1(host) => prove::<BridgeProofProgram, _>(proof_input, *host).await?,
     };
     info!(
-        %last_block_height,
+        %anchor_height,
         elapsed = ?prove_start.elapsed(),
         "bridge proof generated",
     );
@@ -140,18 +131,18 @@ async fn generate_bridge_proof(
 async fn fetch_bridge_proof_input(
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
-    last_block_height: BitcoinBlockHeight,
+    anchor_height: BitcoinBlockHeight,
     operator_pubkey: XOnlyPublicKey,
 ) -> Result<BridgeProofInput, ExecutorError> {
-    info!(%last_block_height, "fetching bridge proof inputs");
+    info!(%anchor_height, "fetching bridge proof inputs");
     let fetch_start = std::time::Instant::now();
 
     let recent_block_hash = output_handles
         .bitcoind_rpc_client
-        .get_block_hash(last_block_height)
+        .get_block_hash(anchor_height)
         .await?;
     info!(
-        %last_block_height,
+        %anchor_height,
         %recent_block_hash,
         "resolved last-seen block hash for bridge proof anchor"
     );
@@ -207,7 +198,7 @@ async fn fetch_bridge_proof_input(
         claim_unlock_inclusion_proof: mmr_proof,
     };
     info!(
-        %last_block_height,
+        %anchor_height,
         %recent_block_hash,
         elapsed = ?fetch_start.elapsed(),
         "bridge proof inputs prepared",
