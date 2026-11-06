@@ -29,6 +29,8 @@ mod plan;
 pub mod sync;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
+#[expect(dead_code, reason = "no wallet in this crate reads the tracked view")]
+mod tracked;
 pub mod wallet;
 
 // Dev-deps only used by the `tests/` integration tests; silence the lib-test build's
@@ -50,6 +52,7 @@ pub use crate::{
     },
     plan::{FundingInput, IncumbentChild, REPLACEMENT_INCREMENT_SAT_PER_VB},
     sync::SyncError,
+    tracked::{TrackedWallet, UtxoInfo as TrackedUtxoInfo},
     wallet::{GeneralUtxoPolicy, OperatorWallet},
 };
 
