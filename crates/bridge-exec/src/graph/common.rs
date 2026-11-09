@@ -23,7 +23,6 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_sm::graph::{context::GraphSMCtx, machine::generate_game_graph};
 use strata_bridge_tx_graph::{
-    fee,
     game_graph::{DepositParams, GameGraph},
     transactions::claim::ClaimTx,
 };
@@ -37,6 +36,7 @@ use crate::{
     chain::{self, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::funding_fee_rate,
     output_handles::OutputHandles,
 };
 
@@ -250,10 +250,11 @@ async fn ensure_claim_funding_outpoint(
 /// Tops up the claim-funding pool of `value` and takes a lease on one of the new outputs, or on an
 /// output that settled while this duty waited for the refill lock.
 ///
-/// The refill spends buried general-wallet inputs at the protocol fee rate, so a duty can reserve
-/// one of its outputs as soon as the refill transaction is in the node's mempool; the claim itself
-/// publishes once the refill is in a block (see `funding_confirmed`). The batch is the whole
-/// pool size: the reservation before the refill found no free settled member.
+/// The refill spends buried general-wallet inputs at the rate of [`funding_fee_rate`]. Because its
+/// inputs are buried, a duty can reserve one of its outputs as soon as the refill transaction is in
+/// the node's mempool; the claim itself publishes once the refill is in a block (see
+/// `funding_confirmed`). The batch is the whole pool size: the reservation before the refill found
+/// no free settled member.
 ///
 /// One refill runs at a time. The refill lock is held across signing and the wait for the mempool,
 /// so a second duty that finds the pool empty waits for this refill and then takes one of its
@@ -264,6 +265,10 @@ async fn refill_claim_funding(
     value: Amount,
 ) -> Result<(OutPoint, Lease), ExecutorError> {
     let _refill = output_handles.claim_funding_refill.lock().await;
+    // Read before the wallet guard, because this can wait for the source for up to
+    // `QUOTE_READ_TIMEOUT`. A reservation from the pool does not use the rate, so its error applies
+    // only when this path builds a refill.
+    let fee_rate = funding_fee_rate(&cfg.fee_quotes, cfg.maximum_fee_rate).await;
     let mut wallet = output_handles.wallet.write().await;
     if let Some(reserved) = reserve_synced_claim_funding(&mut wallet, value, cfg.bury_depth).await?
     {
@@ -271,20 +276,15 @@ async fn refill_claim_funding(
     }
 
     warn!("could not acquire claim funding utxo. attempting refill...");
+    let fee_rate = fee_rate?;
     // The wallet stays denomination-agnostic; the batch is sized here.
     //
     // `refill` holds the general-wallet inputs of the refill transaction. A path that ends before
     // the transaction reaches a mempool drops it, which returns those inputs to the pool. A path
     // that cannot tell drops it only after a fresh sync makes the wallet view authoritative.
-    if fee::FEE_RATE > cfg.maximum_fee_rate {
-        return Err(ExecutorError::FeeRateTooHigh {
-            fee_rate: fee::FEE_RATE,
-            max: cfg.maximum_fee_rate,
-        });
-    }
     let refill = wallet
         .create_reserved_utxos(
-            fee::FEE_RATE,
+            fee_rate,
             value,
             cfg.funding_uxto_pool_size,
             GeneralUtxoPolicy::BuriedOnly {
