@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use bitcoin::{address::NetworkUnchecked, Address, BlockHash, Network};
 use clap::{Parser, Subcommand};
 use secp256k1::XOnlyPublicKey;
+use strata_bridge_primitives::{covenant::CovenantId, types::BitcoinBlockHeight};
 
 #[derive(Parser)]
 #[command(
@@ -274,10 +275,7 @@ pub(crate) struct BridgeProofArgs {
 #[derive(Parser, Debug, Clone)]
 #[command(about = "Post an unstaking intent transaction", version)]
 pub(crate) struct UnstakingIntentArgs {
-    #[arg(
-        long,
-        help = "operator index of the stake graph in the bridge node's current covenant"
-    )]
+    #[arg(long, help = "operator index of the stake graph")]
     pub(crate) operator_idx: u32,
 
     #[arg(long, help = "url of the bridge node RPC")]
@@ -289,8 +287,32 @@ pub(crate) struct UnstakingIntentArgs {
     #[arg(long, help = "the path to the params file")]
     pub(crate) params: PathBuf,
 
+    #[arg(
+        long,
+        requires = "covenant_activation_height",
+        help = "x-only aggregate key of the stake's covenant; defaults to the bridge node's current covenant"
+    )]
+    pub(crate) covenant_aggregate_pubkey: Option<XOnlyPublicKey>,
+
+    #[arg(
+        long,
+        requires = "covenant_aggregate_pubkey",
+        help = "activation height of the stake's covenant; defaults to the bridge node's current covenant"
+    )]
+    pub(crate) covenant_activation_height: Option<BitcoinBlockHeight>,
+
     #[clap(flatten)]
     pub(crate) btc_args: BtcArgs,
+}
+
+impl UnstakingIntentArgs {
+    /// The covenant whose stake to unstake, or `None` for the bridge node's current covenant.
+    pub(crate) fn covenant(&self) -> Option<CovenantId> {
+        Some(CovenantId {
+            aggregate_pubkey: self.covenant_aggregate_pubkey?,
+            activation_height: self.covenant_activation_height?,
+        })
+    }
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -367,4 +389,76 @@ pub(crate) struct BtcArgs {
         default_value = "rpcpassword"
     )]
     pub(crate) pass: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AGGREGATE_PUBKEY: &str =
+        "ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2";
+
+    fn parse_unstaking_intent(extra_args: &[&str]) -> Result<UnstakingIntentArgs, clap::Error> {
+        let args = [
+            "dev-cli",
+            "unstaking-intent",
+            "--operator-idx",
+            "1",
+            "--bridge-node-url",
+            "http://localhost:1234",
+            "--seed",
+            "00",
+            "--params",
+            "params.toml",
+        ];
+        let cli = Cli::try_parse_from(args.iter().chain(extra_args))?;
+        match cli.command {
+            Commands::UnstakingIntent(args) => Ok(args),
+            other => panic!("expected the unstaking-intent command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unstaking_intent_selects_the_given_covenant() {
+        let args = parse_unstaking_intent(&[
+            "--covenant-aggregate-pubkey",
+            AGGREGATE_PUBKEY,
+            "--covenant-activation-height",
+            "42",
+        ])
+        .expect("both covenant arguments must parse");
+
+        assert_eq!(
+            args.covenant(),
+            Some(CovenantId {
+                aggregate_pubkey: AGGREGATE_PUBKEY.parse().unwrap(),
+                activation_height: 42,
+            }),
+            "the covenant arguments must select that covenant's stake"
+        );
+    }
+
+    #[test]
+    fn unstaking_intent_defaults_to_the_current_covenant() {
+        let args = parse_unstaking_intent(&[]).expect("covenant arguments must be optional");
+
+        assert_eq!(
+            args.covenant(),
+            None,
+            "without covenant arguments the bridge node's current covenant must be used"
+        );
+    }
+
+    #[test]
+    fn unstaking_intent_rejects_a_partial_covenant() {
+        for partial in [
+            ["--covenant-aggregate-pubkey", AGGREGATE_PUBKEY],
+            ["--covenant-activation-height", "42"],
+        ] {
+            assert!(
+                parse_unstaking_intent(&partial).is_err(),
+                "{partial:?} alone must be rejected, since a covenant needs both its key and height"
+            );
+        }
+    }
 }
