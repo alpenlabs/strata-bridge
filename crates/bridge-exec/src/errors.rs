@@ -90,6 +90,15 @@ pub enum ExecutorError {
     #[error("invalid transaction structure: {0}")]
     InvalidTxStructure(String),
 
+    /// A transaction does not spend every wallet input that its lease holds.
+    #[error("transaction {txid} does not spend the leased inputs {missing:?}")]
+    LeasedInputsNotSpent {
+        /// The transaction.
+        txid: Txid,
+        /// The leased outpoints that the transaction does not spend.
+        missing: Vec<OutPoint>,
+    },
+
     /// The fee rate estimated for a transaction exceeds the maximum allowed by the configuration.
     #[error("fee rate {fee_rate} exceeds maximum of {max}")]
     FeeRateTooHigh {
