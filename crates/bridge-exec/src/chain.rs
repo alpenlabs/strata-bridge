@@ -166,6 +166,9 @@ pub(crate) async fn publish_signed_transaction(
 
 /// Publishes a transaction whose wallet inputs `lease` holds.
 ///
+/// A transaction that does not spend every outpoint of `lease` is not broadcast, the lease drops,
+/// and the error is [`ExecutorError::LeasedInputsNotSpent`].
+///
 /// Success commits the lease: the transaction spends the inputs, and the lease stays in place
 /// until a sync shows that spend buried. A failure releases the lease through
 /// [`release_after_sync`]: a failed publish can still have reached a mempool, so the inputs return
@@ -177,6 +180,9 @@ pub(crate) async fn publish_leased_transaction(
     wait_condition: fn(&TxStatus) -> bool,
     lease: Lease,
 ) -> Result<(), ExecutorError> {
+    ensure_spends_leased_inputs(signed_tx, &lease).inspect_err(|e| {
+        error!(%label, ?e, "refusing to publish a transaction that its lease does not match");
+    })?;
     let result =
         publish_signed_transaction(&output_handles.tx_driver, signed_tx, label, wait_condition)
             .await;
@@ -190,6 +196,32 @@ pub(crate) async fn publish_leased_transaction(
         }
     }
     result
+}
+
+/// Fails when `signed_tx` does not spend every outpoint that `lease` holds. The transaction can
+/// spend inputs outside the lease, such as a connector.
+fn ensure_spends_leased_inputs(
+    signed_tx: &Transaction,
+    lease: &Lease,
+) -> Result<(), ExecutorError> {
+    let missing: Vec<OutPoint> = lease
+        .outpoints()
+        .iter()
+        .filter(|outpoint| {
+            !signed_tx
+                .input
+                .iter()
+                .any(|input| input.previous_output == **outpoint)
+        })
+        .copied()
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(ExecutorError::LeasedInputsNotSpent {
+        txid: signed_tx.compute_txid(),
+        missing,
+    })
 }
 
 /// Syncs, then gives up `lease` on the inputs of a transaction that can be on the network.
@@ -295,12 +327,17 @@ pub(crate) fn select_connector_funding<P: WalletStore>(
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        Amount, OutPoint, Transaction, Txid, consensus::encode::deserialize_hex, hashes::Hash,
+        Amount, OutPoint, Transaction, TxIn, Txid, absolute::LockTime,
+        consensus::encode::deserialize_hex, hashes::Hash, transaction::Version,
     };
     use bitcoind_async_client::{Auth, Client as BitcoinClient, traits::Reader};
     use corepc_node::{Conf, Input, Node, Output};
+    use operator_wallet::test_utils::lease_on;
 
-    use super::{is_outpoint_unspent, is_txid_onchain, tx_confirmations};
+    use super::{
+        ensure_spends_leased_inputs, is_outpoint_unspent, is_txid_onchain, tx_confirmations,
+    };
+    use crate::errors::ExecutorError;
 
     /// Per-coinbase reward on regtest before any halving.
     const REGTEST_COINBASE_AMOUNT: Amount = Amount::from_sat(50 * 100_000_000);
@@ -319,6 +356,60 @@ mod tests {
 
     fn missing_txid() -> Txid {
         Txid::from_slice(&[7; 32]).expect("txid bytes should be valid")
+    }
+
+    fn outpoint(byte: u8) -> OutPoint {
+        OutPoint {
+            txid: Txid::from_slice(&[byte; 32]).expect("txid bytes should be valid"),
+            vout: 0,
+        }
+    }
+
+    fn spending(outpoints: &[OutPoint]) -> Transaction {
+        Transaction {
+            version: Version(3),
+            lock_time: LockTime::ZERO,
+            input: outpoints
+                .iter()
+                .map(|&previous_output| TxIn {
+                    previous_output,
+                    ..TxIn::default()
+                })
+                .collect(),
+            output: Vec::new(),
+        }
+    }
+
+    /// A transaction that misses a leased outpoint is refused, and the error names that outpoint.
+    #[test]
+    fn ensure_spends_leased_inputs_refuses_a_transaction_that_misses_a_leased_input() {
+        let tx = spending(&[outpoint(1)]);
+        let lease = lease_on(vec![outpoint(1), outpoint(2)]);
+
+        let result = ensure_spends_leased_inputs(&tx, &lease);
+
+        assert!(
+            matches!(
+                result,
+                Err(ExecutorError::LeasedInputsNotSpent { txid, ref missing })
+                    if txid == tx.compute_txid() && *missing == [outpoint(2)]
+            ),
+            "a transaction that misses a leased input must be refused, got {result:?}"
+        );
+    }
+
+    /// A transaction may spend inputs that the lease does not hold, such as a connector.
+    #[test]
+    fn ensure_spends_leased_inputs_accepts_inputs_outside_the_lease() {
+        let tx = spending(&[outpoint(9), outpoint(1)]);
+        let lease = lease_on(vec![outpoint(1)]);
+
+        let result = ensure_spends_leased_inputs(&tx, &lease);
+
+        assert!(
+            result.is_ok(),
+            "a transaction that spends every leased input must pass, got {result:?}"
+        );
     }
 
     /// An unknown transaction has no depth, one in the mempool has depth zero, and a mined one has

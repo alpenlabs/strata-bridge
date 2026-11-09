@@ -7,10 +7,19 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use bdk_wallet::{chain::Merge, AsyncWalletPersister, ChangeSet};
+use bdk_wallet::{bitcoin::OutPoint, chain::Merge, AsyncWalletPersister, ChangeSet};
 use thiserror::Error;
 
-use crate::persist::prune_stale_anchors;
+use crate::{
+    leases::{Lease, LeaseOwner, LeaseSet},
+    persist::prune_stale_anchors,
+};
+
+/// A lease on `outpoints` from a lease set of its own, for a test that needs a lease without a
+/// wallet.
+pub fn lease_on(outpoints: Vec<OutPoint>) -> Lease {
+    Arc::new(LeaseSet::default()).take(outpoints, LeaseOwner::Rehydrated)
+}
 
 /// In-memory store. Clones share one store, so a test can rebuild a wallet from a clone to
 /// simulate a restart. Records every persisted changeset and can fail one chosen `persist` call.
