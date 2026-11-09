@@ -66,4 +66,14 @@ ignore = [
   "RUSTSEC-2026-0404",
   "RUSTSEC-2026-0405",
   "RUSTSEC-2026-0406",
+
+  # libsqlite3-sys 0.28.0 (bundled SQLite) via rusqlite 0.31 -> bdk_chain ->
+  # bdk_wallet's rusqlite feature in operator-wallet. Fixed in >=0.39.0 with
+  # rusqlite 0.41, but every bdk_chain release (latest 0.23.4) requires
+  # rusqlite ^0.31, and libsqlite3-sys's `links = "sqlite3"` forbids a second
+  # copy. Exploiting it needs a crafted database and -wal pair; the operator
+  # wallet only opens its own stores in its configured data directory, so an
+  # attacker would already need local write access there.
+  # Remove when bdk_chain accepts rusqlite >=0.41.
+  "RUSTSEC-2026-0459",
 ]
