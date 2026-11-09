@@ -936,12 +936,21 @@ fn live_heights(aggregate: &ChangeSet) -> BTreeMap<u32, BlockHash> {
         .collect()
 }
 
+/// Most blocks that one `generate_to_address` call mines. The RPC client gives each request 60 s,
+/// and one call for hundreds of blocks can take longer on a loaded machine.
+const MINE_BATCH: usize = 100;
+
 fn mine(bitcoind: &Node, n: usize) {
     let addr = bitcoind.client.new_address().expect("miner address");
-    bitcoind
-        .client
-        .generate_to_address(n, &addr)
-        .expect("mine blocks");
+    let mut remaining = n;
+    while remaining > 0 {
+        let batch = remaining.min(MINE_BATCH);
+        bitcoind
+            .client
+            .generate_to_address(batch, &addr)
+            .expect("mine blocks");
+        remaining -= batch;
+    }
 }
 
 /// Mines one block holding its coinbase and `txs`, taking nothing from the mempool.
