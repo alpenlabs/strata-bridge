@@ -7,7 +7,7 @@ from constants import BLOCK_GENERATION_INTERVAL_SECS
 from envs import AsmEnvConfig, BitcoinEnvConfig, OperatorSetChangeEnv, StrataLiveEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
-from rpc.types import RpcStakeStateLabel
+from rpc.types import RpcCovenantId, RpcStakeStateLabel
 from utils.bridge import bridge_rpc_url
 from utils.covenant import wait_until_current_covenant
 from utils.deposit import make_deposit, wait_until_asm_deposit
@@ -20,10 +20,11 @@ from utils.operator_set import (
     scheduled_operator,
     write_operator_schedule,
 )
-from utils.stake import get_stake_status
+from utils.stake import get_operator_stake_status, get_stake_status
 from utils.utils import (
     read_all_operator_keys,
     snapshot_log_offsets,
+    wait_for_tx_confirmation,
     wait_until,
     wait_until_logs_match,
 )
@@ -65,9 +66,12 @@ class OperatorSetChangesTest(StrataTestBase):
       deposit is withdrawn and paid out while the joined operator keeps running,
     - a node refuses to start on params that rewrite or drop a historical registration,
     - a planned removal deactivates its registration at the ASM-enacted height, after which the
-      leaving operator takes no part in new deposits, and
-    - after the removal, ASM records a deposit from the successor's own offset, and the joined
-      operator withdraws a deposit made after it joined and is reimbursed through its own claim.
+      leaving operator takes no part in new deposits,
+    - after the removal, ASM records a deposit from the successor's own offset,
+    - the removed operator unstakes from a covenant it belonged to some blocks after its removal
+      activates, without changing the current covenant, and
+    - the joined operator then withdraws a deposit made after it joined, which the removed
+      operator co-signed, and is reimbursed through its own claim.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -157,7 +161,7 @@ class OperatorSetChangesTest(StrataTestBase):
         self._assert_before(addition_height, f"ASM records deposit {pending_deposit_idx}")
         live_env.start_miner(self.bitcoin_rpc, BLOCK_GENERATION_INTERVAL_SECS, mining_address)
 
-        wait_until_current_covenant(
+        addition_covenant = wait_until_current_covenant(
             member_rpcs(addition_members), addition_members, activation_height=addition_height
         )
         for deposit_idx in (genesis_deposit_idx, pending_deposit_idx):
@@ -245,7 +249,7 @@ class OperatorSetChangesTest(StrataTestBase):
                 nodes, removal_schedule, deposit_index_offset=REMOVAL_DEPOSIT_INDEX_OFFSET
             )
         wait_until_p2p_connected(member_rpcs(addition_members))
-        wait_until_current_covenant(
+        removal_covenant = wait_until_current_covenant(
             member_rpcs(removal_members), removal_members, activation_height=removal_height
         )
         removal_deposit_idx = REMOVAL_DEPOSIT_INDEX_OFFSET
@@ -253,6 +257,37 @@ class OperatorSetChangesTest(StrataTestBase):
         assert removal_deposit_idx not in rpcs[LEAVING_OPERATOR].stratabridge_depositIndices(), (
             f"operator {LEAVING_OPERATOR} must take no part in deposit {removal_deposit_idx}, "
             "made after it left"
+        )
+
+        self.logger.info(
+            f"Unstaking after the removal: operator {LEAVING_OPERATOR} unstakes from the covenant "
+            "it left"
+        )
+        intent_txid = dev_cli.send_unstaking_intent(
+            LEAVING_OPERATOR,
+            bridge_rpc_url(nodes[LEAVING_OPERATOR]),
+            operator_keys[LEAVING_OPERATOR].SEED,
+            covenant=addition_covenant,
+        )
+        intent_block_hash = wait_for_tx_confirmation(self.bitcoin_rpc, intent_txid)
+        intent_height = self.bitcoin_rpc.proxy.getblockheader(intent_block_hash)["height"]
+        assert intent_height > removal_height, (
+            f"operator {LEAVING_OPERATOR}'s unstaking intent must confirm after its removal "
+            f"activates at {removal_height}, confirmed at {intent_height}"
+        )
+        for idx in removal_members:
+            self._wait_until_stake_state(
+                rpcs[idx],
+                LEAVING_OPERATOR,
+                addition_covenant,
+                RpcStakeStateLabel.PREIMAGE_REVEALED,
+            )
+        unstaked_covenant = wait_until_current_covenant(
+            member_rpcs(removal_members), removal_members, activation_height=removal_height
+        )
+        assert unstaked_covenant == removal_covenant, (
+            f"operator {LEAVING_OPERATOR}'s unstaking after its removal must not change the "
+            f"current covenant: {unstaked_covenant} after {removal_covenant}"
         )
 
         self.logger.info(
@@ -285,6 +320,14 @@ class OperatorSetChangesTest(StrataTestBase):
             f"payout {payout_txid} must spend claim {claim.claim_txid}, spent {payout_inputs}"
         )
 
+        self.logger.info(
+            f"Unstaking after the removal: operator {LEAVING_OPERATOR}'s stake is released"
+        )
+        for idx in removal_members:
+            self._wait_until_stake_state(
+                rpcs[idx], LEAVING_OPERATOR, addition_covenant, RpcStakeStateLabel.UNSTAKED
+            )
+
         return True
 
     def _deposit(self, dev_cli: DevCli, node, member_rpcs: list, expected_idx: int) -> str:
@@ -315,6 +358,18 @@ class OperatorSetChangesTest(StrataTestBase):
             error_msg=(
                 f"operators {members} must confirm their stakes for the covenant activating at "
                 f"{activation_height}"
+            ),
+        )
+
+    def _wait_until_stake_state(
+        self, rpc, operator_idx: int, covenant: RpcCovenantId, state: RpcStakeStateLabel
+    ):
+        """Wait until `rpc`'s node reports `operator_idx`'s stake for `covenant` in `state`."""
+        wait_until(
+            lambda: get_operator_stake_status(rpc, operator_idx, covenant).state is state,
+            timeout=300,
+            error_msg=(
+                f"operator {operator_idx}'s stake for covenant {covenant} must reach {state.value}"
             ),
         )
 
