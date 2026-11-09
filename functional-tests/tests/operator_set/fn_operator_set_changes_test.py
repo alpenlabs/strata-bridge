@@ -55,7 +55,7 @@ class OperatorSetChangesTest(StrataTestBase):
     - the joining operator takes no part in deposits made before it joined,
     - after the addition, ASM records a deposit from the successor's own offset, and the genesis
       deposit is withdrawn and paid out while the joined operator keeps running,
-    - a node refuses to start on params that rewrite a historical registration,
+    - a node refuses to start on params that rewrite or drop a historical registration,
     - a planned removal deactivates its registration at the ASM-enacted height, after which the
       leaving operator takes no part in new deposits, and
     - after the removal, ASM records a deposit from the successor's own offset, and the joined
@@ -163,6 +163,9 @@ class OperatorSetChangesTest(StrataTestBase):
         ]
         self._assert_restart_rejected(nodes, nodes[0], rewritten_schedule, JOINING_OPERATOR)
 
+        self.logger.info("Restart rejection: a node refuses a dropped historical registration")
+        self._assert_restart_rejected(nodes, nodes[0], addition_schedule[:-1], JOINING_OPERATOR)
+
         self.logger.info(f"Planned removal: operator {LEAVING_OPERATOR} leaves")
         removal_members = [idx for idx in addition_members if idx != LEAVING_OPERATOR]
         # No node may process the activation block before it restarts on the edited schedule.
@@ -238,8 +241,9 @@ class OperatorSetChangesTest(StrataTestBase):
 
         The node is left stopped.
         """
-        node.stop()
-        time.sleep(5)  # ports need to be released before restarting
+        if node.is_started():
+            node.stop()
+            time.sleep(5)  # ports need to be released before restarting
         write_operator_schedule(node, nodes, schedule)
         offsets = snapshot_log_offsets([node.props["logfile"]])
         node.start()
