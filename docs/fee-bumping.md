@@ -41,7 +41,7 @@ This page describes how the bridge node prices and bumps its Bitcoin transaction
 
 | Situation | Behaviour |
 |---|---|
-| The fee source is unreachable | The memo serves the last quote until its TTL passes, then refuses with `QuoteTooOld`. A duty that funds a transaction then fails and retries. A cold memo at startup prices at the protocol floor. |
+| The fee source is unreachable | The memo serves the last quote for 300 s and reads the source again every 25 s. Past 300 s a duty that funds a transaction refuses with `QuoteTooOld`, fails, and retries. A memo that no read has answered refuses with `NoQuote`. Only an answer with no estimate prices at the floor of 1 sat/vB. |
 | The market is above `max_fee_rate` | A duty that funds a transaction refuses and retries later. The burn skips. A bump caps the target and the parent can wait below the market; this logs at warn and counts in metrics. |
 | The parent fee cannot be read | The parent publishes without a CPFP path. The next trigger reads again. |
 | The node rejects the package | The attempt reports the class. A fee or RBF rule rejection waits for the next trigger; a rejection that cannot change ends the bumps. |

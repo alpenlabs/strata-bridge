@@ -61,6 +61,7 @@ corepc-node.workspace = true
 operator-wallet = { workspace = true, features = ["test-utils"] }
 serde_json.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros"] }
 toml.workspace = true
 wiremock.workspace = true
 

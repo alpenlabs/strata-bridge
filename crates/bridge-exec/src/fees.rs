@@ -11,7 +11,8 @@
 //!
 //! The network-backed sources clamp their reported rate to `MIN_SOURCE_FEE_RATE`.
 //!
-//! The orchestrator builds the configured source via [`FeeSourceConfig::build`].
+//! The orchestrator builds the configured source via [`FeeSourceConfig::build`] and wraps it in
+//! a [`FeeQuoteMemo`], which the executors share, so a duty does not hit the network per call.
 
 use std::{fmt, sync::Arc, time::Duration};
 
@@ -20,6 +21,10 @@ use bitcoin::FeeRate;
 use bitcoind_async_client::{ClientResult, traits::Reader};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::{
+    sync::Mutex,
+    time::{Instant, timeout},
+};
 use tracing::warn;
 use url::Url;
 
@@ -88,6 +93,9 @@ enum ExplorerError {
 }
 
 /// Source of fee-rate estimates.
+///
+/// In production the configured source sits behind a [`FeeQuoteMemo`], so the executors share one
+/// quote and do not hit the network per call.
 #[async_trait]
 pub trait FeeSource: Send + Sync + fmt::Debug {
     /// Returns the next-block fee rate: `fastestFee` on the mempool explorer, confirmation target
@@ -243,6 +251,144 @@ impl FeeSource for FixedFeeSource {
     }
 }
 
+/// How long a quote answers reads with no upstream call. A failed upstream read waits the same time
+/// before the next attempt, measured from its end, so a down source costs one slow failure per
+/// period and not one per caller.
+pub const QUOTE_TTL: Duration = Duration::from_secs(25);
+
+/// Oldest quote that [`FeeQuoteMemo::duty_rate`] accepts, at the moment of the read. The duty then
+/// waits for the wallet guard and a sync before it funds, so the rate it pays can be older than
+/// this by that wait. Nothing reads between callers, so a quote can reach this age on an idle node
+/// with no failed read. In that case one failed read refuses the duty.
+const MAX_QUOTE_AGE: Duration = Duration::from_secs(300);
+
+/// Upper bound on one upstream read. Callers wait for the read. This covers the 10 s explorer
+/// timeout and 10 s of Core time. It is shorter than the Core client's own 30 s timeout, so a
+/// slow Core answer is lost and the last quote stands. A read past the bound counts as a failed
+/// read.
+const QUOTE_READ_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// The last rate that the memo holds.
+#[derive(Debug, Clone, Copy)]
+struct Quote {
+    rate: FeeRate,
+    fetched_at: Instant,
+}
+
+#[derive(Debug)]
+struct MemoState {
+    /// The last quote. `None` until the first read that returns a rate or a missing estimate.
+    quote: Option<Quote>,
+    /// The end of the last upstream attempt. `None` before the first.
+    attempted_at: Option<Instant>,
+}
+
+/// Read-through memo over the configured [`FeeSource`], shared by the executors.
+///
+/// A read inside `QUOTE_TTL` of the end of the last upstream attempt does no I/O. A later read goes
+/// upstream on the caller's task, and concurrent callers wait for that one read. Nothing runs
+/// between reads, so an idle node makes no fee requests.
+///
+/// A failed upstream read keeps the last quote. A wallet-funded duty reads through
+/// [`Self::duty_rate`], which refuses a quote older than `MAX_QUOTE_AGE`: a frozen quote prices a
+/// transaction at the market from before the source failed. The error fails the duty, which waits
+/// for the next `retry_interval` tick.
+///
+/// A source with no estimate ([`FeeSourceError::NoEstimate`]) gives a quote at the floor rate, as
+/// on a node that reads `estimatesmartfee` directly. A warning fires on each such read. On mainnet
+/// a missing estimate means a cold node, and every duty then pays the floor rate, even in a
+/// backlog.
+#[derive(Debug)]
+pub struct FeeQuoteMemo {
+    source: Arc<dyn FeeSource>,
+    /// Held across the upstream read, which makes that read single-flight.
+    state: Mutex<MemoState>,
+}
+
+impl FeeQuoteMemo {
+    /// A memo over `source` with no quote yet. The first read of a rate asks the source, so a
+    /// source that is down at construction stops nothing at startup.
+    pub fn new(source: Arc<dyn FeeSource>) -> Self {
+        Self {
+            source,
+            state: Mutex::new(MemoState {
+                quote: None,
+                attempted_at: None,
+            }),
+        }
+    }
+
+    /// Returns the last quote, after one upstream read if the TTL has passed. `None` while no
+    /// read has answered.
+    async fn quote(&self) -> Option<Quote> {
+        let mut state = self.state.lock().await;
+        let ttl_passed = state
+            .attempted_at
+            .is_none_or(|attempted_at| attempted_at.elapsed() >= QUOTE_TTL);
+        if ttl_passed {
+            let result = timeout(QUOTE_READ_TIMEOUT, self.source.next_block_rate()).await;
+            let now = Instant::now();
+            state.attempted_at = Some(now);
+            let quote_age_secs = state
+                .quote
+                .map(|quote| quote.fetched_at.elapsed().as_secs());
+            match result {
+                Ok(Ok(rate)) => {
+                    state.quote = Some(Quote {
+                        rate,
+                        fetched_at: now,
+                    });
+                }
+                Ok(Err(error @ FeeSourceError::NoEstimate)) => {
+                    // Without this log a cold node is indistinguishable from a calm mempool, and
+                    // the quote quietly sits at the minimum.
+                    warn!(%error, "fee source has no estimate; the floor fee rate stands in");
+                    state.quote = Some(Quote {
+                        rate: MIN_SOURCE_FEE_RATE,
+                        fetched_at: now,
+                    });
+                }
+                Ok(Err(error)) => warn!(
+                    %error,
+                    ?quote_age_secs, "fee source read failed; the last quote stays in use"
+                ),
+                Err(_) => warn!(
+                    timeout_secs = QUOTE_READ_TIMEOUT.as_secs(),
+                    ?quote_age_secs,
+                    "fee source read timed out; the last quote stays in use"
+                ),
+            }
+        }
+        state.quote
+    }
+
+    /// Returns the rate for a wallet-funded duty. Refuses a quote older than `MAX_QUOTE_AGE`, and
+    /// refuses while no read has answered: a value that no source produced must not price a
+    /// transaction. A source with no estimate gives the floor.
+    pub async fn duty_rate(&self) -> Result<FeeRate, NoDutyFeeRate> {
+        let quote = self.quote().await.ok_or(NoDutyFeeRate::NoQuote)?;
+        let age = quote.fetched_at.elapsed();
+        if age > MAX_QUOTE_AGE {
+            return Err(NoDutyFeeRate::QuoteTooOld { age });
+        }
+        Ok(quote.rate)
+    }
+}
+
+/// The memo holds no quote that can price a wallet-funded duty.
+#[derive(Debug, PartialEq, Eq, Error)]
+pub enum NoDutyFeeRate {
+    /// No upstream read has answered yet.
+    #[error("no fee quote yet: the fee source has not answered")]
+    NoQuote,
+    /// The quote is older than `MAX_QUOTE_AGE`.
+    #[error("fee quote is stale: {}s old, past the {}s bound", .age.as_secs(), MAX_QUOTE_AGE.as_secs())]
+    QuoteTooOld {
+        /// Time since the last successful read.
+        age: Duration,
+    },
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Config + builder
 // ────────────────────────────────────────────────────────────────────────────
@@ -330,7 +476,7 @@ impl Default for FeeSourceConfig {
 /// Floor for every network-backed source's reported rate. Core's default `minrelaytxfee` is
 /// 0.1 sat/vB, so this floor sits above it and keeps relay through peers with an older default.
 /// Sources can legitimately report below it (a quiet mempool, an explorer's economy tier at 0), so
-/// they clamp up.
+/// they clamp up. The memo uses it as the rate of a source with no estimate.
 const MIN_SOURCE_FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(1);
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -347,7 +493,10 @@ fn explorer_rate(raw_sat_per_vb: u64) -> Result<FeeRate, ExplorerError> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
     use async_trait::async_trait;
     use bitcoind_async_client::{ClientResult, error::ClientError};
@@ -574,5 +723,301 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg, FeeSourceConfig::Fixed { fee_rate: 3 });
+    }
+
+    fn sat_vb(rate: u64) -> FeeRate {
+        FeeRate::from_sat_per_vb(rate).expect("valid rate")
+    }
+
+    /// Fee source that counts reads and whose result can be swapped mid-test.
+    #[derive(Debug)]
+    struct ScriptedFeeSource {
+        reads: AtomicUsize,
+        result: std::sync::Mutex<Result<FeeRate, FeeSourceError>>,
+    }
+
+    impl ScriptedFeeSource {
+        fn returning(sat_per_vb: u64) -> Arc<Self> {
+            Arc::new(Self {
+                reads: AtomicUsize::new(0),
+                result: std::sync::Mutex::new(Ok(sat_vb(sat_per_vb))),
+            })
+        }
+
+        fn set(&self, result: Result<FeeRate, FeeSourceError>) {
+            *self.result.lock().unwrap() = result;
+        }
+
+        fn fail(&self) {
+            self.set(Err(ClientError::Request("source died".into()).into()));
+        }
+
+        fn reads(&self) -> usize {
+            self.reads.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl FeeSource for ScriptedFeeSource {
+        async fn next_block_rate(&self) -> Result<FeeRate, FeeSourceError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            self.result.lock().unwrap().clone()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn memo_serves_reads_inside_the_ttl_with_no_upstream_read() {
+        let source = ScriptedFeeSource::returning(12);
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(source.reads(), 0, "the constructor reads nothing");
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the first quote prices the duty"
+        );
+        assert_eq!(source.reads(), 1, "the first caller reads the first quote");
+
+        source.set(Ok(sat_vb(20)));
+        tokio::time::advance(QUOTE_TTL - Duration::from_secs(1)).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "a read inside the TTL keeps the quote"
+        );
+        assert_eq!(
+            source.reads(),
+            1,
+            "a read inside the TTL makes no upstream call"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn memo_reads_through_once_the_ttl_passes() {
+        let source = ScriptedFeeSource::returning(12);
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the first quote prices the duty"
+        );
+
+        source.set(Ok(sat_vb(20)));
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(20)),
+            "a read past the TTL reads through"
+        );
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(20)),
+            "the second read shares the first one's upstream call"
+        );
+        assert_eq!(source.reads(), 2, "one upstream read per TTL");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn memo_makes_no_upstream_read_between_callers() {
+        let source = ScriptedFeeSource::returning(12);
+        let _memo = FeeQuoteMemo::new(source.clone());
+
+        tokio::time::advance(QUOTE_TTL * 10).await;
+        tokio::task::yield_now().await;
+        assert_eq!(source.reads(), 0, "nothing reads while nobody asks");
+    }
+
+    /// A source that is down at the first read refuses duties until it answers: no source produced
+    /// a rate.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_first_read_refuses_duties() {
+        let source = ScriptedFeeSource::returning(12);
+        source.fail();
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.duty_rate().await,
+            Err(NoDutyFeeRate::NoQuote),
+            "no quote prices no duty"
+        );
+
+        source.set(Ok(sat_vb(12)));
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the first answer prices the duty"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_read_keeps_the_last_quote_and_waits_a_ttl_to_retry() {
+        let source = ScriptedFeeSource::returning(12);
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the first quote prices the duty"
+        );
+
+        source.fail();
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "a failed read keeps the last quote"
+        );
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the last quote stays in use"
+        );
+        assert_eq!(source.reads(), 2, "a failed read holds off the next one");
+
+        source.set(Ok(sat_vb(20)));
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(20)),
+            "the source answers again"
+        );
+    }
+
+    /// A wallet-funded duty refuses a quote past the bound.
+    #[tokio::test(start_paused = true)]
+    async fn a_frozen_quote_fails_duty_pricing() {
+        let source = ScriptedFeeSource::returning(12);
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the first quote prices the duty"
+        );
+
+        source.fail();
+        tokio::time::advance(MAX_QUOTE_AGE).await;
+        assert_eq!(
+            memo.duty_rate().await.unwrap(),
+            sat_vb(12),
+            "a quote at the bound still prices a duty"
+        );
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let err = memo
+            .duty_rate()
+            .await
+            .expect_err("a frozen quote must refuse duty pricing");
+        assert!(
+            matches!(err, NoDutyFeeRate::QuoteTooOld { age } if age > MAX_QUOTE_AGE),
+            "the error names the age of the quote, got {err:?}"
+        );
+
+        source.set(Ok(sat_vb(20)));
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await.unwrap(),
+            sat_vb(20),
+            "the duty prices again once the source recovers"
+        );
+    }
+
+    /// A source with no estimate prices at the floor, on every network, as a node that reads
+    /// `estimatesmartfee` directly would.
+    #[tokio::test(start_paused = true)]
+    async fn a_missing_estimate_prices_at_the_floor() {
+        let source = ScriptedFeeSource::returning(50);
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(50)),
+            "the first quote prices the duty"
+        );
+
+        source.set(Err(FeeSourceError::NoEstimate));
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(MIN_SOURCE_FEE_RATE),
+            "a missing estimate prices at the floor"
+        );
+    }
+
+    /// Source that answers its first read and hangs on every later one.
+    #[derive(Debug, Default)]
+    struct HangingFeeSource {
+        reads: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl FeeSource for HangingFeeSource {
+        async fn next_block_rate(&self) -> Result<FeeRate, FeeSourceError> {
+            if self.reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(sat_vb(12));
+            }
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_read_times_out_and_the_ttl_runs_from_its_end() {
+        let source = Arc::new(HangingFeeSource::default());
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the first quote prices the duty"
+        );
+
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "a timed-out read keeps the quote"
+        );
+        assert_eq!(
+            source.reads.load(Ordering::SeqCst),
+            2,
+            "the hung read was attempted"
+        );
+
+        tokio::time::advance(QUOTE_TTL - Duration::from_secs(1)).await;
+        assert_eq!(
+            memo.duty_rate().await,
+            Ok(sat_vb(12)),
+            "the quote stays in use"
+        );
+        assert_eq!(
+            source.reads.load(Ordering::SeqCst),
+            2,
+            "a read inside the TTL after the timeout makes no upstream call"
+        );
+    }
+
+    /// Source whose read takes time, so that callers overlap.
+    #[derive(Debug, Default)]
+    struct SlowFeeSource {
+        reads: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl FeeSource for SlowFeeSource {
+        async fn next_block_rate(&self) -> Result<FeeRate, FeeSourceError> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Ok(sat_vb(12))
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn overlapping_reads_share_one_upstream_read() {
+        let source = Arc::new(SlowFeeSource::default());
+        let memo = FeeQuoteMemo::new(source.clone());
+
+        tokio::time::advance(QUOTE_TTL).await;
+        let (first, second) = tokio::join!(memo.duty_rate(), memo.duty_rate());
+        assert_eq!(first, second, "both callers get the same quote");
+        assert_eq!(
+            source.reads.load(Ordering::SeqCst),
+            1,
+            "overlapping callers share one upstream read"
+        );
     }
 }
