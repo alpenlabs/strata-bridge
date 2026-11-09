@@ -28,6 +28,8 @@ use tokio::{
 use tracing::warn;
 use url::Url;
 
+use crate::errors::ExecutorError;
+
 /// Narrow trait covering only the RPC surface the fee source needs.
 ///
 /// Auto-implemented for every [`Reader`]. Tests implement this one method and do not model the
@@ -240,7 +242,8 @@ impl FeeSource for MempoolExplorerFeeSource {
 
 /// Fee source that returns a constant rate, regardless of network conditions.
 ///
-/// Intended for tests and emergency manual overrides. The source itself clamps nothing.
+/// Intended for tests and emergency manual overrides. The source itself clamps nothing. The floors
+/// of the wallet-funded paths still apply to its rate.
 #[derive(Debug)]
 struct FixedFeeSource(FeeRate);
 
@@ -491,6 +494,29 @@ fn explorer_rate(raw_sat_per_vb: u64) -> Result<FeeRate, ExplorerError> {
         .ok_or(ExplorerError::RateOverflow(raw_sat_per_vb))
 }
 
+/// Fee rate for a wallet-funded transaction. It reads the next-block rate of the shared memo,
+/// floored at [`FeeRate::BROADCAST_MIN`] so that the transaction stays relayable.
+///
+/// A rate above `max_fee_rate` fails with [`ExecutorError::FeeRateTooHigh`] rather than clamping:
+/// a transaction priced below the market can settle too late, as a withdrawal fulfillment that
+/// settles after a reassignment, which loses the operator the funds.
+///
+/// This can read upstream for up to [`QUOTE_READ_TIMEOUT`]. A caller that holds the wallet guard
+/// across it stops every other wallet user for that time.
+pub(crate) async fn funding_fee_rate(
+    fee_quotes: &FeeQuoteMemo,
+    max_fee_rate: FeeRate,
+) -> Result<FeeRate, ExecutorError> {
+    let fee_rate = fee_quotes.duty_rate().await?.max(FeeRate::BROADCAST_MIN);
+    if fee_rate > max_fee_rate {
+        return Err(ExecutorError::FeeRateTooHigh {
+            fee_rate,
+            max: max_fee_rate,
+        });
+    }
+    Ok(fee_rate)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{
@@ -729,6 +755,40 @@ mod tests {
         FeeRate::from_sat_per_vb(rate).expect("valid rate")
     }
 
+    #[tokio::test]
+    async fn funding_pays_the_next_block_rate() {
+        let memo = FeeQuoteMemo::new(ScriptedFeeSource::returning(20));
+
+        assert_eq!(
+            funding_fee_rate(&memo, sat_vb(100)).await.unwrap(),
+            sat_vb(20),
+            "a fresh quote prices the funding as it is"
+        );
+    }
+
+    #[tokio::test]
+    async fn funding_applies_the_relay_floor_and_refuses_above_the_cap() {
+        let memo = |rate| FeeQuoteMemo::new(ScriptedFeeSource::returning(rate));
+        let cap = sat_vb(5);
+        assert_eq!(
+            funding_fee_rate(&memo(0), cap).await.unwrap(),
+            FeeRate::BROADCAST_MIN,
+            "a rate under the relay floor is raised to it"
+        );
+        assert_eq!(
+            funding_fee_rate(&memo(5), cap).await.unwrap(),
+            cap,
+            "a rate at the cap passes"
+        );
+        assert!(
+            matches!(
+                funding_fee_rate(&memo(6), cap).await,
+                Err(ExecutorError::FeeRateTooHigh { .. })
+            ),
+            "a rate above the cap is refused"
+        );
+    }
+
     /// Fee source that counts reads and whose result can be swapped mid-test.
     #[derive(Debug)]
     struct ScriptedFeeSource {
@@ -908,6 +968,13 @@ mod tests {
         assert!(
             matches!(err, NoDutyFeeRate::QuoteTooOld { age } if age > MAX_QUOTE_AGE),
             "the error names the age of the quote, got {err:?}"
+        );
+        assert!(
+            matches!(
+                funding_fee_rate(&memo, sat_vb(100)).await,
+                Err(ExecutorError::NoDutyFeeRate(_))
+            ),
+            "a frozen quote fails the funding"
         );
 
         source.set(Ok(sat_vb(20)));

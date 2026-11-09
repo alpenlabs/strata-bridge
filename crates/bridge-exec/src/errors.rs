@@ -108,6 +108,10 @@ pub enum ExecutorError {
         /// The maximum fee rate allowed by the configuration.
         max: FeeRate,
     },
+
+    /// The fee source holds no quote that can price a wallet-funded duty. The duty retries.
+    #[error("no fee rate for this duty: {0}")]
+    NoDutyFeeRate(#[from] crate::fees::NoDutyFeeRate),
 }
 
 impl From<OneOf<(FdbBindingError, LayerError)>> for ExecutorError {
