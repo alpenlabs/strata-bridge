@@ -62,7 +62,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
         game_index,
     };
 
-    let tap_tweak = contest_proof_connector.tweak();
+    let tap_tweak = contest_proof_connector.spend_info().merkle_root();
     let bridge_proof_tx = BridgeProofTx::new(data, contest_proof_connector);
     let signing_info = bridge_proof_tx.signing_info_partial();
     let operator_key_tweak = bridge_proof_tx.operator_key_tweak();

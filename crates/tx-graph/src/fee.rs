@@ -547,7 +547,7 @@ mod tests {
         };
         let n_wt = n_watchtowers as usize;
         let keys = KeyData {
-            n_of_n_pubkey: signer.n_of_n.x_only_public_key().0,
+            n_of_n_pubkey: signer.n_of_n.public_key(),
             operator_pubkey: operator_xonly,
             operator_adaptor_pubkeys: vec![operator_xonly; n_wt],
             watchtower_pubkeys: signer

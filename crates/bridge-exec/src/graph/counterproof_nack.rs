@@ -63,7 +63,7 @@ async fn sign_and_broadcast_nack(
     let sighash: Sighash = *signing_info.sighash.as_ref();
     let tweak: Option<Tweak> = match signing_info.tweak {
         TaprootTweak::Key { tweak } => tweak.map(Hash::to_byte_array),
-        TaprootTweak::Script => {
+        TaprootTweak::Script | TaprootTweak::Bip328Key { .. } => {
             return Err(ExecutorError::InvalidTxStructure(
                 "counterproof nack expected a key-path spend, got script".into(),
             ));

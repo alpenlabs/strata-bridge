@@ -83,8 +83,8 @@ pub struct SetupParams {
 /// Collection of all public keys and hash images that are used in the game graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct KeyData {
-    /// N/N key.
-    pub n_of_n_pubkey: XOnlyPublicKey,
+    /// Full N/N aggregate public key.
+    pub n_of_n_pubkey: secp256k1::PublicKey,
     /// Owner's static signing key (non-adaptor) used by the contest proof connector.
     pub operator_pubkey: XOnlyPublicKey,
     /// Per-watchtower adaptor pubkeys used in the locking script of the owner's contest
@@ -554,9 +554,10 @@ impl GameConnectors {
         let n_watchtowers = keys.watchtower_pubkeys.len() as u32;
         let n_data = protocol.counterproof_n_data;
 
+        let n_of_n_pubkey = keys.n_of_n_pubkey.x_only_public_key().0;
         let claim_contest = ClaimContestConnector::new(
             protocol.network,
-            keys.n_of_n_pubkey,
+            n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
             protocol.contest_timelock,
             crate::fee::claim_contest_surcharge(n_watchtowers, n_data),
@@ -569,30 +570,23 @@ impl GameConnectors {
         );
         let claim_unstaking_payout = ClaimUnstakingPayoutConnector::new(
             protocol.network,
-            keys.n_of_n_pubkey,
+            n_of_n_pubkey,
             keys.unstaking_image,
         );
-        let deposit = NOfNConnector::new(
-            protocol.network,
-            keys.n_of_n_pubkey,
-            protocol.deposit_amount,
-        );
+        let deposit = NOfNConnector::new(protocol.network, n_of_n_pubkey, protocol.deposit_amount);
         let contest_proof = ContestProofConnector::new(
             protocol.network,
-            keys.n_of_n_pubkey,
+            n_of_n_pubkey,
             keys.operator_pubkey,
             game_index,
             protocol.proof_timelock,
             crate::fee::contest_proof_surcharge(),
         );
-        let contest_payout = ContestPayoutConnector::new(
-            protocol.network,
-            keys.n_of_n_pubkey,
-            protocol.ack_timelock,
-        );
+        let contest_payout =
+            ContestPayoutConnector::new(protocol.network, n_of_n_pubkey, protocol.ack_timelock);
         let contest_slash = ContestSlashConnector::new(
             protocol.network,
-            keys.n_of_n_pubkey,
+            n_of_n_pubkey,
             protocol.contested_payout_timelock,
         );
         // One `ContestCounterproofOutput` per watchtower, bound to the adaptor pubkey that
@@ -606,7 +600,7 @@ impl GameConnectors {
             .map(|operator_adaptor_pubkey| {
                 ContestCounterproofOutput::new(
                     protocol.network,
-                    keys.n_of_n_pubkey,
+                    n_of_n_pubkey,
                     operator_adaptor_pubkey,
                     protocol.counterproof_n_data,
                     contest_counterproof_surcharge,
@@ -621,14 +615,14 @@ impl GameConnectors {
             .map(|wt_fault_pubkey| {
                 CounterproofConnector::new(
                     protocol.network,
-                    keys.n_of_n_pubkey,
+                    n_of_n_pubkey,
                     wt_fault_pubkey,
                     protocol.nack_timelock,
                     counterproof_surcharge,
                 )
             })
             .collect();
-        let stake = NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, protocol.stake_amount);
+        let stake = NOfNConnector::new(protocol.network, n_of_n_pubkey, protocol.stake_amount);
 
         Self {
             claim_contest,
@@ -718,7 +712,7 @@ mod tests {
         let wallet_descriptor = Descriptor::try_from(node.wallet_address().clone()).unwrap();
         let operator_xonly = signer.operator_keypair.x_only_public_key().0;
         let keys = KeyData {
-            n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
+            n_of_n_pubkey: signer.n_of_n_keypair.public_key(),
             operator_pubkey: operator_xonly,
             operator_adaptor_pubkeys: vec![operator_xonly; N_WATCHTOWERS],
             watchtower_pubkeys: signer
@@ -746,15 +740,14 @@ mod tests {
 
         // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2707>
         // Avoid having to recreate the connectors.
-        let deposit_connector =
-            NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
-        let stake_connector =
-            NOfNConnector::new(protocol.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
+        let n_of_n_pubkey = keys.n_of_n_pubkey.x_only_public_key().0;
+        let deposit_connector = NOfNConnector::new(protocol.network, n_of_n_pubkey, DEPOSIT_AMOUNT);
+        let stake_connector = NOfNConnector::new(protocol.network, n_of_n_pubkey, STAKE_AMOUNT);
         // cast safety: N_WATCHTOWERS is a small constant that fits in u32.
         let n_watchtowers = N_WATCHTOWERS as u32;
         let claim_contest_connector = ClaimContestConnector::new(
             protocol.network,
-            keys.n_of_n_pubkey,
+            n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
             protocol.contest_timelock,
             crate::fee::claim_contest_surcharge(n_watchtowers, protocol.counterproof_n_data),
@@ -767,7 +760,7 @@ mod tests {
         );
         let claim_unstaking_payout_connector = ClaimUnstakingPayoutConnector::new(
             protocol.network,
-            keys.n_of_n_pubkey,
+            n_of_n_pubkey,
             keys.unstaking_image,
         );
         let claim_funds_amount = ClaimTx::claim_funds_required(

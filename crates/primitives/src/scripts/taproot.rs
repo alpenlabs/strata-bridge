@@ -323,20 +323,26 @@ impl<'a> Arbitrary<'a> for TaprootWitness {
     }
 }
 
-/// The tweak required for a taproot spend.
-///
-/// A keypath spend may involve a tweak if the internal key is tweaked with some known tapnode hash.
-/// A script path spend does not involve any tweak.
+/// The tweak required for a Taproot spend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TaprootTweak {
-    /// A key path spend which may or may not use a tweak.
+    /// A key path spend using the internal key.
     Key {
-        /// The tweak for the key path spend. If `None`, it means that no tweak is being used. If
-        /// `Some`, it means that the key was tweaked with the given
-        /// [Merkle Root](https://docs.rs/bitcoin/latest/bitcoin/taproot/struct.TaprootSpendInfo.html#method.merkle_root) hash.
+        /// The tap root if the tap tree is nonempty.
         tweak: Option<TapNodeHash>,
     },
-    /// A script path spend which does not use any tweak.
+    /// A key path spend using the internal key,
+    /// which is the BIP-328 `/0/0` child of the signing key.
+    ///
+    /// The signing key is first tweaked by BIP-328 to obtain the `/0/0` child.
+    /// Then, the child is tweaked with the tap root.
+    Bip328Key {
+        /// The tap root if the tap tree is nonempty.
+        tweak: Option<TapNodeHash>,
+    },
+    /// A script path spend.
+    ///
+    /// There is no tweak.
     Script,
 }
 

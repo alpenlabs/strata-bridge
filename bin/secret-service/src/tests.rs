@@ -14,7 +14,7 @@ use bitcoin::{
 };
 use musig2::{
     secp256k1::{Message, Scalar, SecretKey, SECP256K1},
-    AggNonce, FirstRound, KeyAggContext, LiftedSignature, PartialSignature, SecNonceSpices,
+    AggNonce, FirstRound, LiftedSignature, PartialSignature, SecNonceSpices,
 };
 use rand::{thread_rng, Rng};
 use secret_service_client::SecretServiceClient;
@@ -310,28 +310,14 @@ async fn musig2() {
 
     println!("remote pubkey: {remote_public_key:?}");
 
-    let mut ctx = KeyAggContext::new(
+    let ctx = strata_bridge_primitives::key_agg::create_agg_ctx(
         params
             .ordered_pubkeys
             .iter()
             .map(|pk| pk.public_key(Parity::Even)),
+        &params.tweak,
     )
     .unwrap();
-    match params.tweak {
-        TaprootTweak::Key { tweak } => match tweak {
-            None => {
-                ctx = ctx
-                    .with_unspendable_taproot_tweak()
-                    .expect("must be able to tweak the key agg context")
-            }
-            Some(val) => {
-                ctx = ctx
-                    .with_taproot_tweak(val.as_ref())
-                    .expect("must be able to tweak the key agg context")
-            }
-        },
-        TaprootTweak::Script => {}
-    }
     let agg_pubkey: XOnlyPublicKey = ctx.aggregated_pubkey();
 
     let local_first_rounds = local_signers

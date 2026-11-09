@@ -28,9 +28,8 @@ use bitcoin::{
 };
 use hkdf::Hkdf;
 use make_buf::make_buf;
-use secp256k1::SECP256K1;
+use secp256k1::{Parity, SECP256K1, SecretKey};
 use sha2::Sha256;
-use strata_bridge_primitives::secp::EvenSecretKey;
 
 use crate::paths::{
     GENERAL_WALLET_KEY_PATH, MUSIG2_KEY_PATH, MUSIG2_NONCE_IKM_PATH, PREIMG_IKM_PATH,
@@ -43,6 +42,14 @@ pub enum DerivationError {
     /// BIP32 derivation failed.
     #[error("BIP32 derivation error: {0}")]
     Bip32(#[from] bip32::Error),
+}
+
+// Normalize derived signing keys to the even x-only public key convention.
+fn even_secret_key(secret_key: SecretKey) -> SecretKey {
+    match secret_key.x_only_public_key(SECP256K1).1 {
+        Parity::Odd => secret_key.negate(),
+        Parity::Even => secret_key,
+    }
 }
 
 // =============================================================================
@@ -94,13 +101,13 @@ impl WalletKeys {
         let general_child = base.derive_priv(SECP256K1, &GENERAL_WALLET_KEY_PATH)?;
         let general = GeneralWalletKey(Keypair::from_secret_key(
             SECP256K1,
-            &EvenSecretKey::from(general_child.private_key),
+            &even_secret_key(general_child.private_key),
         ));
 
         let reserved_child = base.derive_priv(SECP256K1, &RESERVED_WALLET_KEY_PATH)?;
         let reserved = ReservedWalletKey(Keypair::from_secret_key(
             SECP256K1,
-            &EvenSecretKey::from(reserved_child.private_key),
+            &even_secret_key(reserved_child.private_key),
         ));
 
         Ok(Self { general, reserved })
@@ -166,7 +173,7 @@ impl Musig2Keys {
         let key_child = base.derive_priv(SECP256K1, &MUSIG2_KEY_PATH)?;
         let keypair = Musig2Keypair(Keypair::from_secret_key(
             SECP256K1,
-            &EvenSecretKey::from(key_child.private_key),
+            &even_secret_key(key_child.private_key),
         ));
 
         let nonce_child = base.derive_priv(SECP256K1, &MUSIG2_NONCE_IKM_PATH)?;

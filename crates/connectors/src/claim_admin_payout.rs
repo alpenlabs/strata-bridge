@@ -1,8 +1,11 @@
 //! This module contains the claim payout connector.
 
 use bitcoin::{Amount, Network, ScriptBuf};
-use secp256k1::{schnorr, XOnlyPublicKey};
-use strata_bridge_primitives::scripts::prelude::threshold_multisig_script;
+use secp256k1::{schnorr, PublicKey, XOnlyPublicKey};
+use strata_bridge_key_deriv::key_agg::derive_musig_0_0;
+use strata_bridge_primitives::scripts::{
+    prelude::threshold_multisig_script, taproot::TaprootTweak,
+};
 
 use crate::{Connector, TaprootWitness};
 
@@ -12,13 +15,15 @@ use crate::{Connector, TaprootWitness};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimAdminPayoutConnector {
     network: Network,
-    n_of_n_pubkey: XOnlyPublicKey,
+    n_of_n_pubkey: PublicKey,
     admin_pubkeys: Vec<XOnlyPublicKey>,
     admin_threshold: usize,
 }
 
 impl ClaimAdminPayoutConnector {
-    /// Creates a new connector.
+    /// Creates a connector.
+    ///
+    /// The connector needs the full N/N aggregate public key.
     ///
     /// # Panics
     ///
@@ -26,7 +31,7 @@ impl ClaimAdminPayoutConnector {
     /// `admin_threshold` is zero, or if `admin_threshold` exceeds the number of admin pubkeys.
     pub fn new(
         network: Network,
-        n_of_n_pubkey: XOnlyPublicKey,
+        n_of_n_pubkey: PublicKey,
         admin_pubkeys: Vec<XOnlyPublicKey>,
         admin_threshold: usize,
     ) -> Self {
@@ -68,7 +73,17 @@ impl Connector for ClaimAdminPayoutConnector {
     }
 
     fn internal_key(&self) -> XOnlyPublicKey {
-        self.n_of_n_pubkey
+        derive_musig_0_0(self.n_of_n_pubkey)
+            .expect("valid aggregate derivation")
+            .0
+            .x_only_public_key()
+            .0
+    }
+
+    fn tweak(&self) -> TaprootTweak {
+        TaprootTweak::Bip328Key {
+            tweak: self.spend_info().merkle_root(),
+        }
     }
 
     fn leaf_scripts(&self) -> Vec<ScriptBuf> {
@@ -163,7 +178,9 @@ pub enum ClaimAdminPayoutWitness {
     Payout {
         /// Output key signature (key-path spend).
         ///
-        /// The output key is the N/N key tweaked with the tap tree merkle root.
+        /// The output key is the N/N key,
+        /// tweaked to become the BIP-328 `/0/0` child,
+        /// and tweaked again with the tap root.
         output_key_signature: schnorr::Signature,
     },
     /// The connector is spent in the `Admin Block Payout` transaction.
@@ -211,7 +228,7 @@ mod tests {
         fn get_connector(&self) -> Self::Connector {
             ClaimAdminPayoutConnector::new(
                 Network::Regtest,
-                self.n_of_n_keypair.x_only_public_key().0,
+                self.n_of_n_keypair.public_key(),
                 self.admin_keypairs
                     .iter()
                     .map(|keypair| keypair.x_only_public_key().0)
@@ -454,7 +471,7 @@ mod tests {
 
         ClaimAdminPayoutConnector::new(
             Network::Regtest,
-            n_of_n_keypair.x_only_public_key().0,
+            n_of_n_keypair.public_key(),
             vec![admin_pubkey, admin_pubkey],
             2,
         );

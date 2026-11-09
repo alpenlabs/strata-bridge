@@ -25,7 +25,7 @@ use secret_service_proto::v2::traits::{
 };
 use sha2::Sha256;
 use strata_bridge_key_deriv::{Musig2Keypair, Musig2Keys, Musig2NonceIkm};
-use strata_bridge_primitives::scripts::taproot::TaprootTweak;
+use strata_bridge_primitives::key_agg::create_agg_ctx;
 use terrors::OneOf;
 use tokio::sync::Mutex;
 
@@ -107,30 +107,14 @@ impl Ms2Signer {
     }
 
     fn key_agg_ctx(params: &Musig2Params) -> KeyAggContext {
-        let mut ctx = KeyAggContext::new(
+        create_agg_ctx(
             params
                 .ordered_pubkeys
                 .iter()
                 .map(|pk| pk.public_key(Parity::Even)),
+            &params.tweak,
         )
-        .unwrap();
-
-        match params.tweak {
-            TaprootTweak::Key { tweak } => match tweak {
-                None => {
-                    ctx = ctx
-                        .with_unspendable_taproot_tweak()
-                        .expect("must be able to tweak the key agg context");
-                }
-                Some(val) => {
-                    ctx = ctx
-                        .with_taproot_tweak(val.as_ref())
-                        .expect("must be able to tweak the key agg context");
-                }
-            },
-            TaprootTweak::Script => {}
-        }
-        ctx
+        .expect("valid key aggregation context")
     }
 
     async fn sec_nonce(
