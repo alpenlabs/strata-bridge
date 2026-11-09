@@ -14,7 +14,9 @@ use strata_bridge_asm_events::client::{AsmEventFeed, AsmFeedHealthEvent};
 use strata_bridge_common::params::Params;
 use strata_bridge_counterproof::BridgeCounterproofHost;
 use strata_bridge_db::fdb::client::FdbClient;
-use strata_bridge_exec::{config::ExecutionConfig, output_handles::OutputHandles};
+use strata_bridge_exec::{
+    config::ExecutionConfig, fees::FeeQuoteMemo, output_handles::OutputHandles,
+};
 use strata_bridge_orchestrator::{
     duty_dispatcher::DutyDispatcher, events_mux::EventsMux, persister::Persister,
     pipeline::Pipeline, sm_registry::SMConfig,
@@ -56,6 +58,7 @@ use crate::{
 pub(crate) async fn init_orchestrator<M>(
     params: &Params,
     config: &Config,
+    max_fee_rate: FeeRate,
     operator_table: OperatorTable,
     s2_client: &SecretServiceClient,
     mosaic_client: Arc<M>,
@@ -169,7 +172,14 @@ where
         pending_asm_events: VecDeque::new(),
     };
 
-    let exec_cfg = build_exec_config(params, config, &sm_config);
+    // One fee quote memo serves the executors. Its first read happens on the first use, so a
+    // source that does not answer stops nothing at boot.
+    let fee_source = config
+        .fee_source
+        .build(Arc::new(btc_rpc_client.clone()))
+        .map_err(|e| anyhow!("failed to construct fee source from config: {e}"))?;
+    let fee_quotes = Arc::new(FeeQuoteMemo::new(fee_source));
+    let exec_cfg = build_exec_config(params, config, max_fee_rate, &sm_config, fee_quotes);
     let tx_driver = TxDriver::new(zmq_client, btc_rpc_client.clone()).await;
     let tx_driver_health = tx_driver.health_handle();
     health_registry.mark_ok(COMPONENT_TX_DRIVER, "driver_initialized");
@@ -341,17 +351,24 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
     }
 }
 
-fn build_exec_config(params: &Params, config: &Config, sm_config: &SMConfig) -> ExecutionConfig {
+fn build_exec_config(
+    params: &Params,
+    config: &Config,
+    maximum_fee_rate: FeeRate,
+    sm_config: &SMConfig,
+    fee_quotes: Arc<FeeQuoteMemo>,
+) -> ExecutionConfig {
     ExecutionConfig {
         network: params.network,
         min_withdrawal_fulfillment_window: config.min_withdrawal_fulfillment_window,
         magic_bytes: params.protocol.magic_bytes,
-        maximum_fee_rate: FeeRate::from_sat_per_vb(config.max_fee_rate).unwrap(),
+        maximum_fee_rate,
         operator_fee: params.protocol.operator_fee,
         stake_amount: params.protocol.stake_amount,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         bury_depth: u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32"),
         graph_sm_cfg: sm_config.graph.clone(),
+        fee_quotes,
     }
 }
 

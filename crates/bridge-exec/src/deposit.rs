@@ -24,11 +24,8 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
-use strata_bridge_tx_graph::{
-    fee,
-    transactions::prelude::{
-        CooperativePayoutTx, SweepTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
-    },
+use strata_bridge_tx_graph::transactions::prelude::{
+    CooperativePayoutTx, SweepTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
 use tracing::{error, info, warn};
 
@@ -36,6 +33,7 @@ use crate::{
     chain::{self, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    fees::funding_fee_rate,
     output_handles::OutputHandles,
 };
 
@@ -498,31 +496,12 @@ async fn fulfill_withdrawal(
         .checked_sub(cfg.operator_fee)
         .expect("deposit amount must be greater than operator fee");
 
-    // Get fee rate estimate from bitcoind, bounded from below by `fee::FEE_RATE` so the
-    // withdrawal-fulfillment v3 transaction always meets the bridge's hardcoded minimum even
-    // on networks where `estimatesmartfee` returns a value below `minrelaytxfee`.
-    let smart_fee = output_handles
-        .bitcoind_rpc_client
-        .estimate_smart_fee(1)
-        .await
-        .map_err(|e| ExecutorError::WalletErr(format!("failed to estimate fee: {e}")))?;
-    info!(?smart_fee, "estimated fee rate for withdrawal fulfillment");
-
-    let fee_rate = smart_fee
-        .fee_rate
-        .unwrap_or(fee::FEE_RATE)
-        .max(fee::FEE_RATE);
-
     // The following approach trades off maximal liveness for maximal safety:
     // It is not safe to broadcast at a lower fee rate when the network fee rate is high as there is
     // a chance that the fulfillment transaction will be settled after a reassignment, causing an
     // operator to lose funds. The safest approach is to abort.
-    if fee_rate > cfg.maximum_fee_rate {
-        return Err(ExecutorError::FeeRateTooHigh {
-            fee_rate,
-            max: cfg.maximum_fee_rate,
-        });
-    }
+    let fee_rate = funding_fee_rate(&cfg.fee_quotes, cfg.maximum_fee_rate).await?;
+    info!(%fee_rate, "fee rate for withdrawal fulfillment");
 
     info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
 

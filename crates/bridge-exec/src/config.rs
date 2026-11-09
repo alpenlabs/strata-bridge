@@ -6,6 +6,8 @@ use bitcoin::{Amount, FeeRate, Network};
 use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_l1_txfmt::MagicBytes;
 
+use crate::fees::FeeQuoteMemo;
+
 /// The static configuration for the duty executors.
 #[derive(Debug, Clone)]
 pub struct ExecutionConfig {
@@ -42,4 +44,8 @@ pub struct ExecutionConfig {
     /// The graph state-machine configuration, shared with the GSM to keep protocol parameters
     /// and static keys consistent across graph construction paths.
     pub graph_sm_cfg: Arc<GraphSMCfg>,
+
+    /// Fee quote memo that prices the wallet-funded duties through [`FeeQuoteMemo::duty_rate`]. A
+    /// frozen quote fails the duty, which retries after the source recovers.
+    pub fee_quotes: Arc<FeeQuoteMemo>,
 }

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
+use strata_bridge_exec::fees::FeeSourceConfig;
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 use strata_bridge_primitives::types::OperatorIdx;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
@@ -65,7 +66,8 @@ pub(crate) struct Config {
     /// from its peers in this case.
     pub cooperative_payout_timeout: u16,
 
-    /// The maximum fee rate for any transaction (in sats/vb).
+    /// The maximum fee rate for any transaction (in sats/vb). A wallet-funded duty refuses a
+    /// market rate above it. The startup checks warn on a cap below a fixed `fee_source` rate.
     pub max_fee_rate: u64,
 
     /// Upper bound on the deposits this node takes part in at once: every deposit holding funds
@@ -79,6 +81,12 @@ pub(crate) struct Config {
     /// request skipped here and admitted elsewhere never completes, and it holds one of the
     /// admitting operators' slots until the depositor reclaims it.
     pub max_active_deposits: Option<u32>,
+
+    /// Source of fee-rate estimates for bridge transactions. Defaults to Bitcoin Core, whose
+    /// `estimatesmartfee(1)` is a lagging two-block economical estimate. Operators on networks
+    /// where `estimatesmartfee` is unreliable should configure the mempool-explorer variant.
+    #[serde(default)]
+    pub fee_source: FeeSourceConfig,
 
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,

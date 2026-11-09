@@ -55,6 +55,7 @@ pub(crate) async fn bootstrap(
     // Run the startup consistency checks before starting any services so that a
     // misconfigured node fails fast
     startup_checks::verify_timelock_ordering(&params, &config)?;
+    let max_fee_rate = startup_checks::check_fee_config(&config)?;
 
     debug!("initializing asm rpc client");
     let asm_rpc_client = init_asm_rpc_client(&config.asm_rpc);
@@ -192,6 +193,7 @@ pub(crate) async fn bootstrap(
     init_orchestrator(
         &params,
         &config,
+        max_fee_rate,
         operator_table,
         &s2_client,
         mosaic_client,
