@@ -3,9 +3,11 @@ from typing import cast
 
 import flexitest
 
-from envs import AsmEnvConfig, OperatorSetChangeEnv, StrataLiveEnv
+from constants import BLOCK_GENERATION_INTERVAL_SECS
+from envs import AsmEnvConfig, BitcoinEnvConfig, OperatorSetChangeEnv, StrataLiveEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
+from rpc.types import RpcStakeStateLabel
 from utils.bridge import bridge_rpc_url
 from utils.covenant import wait_until_current_covenant
 from utils.deposit import make_deposit, wait_until_asm_deposit
@@ -18,9 +20,11 @@ from utils.operator_set import (
     scheduled_operator,
     write_operator_schedule,
 )
+from utils.stake import get_stake_status
 from utils.utils import (
     read_all_operator_keys,
     snapshot_log_offsets,
+    wait_until,
     wait_until_logs_match,
 )
 from utils.wallet_store import wait_until_exited
@@ -35,8 +39,9 @@ GENESIS_MEMBERS = [0, 1, 2]
 JOINING_OPERATOR = 3
 LEAVING_OPERATOR = 1
 
-# Blocks between an admin operator set update's inclusion and its activation.
-OPERATOR_UPDATE_DEPTH = 10
+# Blocks between an admin operator set update's inclusion and its activation, long enough for
+# the joining operator's stakes and a deposit to confirm while its registration is pending.
+OPERATOR_UPDATE_DEPTH = 60
 
 # Successor covenants start their deposit sequences clear of every earlier covenant's indices.
 ADDITION_DEPOSIT_INDEX_OFFSET = 100
@@ -52,7 +57,10 @@ class OperatorSetChangesTest(StrataTestBase):
     - the genesis covenant admits a deposit that ASM records,
     - a planned addition activates at the ASM-enacted height after a coordinated restart on
       edited params,
-    - the joining operator takes no part in deposits made before it joined,
+    - every member of the successor covenant, the joining operator included, confirms its stake
+      for it before it activates,
+    - the joining operator takes no part in deposits made before it joined, including one made
+      while its registration is pending,
     - after the addition, ASM records a deposit from the successor's own offset, and the genesis
       deposit is withdrawn and paid out while the joined operator keeps running,
     - a node refuses to start on params that rewrite or drop a historical registration,
@@ -119,14 +127,44 @@ class OperatorSetChangesTest(StrataTestBase):
             restart_with_operator_schedule(
                 nodes, addition_schedule, deposit_index_offset=ADDITION_DEPOSIT_INDEX_OFFSET
             )
+        # Until the addition activates, blocks are mined only for pending transactions, so the
+        # pending-registration checks below finish well before the activation height.
+        live_env.start_miner(
+            self.bitcoin_rpc,
+            BLOCK_GENERATION_INTERVAL_SECS,
+            mining_address,
+            mine_on_demand=True,
+            trailing_blocks=BitcoinEnvConfig().mine_on_demand_trailing_blocks,
+        )
         wait_until_p2p_connected(member_rpcs(addition_members))
+
+        self.logger.info(
+            f"Pending addition: every member, operator {JOINING_OPERATOR} included, stakes for "
+            "the successor covenant before it activates"
+        )
+        for idx in addition_members:
+            self._wait_until_staked_for(rpcs[idx], addition_members, addition_height)
+        self._assert_before(addition_height, "the successor covenant's stakes confirm")
+
+        self.logger.info(
+            f"Pending addition: the genesis members admit a deposit operator {JOINING_OPERATOR} "
+            "takes no part in"
+        )
+        pending_deposit_idx = genesis_deposit_idx + 1
+        pending_deposit_txid = self._deposit(
+            dev_cli, nodes[0], member_rpcs(GENESIS_MEMBERS), pending_deposit_idx
+        )
+        self._assert_before(addition_height, f"ASM records deposit {pending_deposit_idx}")
+        live_env.start_miner(self.bitcoin_rpc, BLOCK_GENERATION_INTERVAL_SECS, mining_address)
+
         wait_until_current_covenant(
             member_rpcs(addition_members), addition_members, activation_height=addition_height
         )
-        assert genesis_deposit_idx not in rpcs[JOINING_OPERATOR].stratabridge_depositIndices(), (
-            f"operator {JOINING_OPERATOR} must take no part in deposit {genesis_deposit_idx}, "
-            "made before it joined"
-        )
+        for deposit_idx in (genesis_deposit_idx, pending_deposit_idx):
+            assert deposit_idx not in rpcs[JOINING_OPERATOR].stratabridge_depositIndices(), (
+                f"operator {JOINING_OPERATOR} must take no part in deposit {deposit_idx}, made "
+                "before it joined"
+            )
         addition_deposit_idx = ADDITION_DEPOSIT_INDEX_OFFSET
         addition_deposit_txid = self._deposit(
             dev_cli, nodes[0], member_rpcs(addition_members), addition_deposit_idx
@@ -155,6 +193,28 @@ class OperatorSetChangesTest(StrataTestBase):
         assert nodes[JOINING_OPERATOR].check_status(), (
             f"operator {JOINING_OPERATOR} must keep running through the withdrawal of deposit "
             f"{genesis_deposit_idx}, which it never took part in"
+        )
+
+        self.logger.info(
+            "Withdrawal after the addition: the deposit made while it was pending pays out"
+        )
+        # The next oldest unassigned deposit; operator 2 is one of its active members.
+        pending_assignee = GENESIS_MEMBERS[2]
+        fulfill_withdrawal(
+            dev_cli,
+            self.asm_rpc,
+            self.bitcoin_rpc,
+            rpcs[pending_assignee],
+            pending_deposit_idx,
+            pending_assignee,
+            genesis_height,
+        )
+        wait_until_paid_out(
+            self.bitcoin_rpc,
+            pending_deposit_txid,
+            pending_deposit_idx,
+            pending_assignee,
+            operator_keys[pending_assignee].GENERAL_WALLET,
         )
 
         self.logger.info("Restart rejection: a node refuses a rewritten historical registration")
@@ -235,6 +295,34 @@ class OperatorSetChangesTest(StrataTestBase):
         deposit_txid = make_deposit(dev_cli, bridge_rpc_url(node), member_rpcs, expected_idx)
         wait_until_asm_deposit(self.asm_rpc, self.bitcoin_rpc, expected_idx)
         return deposit_txid
+
+    def _wait_until_staked_for(self, rpc, members: list[int], activation_height: int):
+        """Wait until `rpc`'s node reports a confirmed stake from every one of `members` for the
+        covenant activating at `activation_height`."""
+
+        def staked() -> bool:
+            confirmed = {
+                stake.operator_idx
+                for stake in get_stake_status(rpc)
+                if stake.covenant.activation_height == activation_height
+                and stake.state is RpcStakeStateLabel.CONFIRMED
+            }
+            return confirmed == set(members)
+
+        wait_until(
+            staked,
+            timeout=300,
+            error_msg=(
+                f"operators {members} must confirm their stakes for the covenant activating at "
+                f"{activation_height}"
+            ),
+        )
+
+    def _assert_before(self, activation_height: int, event: str):
+        tip = self.bitcoin_rpc.proxy.getblockcount()
+        assert tip < activation_height, (
+            f"{event} must happen before the activation height {activation_height}, tip is {tip}"
+        )
 
     def _assert_restart_rejected(self, nodes: dict, node, schedule: list, mismatched_idx: int):
         """Restart `node` alone on `schedule` and check it exits over `mismatched_idx`.
