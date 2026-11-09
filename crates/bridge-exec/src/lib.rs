@@ -13,6 +13,7 @@ mod chain;
 pub mod config;
 pub mod deposit;
 pub mod errors;
+pub mod fees;
 pub mod graph;
 pub mod output_handles;
 pub mod stake;
