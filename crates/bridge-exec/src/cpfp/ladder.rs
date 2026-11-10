@@ -265,9 +265,9 @@ async fn act(
     let parent_vbytes = u64::try_from(parent.vsize()).expect("tx vsize fits in u64");
     let estimate = ctx.fee_source.next_block_rate().await?;
 
-    // `decide` applies the same rule; the read is skipped when it cannot matter.
+    // A failed probe skips the read, which goes to the same node.
     let node_min = match probe {
-        Some(ParentProbe::Absent) => ctx
+        Some(_) => ctx
             .mempool
             .min_fee_rate()
             .await

@@ -1157,22 +1157,15 @@ async fn a_failed_child_lookup_releases_nothing() {
     assert_eq!(held_by(&handle), inputs.to_vec());
 }
 
-/// The node refuses a package below its minimum when the parent is not in the mempool, so
-/// the minimum lifts the target there, and only there.
+/// The node refuses a package below its minimum when it does not hold the parent, and a child
+/// below it when it does, so the minimum lifts the target of a parent in either place.
 #[tokio::test]
-async fn the_node_minimum_lifts_the_target_only_for_an_absent_parent() {
+async fn the_node_minimum_lifts_the_target_of_an_unconfirmed_parent() {
     let (_, anchor_key) = test_keypair_and_xonly();
     let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
     let minimum = FeeRate::from_sat_per_vb(15).unwrap();
 
-    for (probe, expected, reads) in [
-        (ParentProbe::Absent, minimum, 1),
-        (
-            ParentProbe::NoChild,
-            FeeRate::from_sat_per_vb(8).unwrap(),
-            0,
-        ),
-    ] {
+    for probe in [ParentProbe::Absent, ParentProbe::NoChild] {
         let wallet = Arc::new(FakeWallet::returning(
             synthetic_child_psbt(&parent, 0),
             Vec::new(),
@@ -1195,8 +1188,16 @@ async fn the_node_minimum_lifts_the_target_only_for_an_absent_parent() {
         .await
         .expect("the package must submit");
 
-        assert_eq!(wallet.target(), Some(expected), "probe = {probe:?}");
-        assert_eq!(*mempool.min_fee_reads.lock().unwrap(), reads);
+        assert_eq!(
+            wallet.target(),
+            Some(minimum),
+            "the child must price at the node minimum, probe = {probe:?}"
+        );
+        assert_eq!(
+            *mempool.min_fee_reads.lock().unwrap(),
+            1,
+            "the attempt must read the node minimum, probe = {probe:?}"
+        );
     }
 }
 

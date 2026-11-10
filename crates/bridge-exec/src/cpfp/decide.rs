@@ -12,8 +12,8 @@ pub(super) struct BumpInputs {
     pub(super) estimate: FeeRate,
     /// Fee settings of the operator.
     pub(super) policy: FeeTargetPolicy,
-    /// [`CpfpMempool::min_fee_rate`] when the attempt read it. An attempt reads it only for an
-    /// absent parent, to spare the RPC. The rule itself is in `decide`.
+    /// [`CpfpMempool::min_fee_rate`] when the attempt read it. An attempt reads it for any parent
+    /// that its probe read. The rule itself is in `decide`.
     pub(super) node_min: Option<FeeRate>,
     /// Size of the parent.
     pub(super) parent_vbytes: u64,
@@ -69,10 +69,10 @@ pub(super) struct Decision {
 /// the whole shortfall, so the package always lands at or above the floor. Sources report raw
 /// market estimates; both settings are policy of this consumer.
 ///
-/// `node_min` raises the target only while the node does not hold the parent. A package with
-/// the parent in it must clear that rate as a package, or the node refuses it. With the parent in
-/// the mempool, the node judges the child alone, and the child's own rate clears it. The target
-/// therefore stays independent of the local mempool wherever that is possible.
+/// `node_min` raises the target. While the node does not hold the parent, a package must clear
+/// that rate as a package. While it does, the node judges the child alone, and the child must
+/// clear it on its own. The child pays at least the package rate, because it covers the shortfall
+/// of a parent below the target, so a target at the minimum clears both.
 ///
 /// The cap applies last, to all of the above.
 ///
@@ -92,7 +92,6 @@ pub(super) fn decide(inputs: BumpInputs) -> Decision {
         child_may_be_live,
     } = inputs;
 
-    let node_min = node_min.filter(|_| probe == Some(ParentProbe::Absent));
     let wanted = policy
         .wanted(estimate)
         .max(node_min.unwrap_or(FeeRate::ZERO));
@@ -204,12 +203,14 @@ mod tests {
         }
 
         #[test]
-        fn the_node_minimum_counts_only_for_an_absent_parent(inputs in bump_inputs()) {
-            let without = BumpInputs { node_min: None, ..inputs };
-            if inputs.probe != Some(ParentProbe::Absent) {
-                prop_assert_eq!(decide(inputs), decide(without));
-            } else {
-                prop_assert!(decide(inputs).target >= decide(without).target);
+        fn the_node_minimum_floors_the_target_under_the_cap(inputs in bump_inputs()) {
+            if let Some(minimum) = inputs.node_min {
+                let floor = minimum.min(inputs.policy.max_fee_rate);
+                prop_assert!(
+                    decide(inputs).target >= floor,
+                    "the target must clear the node minimum up to the cap, probe = {:?}",
+                    inputs.probe
+                );
             }
         }
 
