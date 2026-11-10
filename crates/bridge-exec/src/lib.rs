@@ -11,6 +11,7 @@
 
 mod chain;
 pub mod config;
+pub mod cpfp;
 pub mod deposit;
 pub mod errors;
 pub mod fees;
