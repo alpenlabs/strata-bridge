@@ -73,8 +73,9 @@ pub(super) const fn confirmed_status(
 
 /// Node access of the driver loop.
 ///
-/// Everything that touches the node sits behind this trait, so that a test double can stand in
-/// for the node. The production implementation is [`NodeAccess`].
+/// The package state machine is pure, and everything that touches the node sits behind this
+/// trait. The production implementation is [`NodeAccess`]. The other implementation is the test
+/// double that runs the real driver loop with no node.
 #[async_trait]
 pub(super) trait ChainAccess: Send + Sync {
     /// Opens the ZMQ subscription of `tx`.
@@ -100,8 +101,9 @@ pub(super) struct NodeAccess {
 ///
 /// A transaction with no confirmations reads as in the mempool. `txindex` also keeps a
 /// transaction of a block that a reorg removed, with a block hash and zero confirmations, and it
-/// reads the same way. A confirmed transaction with no block hash is a malformed answer, and it
-/// reads as in the mempool too, so that the driver does not stop.
+/// reads the same way. The package of such a parent learns of the reorg through a ZMQ `Unknown`
+/// event, not through the read on each block. A confirmed transaction with no block hash is a
+/// malformed answer, and it reads as in the mempool too, so that the driver does not stop.
 pub(super) async fn read_status(
     rpc_client: &BitcoinClient,
     txid: Txid,
