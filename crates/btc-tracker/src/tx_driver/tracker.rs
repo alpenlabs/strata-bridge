@@ -1,11 +1,11 @@
 //! The loop that owns every package, turns what it observes into events, and runs the actions.
 //!
-//! The tracker is the only code that changes a package. It hands sends to the [`Broadcaster`],
-//! and their results come back as events like any observation of the chain. It also keeps the
-//! callers of each package, which the state machine knows nothing of: it answers them when the
-//! package reports a status or ends.
+//! The tracker is the only code that changes a package. It hands sends to the [`Broadcaster`]
+//! and bumps to the [`Bumper`], and their results come back as events like any observation of
+//! the chain. It also keeps the callers of each package, which the state machine knows nothing
+//! of: it answers them when the package reports a status or ends.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use bitcoin::{Transaction, Txid};
 use futures::{
@@ -14,17 +14,21 @@ use futures::{
     StreamExt,
 };
 use strata_bridge_primitives::subscription::Subscription;
-use tokio::{select, sync::mpsc::UnboundedReceiver};
+use tokio::{select, sync::mpsc::UnboundedReceiver, time::Interval};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::warn;
 
 use super::{
     broadcaster::Broadcaster,
+    bumper::Bumper,
     errors::DriveErr,
     node::ChainAccess,
     package::{Action, Ending, Event, Package, PackageId, PendingCause},
 };
-use crate::event::{BlockEvent, BlockStatus, TxEvent, TxStatus};
+use crate::{
+    cpfp::{BumpOutcome, CpfpBumper, CpfpStrategy, DeadlineClass},
+    event::{BlockEvent, BlockStatus, TxEvent, TxStatus},
+};
 
 /// The channel that answers one caller.
 pub(super) type Responder = oneshot::Sender<Result<(), DriveErr>>;
@@ -41,6 +45,8 @@ pub(super) struct Caller {
 pub(super) struct Job {
     pub(super) tx: Transaction,
     pub(super) caller: Caller,
+    /// The strategy that bumps the transaction, when the caller wants CPFP.
+    pub(super) cpfp: Option<CpfpStrategy>,
 }
 
 /// What the tracker keeps for one package besides its state machine.
@@ -57,7 +63,7 @@ struct Entry {
 }
 
 /// Owns every package, its transaction and its callers.
-pub(super) struct Tracker {
+pub(super) struct Tracker<B: CpfpBumper> {
     chain: Arc<dyn ChainAccess>,
     entries: HashMap<PackageId, Entry>,
     /// The live package of each txid.
@@ -65,10 +71,12 @@ pub(super) struct Tracker {
     next_id: u64,
     subscriptions: SelectAll<Abortable<Subscription<TxEvent>>>,
     broadcaster: Broadcaster,
+    /// `None` for a driver that sends bare transactions only.
+    bumper: Option<Bumper<B>>,
 }
 
-impl Tracker {
-    pub(super) fn new(chain: Arc<dyn ChainAccess>) -> Self {
+impl<B: CpfpBumper> Tracker<B> {
+    pub(super) fn new(chain: Arc<dyn ChainAccess>, bumper: Option<Arc<B>>) -> Self {
         Self {
             broadcaster: Broadcaster::new(chain.clone()),
             chain,
@@ -76,16 +84,23 @@ impl Tracker {
             by_txid: HashMap::new(),
             next_id: 0,
             subscriptions: SelectAll::new(),
+            bumper: bumper.map(Bumper::new),
         }
     }
 
-    /// The driver loop.
+    /// The driver loop. `bump_interval` is `None` for a driver with no bumper.
     pub(super) async fn run(
         mut self,
         jobs: UnboundedReceiver<Job>,
         mut blocks: Subscription<BlockEvent>,
+        bump_interval: Option<Duration>,
     ) {
         let mut jobs = UnboundedReceiverStream::new(jobs);
+        let mut ticks = bump_interval.map(tokio::time::interval);
+        if let Some(ticks) = ticks.as_mut() {
+            // The first tick of an interval fires at once.
+            ticks.tick().await;
+        }
         loop {
             select! {
                 Some(job) = jobs.next() => self.on_job(job).await,
@@ -96,8 +111,12 @@ impl Tracker {
                     }
                 }
                 Some(block) = blocks.next() => self.on_block(block.status).await,
+                () = next_tick(ticks.as_mut()) => self.apply_all(&Event::Tick),
                 Some((id, result)) = self.broadcaster.next_result() => {
                     self.apply(id, Event::Broadcasted(result));
+                }
+                Some((id, outcome)) = next_outcome(self.bumper.as_mut()) => {
+                    self.apply(id, Event::Bumped(outcome));
                 }
             }
         }
@@ -110,7 +129,8 @@ impl Tracker {
     /// package opens its subscription before the read, so no event falls between the two. A
     /// read that fails counts as `Unknown` for a new package, and the node decides at the send.
     async fn on_job(&mut self, job: Job) {
-        let Job { tx, caller } = job;
+        let Job { tx, caller, cpfp } = job;
+        let cpfp = cpfp.filter(|_| self.bumper.is_some());
         let txid = tx.compute_txid();
 
         if let Some(&id) = self.by_txid.get(&txid) {
@@ -121,7 +141,7 @@ impl Tracker {
             if let Some(status) = status {
                 self.apply(id, Event::Seen(status));
             }
-            self.apply(id, Event::Joined);
+            self.apply(id, Event::Joined { cpfp });
             return;
         }
 
@@ -132,7 +152,7 @@ impl Tracker {
             .unwrap_or(TxStatus::Unknown);
         let id = PackageId(self.next_id);
         self.next_id += 1;
-        let (package, actions) = Package::open(status);
+        let (package, actions) = Package::open(cpfp, status);
         self.entries.insert(
             id,
             Entry {
@@ -146,15 +166,16 @@ impl Tracker {
         self.run_actions(id, actions);
     }
 
-    /// Reads every package on a block, so that a status that ZMQ missed still reaches it.
+    /// Applies one block to every package: the read of each package first, then the block
+    /// itself. Every read lands before the block, so a parent that this block mined is never
+    /// bumped by it.
     async fn on_block(&mut self, status: BlockStatus) {
         // A block reaches burial in the same step that connects another block, so a buried block
         // brings no change of its own.
         if status == BlockStatus::Buried {
             return;
         }
-        let ids: Vec<_> = self.entries.keys().copied().collect();
-        for id in ids {
+        for id in self.ids_by_deadline() {
             let Some(entry) = self.entries.get(&id) else {
                 continue;
             };
@@ -163,6 +184,7 @@ impl Tracker {
                 self.apply(id, Event::Seen(status));
             }
         }
+        self.apply_all(&Event::Block);
     }
 
     /// Steps the package `id` and runs its actions. An event for a package that ended does
@@ -177,12 +199,34 @@ impl Tracker {
         self.run_actions(id, actions);
     }
 
+    /// Applies `event` to every package, deadline packages first, so that their bumps queue
+    /// first.
+    fn apply_all(&mut self, event: &Event) {
+        for id in self.ids_by_deadline() {
+            self.apply(id, event.clone());
+        }
+    }
+
     fn run_actions(&mut self, id: PackageId, actions: Vec<Action>) {
         for action in actions {
             match action {
                 Action::Broadcast => {
                     if let Some(entry) = self.entries.get(&id) {
                         self.broadcaster.request(id, entry.tx.clone());
+                    }
+                }
+                Action::Bump => {
+                    let (Some(entry), Some(bumper)) = (self.entries.get(&id), self.bumper.as_mut())
+                    else {
+                        continue;
+                    };
+                    if let Some(strategy) = entry.package.strategy() {
+                        bumper.request(id, entry.tx.clone(), strategy.clone());
+                    }
+                }
+                Action::Release => {
+                    if let Some(bumper) = self.bumper.as_mut() {
+                        bumper.release(id);
                     }
                 }
                 Action::Report(status) => self.report(id, &status),
@@ -235,6 +279,23 @@ impl Tracker {
             let _ = caller.respond_on.send(Err(error.clone()));
         }
     }
+
+    /// The ids of every package, deadline packages first, then in the order they opened.
+    fn ids_by_deadline(&self) -> Vec<PackageId> {
+        let mut ids: Vec<_> = self
+            .entries
+            .iter()
+            .map(|(id, entry)| {
+                let no_deadline = entry
+                    .package
+                    .strategy()
+                    .is_none_or(|strategy| strategy.deadline != DeadlineClass::Deadline);
+                (no_deadline, *id)
+            })
+            .collect();
+        ids.sort();
+        ids.into_iter().map(|(_, id)| id).collect()
+    }
 }
 
 /// Reads the status of `txid`. A failed read is logged and reads as `None`.
@@ -244,4 +305,24 @@ async fn read_status(chain: &dyn ChainAccess, txid: Txid) -> Option<TxStatus> {
         .await
         .inspect_err(|err| warn!(%txid, %err, "could not read the transaction"))
         .ok()
+}
+
+/// Waits for the next tick of `ticks`, or forever when there are none.
+async fn next_tick(ticks: Option<&mut Interval>) {
+    match ticks {
+        Some(ticks) => {
+            ticks.tick().await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+/// Waits for the next outcome of `bumper`, or forever when there is no bumper.
+async fn next_outcome<B: CpfpBumper>(
+    bumper: Option<&mut Bumper<B>>,
+) -> Option<(PackageId, BumpOutcome)> {
+    match bumper {
+        Some(bumper) => bumper.next_outcome().await,
+        None => std::future::pending().await,
+    }
 }
