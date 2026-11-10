@@ -6,7 +6,7 @@ use algebra::{
     monoid::{self, Monoid},
     semigroup::Semigroup,
 };
-use bitcoin::{Amount, OutPoint, Transaction, Txid};
+use bitcoin::{Amount, BlockHash, OutPoint, Transaction, Txid};
 use bitcoind_async_client::{
     error::ClientError,
     traits::{Broadcaster, Reader},
@@ -159,6 +159,24 @@ async fn resubmit(rpc_client: &BitcoinClient, tx: Transaction, active_jobs: &mut
     }
 }
 
+/// The status of a transaction in a block of the active chain.
+///
+/// `confirmations` counts the containing block, and `bury_depth` counts the blocks built on top of
+/// it, as the client's state machine does. A transaction with more than `bury_depth` confirmations
+/// reads as buried.
+const fn confirmed_status(
+    confirmations: u64,
+    blockhash: BlockHash,
+    height: u64,
+    bury_depth: u64,
+) -> TxStatus {
+    if confirmations > bury_depth {
+        TxStatus::Buried { blockhash, height }
+    } else {
+        TxStatus::Mined { blockhash, height }
+    }
+}
+
 /// The predicate of a transaction subscription.
 ///
 /// The filter compares txids, not witnesses. The driver tracks whether a transaction reaches the
@@ -249,17 +267,15 @@ impl TxDriver {
                                 0
                             };
 
-                            let bury_depth = zmq_client.bury_depth() as u32;
+                            let bury_depth = zmq_client.bury_depth() as u64;
                             let tx_status = match num_confirmations {
                                 0 => TxStatus::Mempool,
-                                n if n < bury_depth as u64 => TxStatus::Mined {
-                                    blockhash: tx_data.block_hash.expect("must be present if confirmed"),
-                                    height: block_height,
-                                },
-                                _ => TxStatus::Buried {
-                                    blockhash: tx_data.block_hash.expect("must be present if confirmed"),
-                                    height: block_height,
-                                },
+                                n => confirmed_status(
+                                    n,
+                                    tx_data.block_hash.expect("must be present if confirmed"),
+                                    block_height,
+                                    bury_depth,
+                                ),
                             };
 
                             if job.condition()(&tx_status) {
@@ -396,11 +412,12 @@ impl Drop for TxDriver {
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        absolute, hashes::Hash, transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut,
-        Txid,
+        absolute, hashes::Hash, transaction, Amount, BlockHash, OutPoint, ScriptBuf, Transaction,
+        TxIn, TxOut, Txid,
     };
 
-    use super::{broadcast_options, matches_txid};
+    use super::{broadcast_options, confirmed_status, matches_txid};
+    use crate::event::TxStatus;
 
     fn tx_with_outputs(output: Vec<TxOut>) -> Transaction {
         Transaction {
@@ -422,6 +439,42 @@ mod tests {
             }],
             output: vec![],
         }
+    }
+
+    /// `bury_depth` counts the blocks built on top, as the client's state machine does, so a
+    /// transaction is buried once it has more confirmations than that.
+    #[test]
+    fn confirmed_status_buries_past_the_bury_depth() {
+        let blockhash = BlockHash::all_zeros();
+        let mined = TxStatus::Mined {
+            blockhash,
+            height: 100,
+        };
+        let buried = TxStatus::Buried {
+            blockhash,
+            height: 100,
+        };
+
+        assert_eq!(
+            confirmed_status(1, blockhash, 100, 6),
+            mined,
+            "one confirmation is mined"
+        );
+        assert_eq!(
+            confirmed_status(6, blockhash, 100, 6),
+            mined,
+            "five blocks on top are short of a bury depth of six"
+        );
+        assert_eq!(
+            confirmed_status(7, blockhash, 100, 6),
+            buried,
+            "six blocks on top bury the transaction"
+        );
+        assert_eq!(
+            confirmed_status(1, blockhash, 100, 0),
+            buried,
+            "a bury depth of zero buries a block when it connects"
+        );
     }
 
     #[test]
