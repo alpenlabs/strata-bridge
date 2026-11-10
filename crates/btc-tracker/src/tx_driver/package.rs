@@ -12,6 +12,10 @@ use crate::{
     event::TxStatus,
 };
 
+/// Bumps in a row that send no package, after which a tick no longer bumps the package. A block
+/// still does, so a package that cannot enter costs one bump per block, not one per tick.
+pub(super) const BACKOFF_AFTER: u32 = 3;
+
 /// Identifies one package for its whole life. A new job for a txid whose package ended opens a
 /// package with a new id, so a late result for the old one cannot touch it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -25,6 +29,8 @@ pub(super) struct Package {
     bury_depth: u64,
     /// Whether a bump that this package asked for has not reported yet.
     bump_running: bool,
+    /// Bumps in a row that sent no package.
+    fruitless_bumps: u32,
     state: PackageState,
 }
 
@@ -150,6 +156,7 @@ impl Package {
             cpfp: cpfp.map_or(Cpfp::Bare, Cpfp::Armed),
             bury_depth,
             bump_running: false,
+            fruitless_bumps: 0,
             state: PackageState::Pending {
                 cause: PendingCause::Publish,
                 rejection: None,
@@ -176,7 +183,11 @@ impl Package {
                 status,
                 tip,
             } => self.read(input_spent, status, tip),
-            Event::Block | Event::Tick => self.bump().into_iter().collect(),
+            Event::Block => self.bump().into_iter().collect(),
+            Event::Tick if self.fruitless_bumps < BACKOFF_AFTER => {
+                self.bump().into_iter().collect()
+            }
+            Event::Tick => Vec::new(),
             Event::Reorged => {
                 if matches!(self.state, PackageState::Conflicted { .. }) {
                     self.state = Self::evicted();
@@ -333,13 +344,17 @@ impl Package {
         self.bump_running = false;
         match outcome {
             BumpOutcome::Submitted | BumpOutcome::ParentIsLive => {
+                self.fruitless_bumps = 0;
                 if matches!(self.state, PackageState::Pending { .. }) {
                     self.observe(TxStatus::Mempool)
                 } else {
                     Vec::new()
                 }
             }
-            BumpOutcome::NoPackage => Vec::new(),
+            BumpOutcome::NoPackage => {
+                self.fruitless_bumps = self.fruitless_bumps.saturating_add(1);
+                Vec::new()
+            }
             BumpOutcome::Unbumpable => {
                 if !matches!(self.cpfp, Cpfp::Armed(_)) {
                     return Vec::new();
@@ -427,6 +442,7 @@ mod tests {
             cpfp,
             bury_depth: DEPTH,
             bump_running: false,
+            fruitless_bumps: 0,
             state,
         }
     }
@@ -1205,6 +1221,52 @@ mod tests {
                 assert_eq!(package, conflicted, "only a read decides a conflict");
                 assert!(actions.is_empty(), "no send or bump can carry the parent");
             }
+        }
+    }
+
+    mod backoff {
+        use super::*;
+
+        #[test]
+        fn ticks_back_off_after_bumps_that_send_nothing() {
+            let mut live = pkg(armed(), pending());
+            for _ in 0..BACKOFF_AFTER {
+                let (running, actions) = live.step(Event::Tick);
+                assert_eq!(
+                    actions,
+                    vec![Action::Bump],
+                    "a tick bumps until the back-off"
+                );
+                (live, _) = running.step(Event::Bumped(BumpOutcome::NoPackage));
+            }
+
+            let (backed_off, actions) = live.step(Event::Tick);
+            assert!(actions.is_empty(), "a tick no longer bumps");
+            let (running, actions) = backed_off.step(Event::Block);
+            assert_eq!(actions, vec![Action::Bump], "a block still bumps");
+
+            let (reached, _) = running.step(Event::Bumped(BumpOutcome::Submitted));
+            let (_, actions) = reached.step(Event::Tick);
+            assert_eq!(
+                actions,
+                vec![Action::Bump],
+                "a bump that reaches the network ends the back-off"
+            );
+        }
+
+        #[test]
+        fn a_bump_with_no_package_counts_toward_the_back_off() {
+            let sent = Package {
+                bump_running: true,
+                ..pkg(armed(), pending())
+            };
+
+            let (package, _) = sent.step(Event::Bumped(BumpOutcome::NoPackage));
+
+            assert_eq!(
+                package.fruitless_bumps, 1,
+                "the bump counts toward the back-off"
+            );
         }
     }
 
