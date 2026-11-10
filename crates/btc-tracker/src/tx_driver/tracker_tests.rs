@@ -13,7 +13,7 @@ use tokio::{
     time::{sleep, timeout},
 };
 
-use super::{driver::TxDriver, errors::DriveErr, test_utils::*};
+use super::{driver::TxDriver, errors::DriveErr, package::BACKOFF_AFTER, test_utils::*};
 use crate::{
     cpfp::{BumpOutcome, CpfpStrategy, DeadlineClass, FirstBump},
     event::{BlockEvent, BlockStatus, TxStatus},
@@ -897,5 +897,31 @@ mod conflicts {
             !drive.is_finished(),
             "the spender has no six blocks on top yet"
         );
+    }
+}
+
+mod backoff {
+    use super::*;
+
+    /// After bumps in a row that send no package, ticks stop bumping. Blocks still do.
+    #[tokio::test]
+    async fn ticks_back_off_after_bumps_that_send_nothing() {
+        let harness = harness_with(
+            FakeBumper::reporting(BumpOutcome::NoPackage),
+            Duration::from_millis(5),
+        );
+        let tx = parent(1);
+        let _drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(BACKOFF_AFTER as usize).await;
+
+        sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            harness.bumper.calls(),
+            BACKOFF_AFTER as usize,
+            "ticks stop bumping a package that keeps sending nothing"
+        );
+
+        harness.connect_block().await;
+        harness.wait_for_bumps(BACKOFF_AFTER as usize + 1).await;
     }
 }
