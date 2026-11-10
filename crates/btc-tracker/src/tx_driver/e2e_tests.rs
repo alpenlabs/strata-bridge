@@ -15,8 +15,12 @@ use strata_bridge_common::logging;
 use strata_bridge_test_utils::prelude::wait_for_height;
 use tracing::{debug, info};
 
-use super::*;
-use crate::{client::BlockFetcher, config::BtcNotifyConfig};
+use super::{driver::*, *};
+use crate::{
+    client::{BlockFetcher, BtcNotifyClient},
+    config::BtcNotifyConfig,
+    event::TxStatus,
+};
 
 // TODO: <https://alpenlabs.atlassian.net/browse/STR-2692>
 // Remove this once rust-bitcoin@0.33.x lands; it works around a rust-bitcoin bug.
