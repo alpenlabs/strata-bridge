@@ -12,7 +12,8 @@
 //! The network-backed sources clamp their reported rate to `MIN_SOURCE_FEE_RATE`.
 //!
 //! The orchestrator builds the configured source via [`FeeSourceConfig::build`] and wraps it in
-//! a [`FeeQuoteMemo`], which the executors share, so a duty does not hit the network per call.
+//! a [`FeeQuoteMemo`], which the executors and the CPFP ladder share, so neither hits the network
+//! per call and both keep a last known rate when the source fails.
 
 use std::{fmt, sync::Arc, time::Duration};
 
@@ -96,8 +97,8 @@ enum ExplorerError {
 
 /// Source of fee-rate estimates.
 ///
-/// In production the configured source sits behind a [`FeeQuoteMemo`], so the executors share one
-/// quote and do not hit the network per call.
+/// In production the configured source sits behind a [`FeeQuoteMemo`], so the ladder and the
+/// executors share one quote and do not hit the network per call.
 #[async_trait]
 pub trait FeeSource: Send + Sync + fmt::Debug {
     /// Returns the next-block fee rate: `fastestFee` on the mempool explorer, confirmation target
@@ -254,7 +255,7 @@ impl FeeSource for MempoolExplorerFeeSource {
 /// Fee source that returns a constant rate, regardless of network conditions.
 ///
 /// Intended for tests and emergency manual overrides. The source itself clamps nothing. The floors
-/// of the wallet-funded paths still apply to its rate.
+/// of the wallet-funded paths and the ladder still apply to its rate.
 #[derive(Debug)]
 struct FixedFeeSource(FeeRate);
 
@@ -265,9 +266,10 @@ impl FeeSource for FixedFeeSource {
     }
 }
 
-/// How long a quote answers reads with no upstream call. A failed upstream read waits the same time
-/// before the next attempt, measured from its end, so a down source costs one slow failure per
-/// period and not one per caller.
+/// How long a quote answers reads with no upstream call. The default bump interval must stay above
+/// this, so that each bump tick of an idle node reads a new quote. A failed upstream read waits the
+/// same time before the next attempt, measured from its end, so a down source costs one slow
+/// failure per period and not one per caller.
 pub const QUOTE_TTL: Duration = Duration::from_secs(25);
 
 /// Oldest quote that [`FeeQuoteMemo::duty_rate`] accepts, at the moment of the read. The duty then
@@ -276,10 +278,10 @@ pub const QUOTE_TTL: Duration = Duration::from_secs(25);
 /// with no failed read. In that case one failed read refuses the duty.
 const MAX_QUOTE_AGE: Duration = Duration::from_secs(300);
 
-/// Upper bound on one upstream read. Callers wait for the read. This covers the 10 s explorer
-/// timeout and 10 s of Core time. It is shorter than the Core client's own 30 s timeout, so a
-/// slow Core answer is lost and the last quote stands. A read past the bound counts as a failed
-/// read.
+/// Upper bound on one upstream read. Callers wait for the read, and one of them can be a bump with
+/// a deadline. This covers the 10 s explorer timeout and 10 s of Core time. It is shorter than the
+/// Core client's own 30 s timeout, so a slow Core answer is lost and the last quote stands. A read
+/// past the bound counts as a failed read.
 const QUOTE_READ_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// The last rate that the memo holds.
@@ -297,16 +299,21 @@ struct MemoState {
     attempted_at: Option<Instant>,
 }
 
-/// Read-through memo over the configured [`FeeSource`], shared by the executors.
+/// Read-through memo over the configured [`FeeSource`], shared by the executors and the CPFP
+/// ladder.
 ///
 /// A read inside `QUOTE_TTL` of the end of the last upstream attempt does no I/O. A later read goes
 /// upstream on the caller's task, and concurrent callers wait for that one read. Nothing runs
 /// between reads, so an idle node makes no fee requests.
 ///
-/// A failed upstream read keeps the last quote. A wallet-funded duty reads through
-/// [`Self::duty_rate`], which refuses a quote older than `MAX_QUOTE_AGE`: a frozen quote prices a
-/// transaction at the market from before the source failed. The error fails the duty, which waits
-/// for the next `retry_interval` tick.
+/// A failed upstream read keeps the last quote, and the two kinds of caller then differ:
+///
+/// - A bump reads through [`FeeSource::next_block_rate`], which always returns the last quote. A
+///   bump at an old rate is better than no bump, because the parent otherwise pays only its own
+///   fee.
+/// - A wallet-funded duty reads through [`Self::duty_rate`], which refuses a quote older than
+///   `MAX_QUOTE_AGE`. A frozen quote prices a transaction at the market from before the source
+///   failed. The error fails the duty, which waits for the next `retry_interval` tick.
 ///
 /// A source with no estimate ([`FeeSourceError::NoEstimate`]) gives a quote at the floor rate, as
 /// on a node that reads `estimatesmartfee` directly. A warning fires on each such read. On mainnet
@@ -333,7 +340,7 @@ impl FeeQuoteMemo {
     }
 
     /// Returns the last quote, after one upstream read if the TTL has passed. `None` while no
-    /// read has answered.
+    /// read has answered: a bump then prices at the floor, and a duty refuses.
     async fn quote(&self) -> Option<Quote> {
         let mut state = self.state.lock().await;
         let ttl_passed = state
@@ -355,7 +362,7 @@ impl FeeQuoteMemo {
                 }
                 Ok(Err(error @ FeeSourceError::NoEstimate)) => {
                     // Without this log a cold node is indistinguishable from a calm mempool, and
-                    // the quote quietly sits at the minimum.
+                    // every bump quietly targets the minimum.
                     warn!(%error, "fee source has no estimate; the floor fee rate stands in");
                     state.quote = Some(Quote {
                         rate: MIN_SOURCE_FEE_RATE,
@@ -386,6 +393,18 @@ impl FeeQuoteMemo {
             return Err(NoDutyFeeRate::QuoteTooOld { age });
         }
         Ok(quote.rate)
+    }
+}
+
+#[async_trait]
+impl FeeSource for FeeQuoteMemo {
+    /// Never returns `Err`: the last quote answers when the upstream read fails, and the floor
+    /// answers while no read has.
+    async fn next_block_rate(&self) -> Result<FeeRate, FeeSourceError> {
+        Ok(self
+            .quote()
+            .await
+            .map_or(MIN_SOURCE_FEE_RATE, |quote| quote.rate))
     }
 }
 
@@ -504,6 +523,52 @@ fn explorer_rate(raw_sat_per_vb: u64) -> Result<FeeRate, ExplorerError> {
     FeeRate::from_sat_per_vb(raw_sat_per_vb)
         .map(|rate| rate.max(MIN_SOURCE_FEE_RATE))
         .ok_or(ExplorerError::RateOverflow(raw_sat_per_vb))
+}
+
+/// Operator policy that turns a next-block estimate into the fee rate a package must reach.
+///
+/// Only the CPFP ladder reads this. A transaction that a duty funds pays the raw next-block
+/// estimate, floored at [`FeeRate::BROADCAST_MIN`], and its first bump waits for a trigger, so the
+/// premium applies only to a parent that stays unconfirmed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeeTargetPolicy {
+    /// Percentage added to the next-block estimate, rounded up in sat/kwu. A value of `0` keeps
+    /// the raw estimate.
+    pub premium_percent: u32,
+    /// Lower bound of the target, applied after the premium.
+    pub min_package_fee_rate: FeeRate,
+    /// Upper bound of the target. It wins over the premium and over the lower bound.
+    pub max_fee_rate: FeeRate,
+}
+
+impl FeeTargetPolicy {
+    /// Returns the rate that `next_block` asks for: the premium, then the lower bound, with no cap.
+    /// The premium rounds up, so it never lowers the rate. A raised rate that does not fit a
+    /// [`FeeRate`] saturates, so it reaches the cap and not a low value.
+    pub(crate) fn wanted(&self, next_block: FeeRate) -> FeeRate {
+        let rate_kwu = u128::from(next_block.to_sat_per_kwu());
+        let multiplier = u128::from(self.premium_percent) + 100;
+        let raised = rate_kwu.saturating_mul(multiplier).div_ceil(100);
+        FeeRate::from_sat_per_kwu(raised.try_into().unwrap_or(u64::MAX))
+            .max(self.min_package_fee_rate)
+    }
+
+    /// Returns the fee rate target for `next_block`.
+    ///
+    /// A clamp to [`Self::max_fee_rate`] logs at warn: the operator pays no more than the cap,
+    /// and the transaction can stay behind the market.
+    pub fn target(&self, next_block: FeeRate) -> FeeRate {
+        let estimated = self.wanted(next_block);
+        if estimated > self.max_fee_rate {
+            warn!(
+                ?estimated,
+                cap = ?self.max_fee_rate,
+                "fee target exceeds max_fee_rate; clamping to the cap"
+            );
+            return self.max_fee_rate;
+        }
+        estimated
+    }
 }
 
 /// Fee rate for a wallet-funded transaction. It reads the next-block rate of the shared memo,
@@ -811,6 +876,41 @@ mod tests {
         FeeRate::from_sat_per_vb(rate).expect("valid rate")
     }
 
+    fn policy(premium_percent: u32, floor: u64, cap: u64) -> FeeTargetPolicy {
+        FeeTargetPolicy {
+            premium_percent,
+            min_package_fee_rate: sat_vb(floor),
+            max_fee_rate: sat_vb(cap),
+        }
+    }
+
+    #[test]
+    fn fee_target_applies_premium_then_floor_then_cap() {
+        assert_eq!(policy(50, 0, 100).target(sat_vb(10)), sat_vb(15));
+        assert_eq!(policy(50, 20, 100).target(sat_vb(10)), sat_vb(20));
+        assert_eq!(policy(50, 0, 12).target(sat_vb(10)), sat_vb(12));
+        assert_eq!(
+            policy(0, 200, 100).target(sat_vb(10)),
+            sat_vb(100),
+            "the cap wins over the floor"
+        );
+        assert_eq!(
+            policy(u32::MAX, 0, 100).target(FeeRate::from_sat_per_kwu(u64::MAX)),
+            sat_vb(100),
+            "a raised rate that overflows reaches the cap"
+        );
+    }
+
+    /// The premium rounds up in sat/kwu, so a fractional raise never prices below the market.
+    #[test]
+    fn fee_premium_rounds_up_in_sat_kwu() {
+        // 750 sat/kwu (3 sat/vB) raised by 5% is 787.5 sat/kwu, which rounds to 788.
+        assert_eq!(
+            policy(5, 0, 1000).wanted(FeeRate::from_sat_per_kwu(750)),
+            FeeRate::from_sat_per_kwu(788)
+        );
+    }
+
     #[tokio::test]
     async fn funding_pays_the_next_block_rate() {
         let memo = FeeQuoteMemo::new(ScriptedFeeSource::returning(20));
@@ -1060,6 +1160,51 @@ mod tests {
             memo.duty_rate().await,
             Ok(MIN_SOURCE_FEE_RATE),
             "a missing estimate prices at the floor"
+        );
+    }
+
+    /// A source that is down at the first read serves the floor to bumps until it answers.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_first_read_serves_the_floor_to_bumps() {
+        let source = ScriptedFeeSource::returning(12);
+        source.fail();
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.next_block_rate().await.unwrap(),
+            MIN_SOURCE_FEE_RATE,
+            "a bump with no quote prices at the floor"
+        );
+
+        source.set(Ok(sat_vb(12)));
+        tokio::time::advance(QUOTE_TTL).await;
+        assert_eq!(
+            memo.next_block_rate().await.unwrap(),
+            sat_vb(12),
+            "the first answer prices the bump"
+        );
+    }
+
+    /// A bump keeps the last rate past the bound at which a duty refuses it.
+    #[tokio::test(start_paused = true)]
+    async fn a_frozen_quote_serves_bumps() {
+        let source = ScriptedFeeSource::returning(12);
+        let memo = FeeQuoteMemo::new(source.clone());
+        assert_eq!(
+            memo.next_block_rate().await.unwrap(),
+            sat_vb(12),
+            "the first quote prices the bump"
+        );
+
+        source.fail();
+        tokio::time::advance(MAX_QUOTE_AGE + Duration::from_secs(1)).await;
+        assert!(
+            memo.duty_rate().await.is_err(),
+            "the quote is past the bound of a duty"
+        );
+        assert_eq!(
+            memo.next_block_rate().await.unwrap(),
+            sat_vb(12),
+            "a bump keeps the last known rate"
         );
     }
 
