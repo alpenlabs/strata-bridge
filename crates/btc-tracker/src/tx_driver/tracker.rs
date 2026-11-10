@@ -7,7 +7,8 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use bitcoin::{Transaction, Txid};
+use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoind_async_client::error::ClientError;
 use futures::{
     channel::oneshot,
     stream::{abortable, AbortHandle, Abortable, SelectAll},
@@ -65,6 +66,7 @@ struct Entry {
 /// Owns every package, its transaction and its callers.
 pub(super) struct Tracker<B: CpfpBumper> {
     chain: Arc<dyn ChainAccess>,
+    bury_depth: u64,
     entries: HashMap<PackageId, Entry>,
     /// The live package of each txid.
     by_txid: HashMap<Txid, PackageId>,
@@ -76,10 +78,15 @@ pub(super) struct Tracker<B: CpfpBumper> {
 }
 
 impl<B: CpfpBumper> Tracker<B> {
-    pub(super) fn new(chain: Arc<dyn ChainAccess>, bumper: Option<Arc<B>>) -> Self {
+    pub(super) fn new(
+        chain: Arc<dyn ChainAccess>,
+        bury_depth: u64,
+        bumper: Option<Arc<B>>,
+    ) -> Self {
         Self {
             broadcaster: Broadcaster::new(chain.clone()),
             chain,
+            bury_depth,
             entries: HashMap::new(),
             by_txid: HashMap::new(),
             next_id: 0,
@@ -152,7 +159,7 @@ impl<B: CpfpBumper> Tracker<B> {
             .unwrap_or(TxStatus::Unknown);
         let id = PackageId(self.next_id);
         self.next_id += 1;
-        let (package, actions) = Package::open(cpfp, status);
+        let (package, actions) = Package::open(cpfp, self.bury_depth, status);
         self.entries.insert(
             id,
             Entry {
@@ -166,22 +173,40 @@ impl<B: CpfpBumper> Tracker<B> {
         self.run_actions(id, actions);
     }
 
-    /// Applies one block to every package: the read of each package first, then the block
-    /// itself. Every read lands before the block, so a parent that this block mined is never
-    /// bumped by it.
+    /// Applies one block to every package: a reorg first, then the read of each package, then
+    /// the block itself. Every read lands before the block, so a parent that this block mined
+    /// is never bumped by it.
     async fn on_block(&mut self, status: BlockStatus) {
         // A block reaches burial in the same step that connects another block, so a buried block
         // brings no change of its own.
         if status == BlockStatus::Buried {
             return;
         }
+        if status == BlockStatus::Uncled {
+            self.apply_all(&Event::Reorged);
+        }
         for id in self.ids_by_deadline() {
             let Some(entry) = self.entries.get(&id) else {
                 continue;
             };
             let txid = entry.tx.compute_txid();
-            if let Some(status) = read_status(self.chain.as_ref(), txid).await {
-                self.apply(id, Event::Seen(status));
+            // A bare package takes no conflict, so it reads no inputs.
+            let inputs: Vec<OutPoint> = match entry.package.strategy() {
+                Some(_) => entry.tx.input.iter().map(|i| i.previous_output).collect(),
+                None => Vec::new(),
+            };
+            match read(self.chain.as_ref(), txid, &inputs).await {
+                Ok((input_spent, status, tip)) => self.apply(
+                    id,
+                    Event::Read {
+                        input_spent,
+                        status,
+                        tip,
+                    },
+                ),
+                Err(err) => {
+                    warn!(%txid, %err, "could not read the transaction; the next block retries")
+                }
             }
         }
         self.apply_all(&Event::Block);
@@ -263,6 +288,7 @@ impl<B: CpfpBumper> Tracker<B> {
         entry.subscription.abort();
         let error = match ending {
             Ending::Buried => DriveErr::ConditionUnmet,
+            Ending::ConflictBuried => DriveErr::ConflictBuried,
             Ending::Rejected {
                 cause: PendingCause::Publish,
                 error,
@@ -305,6 +331,25 @@ async fn read_status(chain: &dyn ChainAccess, txid: Txid) -> Option<TxStatus> {
         .await
         .inspect_err(|err| warn!(%txid, %err, "could not read the transaction"))
         .ok()
+}
+
+/// Reads what [`Event::Read`] carries, in the order that it states: whether a confirmed
+/// transaction spends one of `inputs`, the status of `txid`, and the tip.
+async fn read(
+    chain: &dyn ChainAccess,
+    txid: Txid,
+    inputs: &[OutPoint],
+) -> Result<(bool, TxStatus, u64), ClientError> {
+    let mut input_spent = false;
+    for outpoint in inputs {
+        if chain.is_spent_on_chain(*outpoint).await? {
+            input_spent = true;
+            break;
+        }
+    }
+    let status = chain.fetch_status(txid).await?;
+    let tip = chain.tip_height().await?;
+    Ok((input_spent, status, tip))
 }
 
 /// Waits for the next tick of `ticks`, or forever when there are none.

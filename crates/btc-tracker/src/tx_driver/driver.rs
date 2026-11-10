@@ -56,6 +56,8 @@ impl TxDriver {
     /// it, or when its strategy asks for a bump at the publish, `bumper` attaches a child at
     /// once. After that, `bumper` keeps the package at the target on each block and each
     /// `bump_check_interval`, deadline transactions first, until the transaction is in a block.
+    /// The driver stops on an unconfirmed transaction only when a buried transaction spends one
+    /// of its inputs.
     pub async fn with_cpfp<B: CpfpBumper>(
         zmq_client: BtcNotifyClient<Connected>,
         rpc_client: BitcoinClient,
@@ -70,12 +72,13 @@ impl TxDriver {
         rpc_client: BitcoinClient,
         bumper: Option<(Arc<B>, Duration)>,
     ) -> Self {
+        let bury_depth = zmq_client.bury_depth() as u64;
         let blocks = zmq_client.subscribe_blocks().await;
         let chain = Arc::new(NodeAccess {
             zmq_client,
             rpc_client,
         });
-        Self::spawn(chain, blocks, bumper)
+        Self::spawn(chain, blocks, bumper, bury_depth)
     }
 
     /// Starts the driver loop over `chain`. `bumper` carries the bump interval with it: a driver
@@ -84,10 +87,11 @@ impl TxDriver {
         chain: Arc<dyn ChainAccess>,
         blocks: Subscription<BlockEvent>,
         bumper: Option<(Arc<B>, Duration)>,
+        bury_depth: u64,
     ) -> Self {
         let (jobs, receiver) = unbounded_channel();
         let (bumper, bump_interval) = bumper.unzip();
-        let tracker = Tracker::new(chain, bumper);
+        let tracker = Tracker::new(chain, bury_depth, bumper);
         let driver = tokio::spawn(tracker.run(receiver, blocks, bump_interval));
         Self { jobs, driver }
     }
@@ -109,8 +113,9 @@ impl TxDriver {
     ///
     /// Resolves with `Ok(())` once the transaction reaches a status accepted by `condition`. A
     /// bump that sends no package does not fail the call: the next block or tick retries. It
-    /// resolves with an error only when the transaction is buried before `condition` holds, or
-    /// when the node rejects the transaction and the bumper reports that it cannot carry a child.
+    /// resolves with an error only when the transaction is buried before `condition` holds, when
+    /// a conflicting transaction is buried, or when the node rejects the transaction and the
+    /// bumper reports that it cannot carry a child.
     pub async fn drive_with_cpfp(
         &self,
         tx: Transaction,

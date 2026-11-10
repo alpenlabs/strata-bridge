@@ -86,6 +86,12 @@ pub(super) trait ChainAccess: Send + Sync {
     /// transport fault for an eviction.
     async fn fetch_status(&self, txid: Txid) -> Result<TxStatus, ClientError>;
 
+    /// Whether a confirmed transaction spends `outpoint`.
+    async fn is_spent_on_chain(&self, outpoint: OutPoint) -> Result<bool, ClientError>;
+
+    /// Reads the height of the chain tip.
+    async fn tip_height(&self) -> Result<u64, ClientError>;
+
     /// Sends `tx` to the mempool without a package.
     async fn broadcast(&self, tx: &Transaction) -> Result<Txid, ClientError>;
 }
@@ -96,14 +102,18 @@ pub(super) struct NodeAccess {
     pub(super) rpc_client: BitcoinClient,
 }
 
+/// The text of the client error for a `null` RPC result.
+pub(super) const NULL_RESULT: &str = "Empty data received";
+
 /// Reads the status of `txid` through `getrawtransaction`. The result covers confirmed
 /// transactions only when the node runs with `txindex=1`.
 ///
 /// A transaction with no confirmations reads as in the mempool. `txindex` also keeps a
 /// transaction of a block that a reorg removed, with a block hash and zero confirmations, and it
 /// reads the same way. The package of such a parent learns of the reorg through a ZMQ `Unknown`
-/// event, not through the read on each block. A confirmed transaction with no block hash is a
-/// malformed answer, and it reads as in the mempool too, so that the driver does not stop.
+/// event or the buried-conflict rule, not through the read on each block. A confirmed transaction
+/// with no block hash is a malformed answer, and it reads as in the mempool too, so that the
+/// driver does not stop.
 pub(super) async fn read_status(
     rpc_client: &BitcoinClient,
     txid: Txid,
@@ -130,6 +140,34 @@ pub(super) async fn read_status(
     }
 }
 
+/// Reads whether a confirmed transaction spends `outpoint`.
+///
+/// `gettxout` without the mempool answers `null` for a spent output, and also for an output of
+/// a transaction that is not in a block. Only the first case is a spend, so a `null` counts only
+/// when the transaction that creates the output is confirmed.
+pub(super) async fn read_spent_on_chain(
+    rpc_client: &BitcoinClient,
+    outpoint: OutPoint,
+) -> Result<bool, ClientError> {
+    match rpc_client
+        .get_tx_out(&outpoint.txid, outpoint.vout, false)
+        .await
+    {
+        Ok(_) => Ok(false),
+        Err(ClientError::Other(ref msg)) if msg == NULL_RESULT => {
+            match rpc_client
+                .get_raw_transaction_verbosity_one(&outpoint.txid)
+                .await
+            {
+                Ok(creator) => Ok(creator.confirmations.unwrap_or(0) > 0),
+                Err(err) if err.is_tx_not_found() => Ok(false),
+                Err(err) => Err(err),
+            }
+        }
+        Err(err) => Err(err),
+    }
+}
+
 #[async_trait]
 impl ChainAccess for NodeAccess {
     async fn subscribe(&self, tx: &Transaction) -> Subscription<TxEvent> {
@@ -140,6 +178,14 @@ impl ChainAccess for NodeAccess {
 
     async fn fetch_status(&self, txid: Txid) -> Result<TxStatus, ClientError> {
         read_status(&self.rpc_client, txid, self.zmq_client.bury_depth() as u64).await
+    }
+
+    async fn is_spent_on_chain(&self, outpoint: OutPoint) -> Result<bool, ClientError> {
+        read_spent_on_chain(&self.rpc_client, outpoint).await
+    }
+
+    async fn tip_height(&self) -> Result<u64, ClientError> {
+        self.rpc_client.get_block_count().await
     }
 
     async fn broadcast(&self, tx: &Transaction) -> Result<Txid, ClientError> {
@@ -275,7 +321,7 @@ mod tests {
 #[cfg(test)]
 mod rpc_tests {
     use bitcoin::{Address, Amount};
-    use corepc_node::{Conf, Node};
+    use corepc_node::{Conf, Node, Output};
 
     use super::*;
 
@@ -307,6 +353,87 @@ mod rpc_tests {
             .txid()
             .expect("valid txid");
         OutPoint { txid, vout: 0 }
+    }
+
+    /// Spends every wallet output, so that the outputs of `outpoint.txid` go too.
+    fn spend_all(node: &Node, address: &Address) {
+        let balance = node
+            .client
+            .get_balance()
+            .expect("wallet balance")
+            .balance()
+            .expect("valid balance");
+        let out = Output::new(
+            address.clone(),
+            balance - Amount::from_btc(0.01).expect("fee"),
+        );
+        let raw = node
+            .client
+            .create_raw_transaction(&[], &[out])
+            .expect("raw transaction")
+            .0;
+        let funded: corepc_node::vtype::FundRawTransaction = node
+            .client
+            .call("fundrawtransaction", &[raw.into()])
+            .expect("funded");
+        let tx = funded.into_model().expect("valid transaction").tx;
+        let signed = node
+            .client
+            .sign_raw_transaction_with_wallet(&tx)
+            .expect("signed")
+            .into_model()
+            .expect("valid transaction")
+            .tx;
+        node.client.send_raw_transaction(&signed).expect("accepted");
+    }
+
+    /// An output of a transaction in the mempool has no UTXO entry, and that is no spend.
+    #[tokio::test]
+    async fn an_output_of_a_mempool_transaction_reads_as_not_spent() {
+        let (node, client, address) = setup();
+        let outpoint = send(&node, &address);
+
+        assert!(
+            !read_spent_on_chain(&client, outpoint).await.expect("read"),
+            "an output of a mempool transaction has no UTXO entry and no spend"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unspent_confirmed_output_reads_as_not_spent() {
+        let (node, client, address) = setup();
+        let outpoint = send(&node, &address);
+        node.client
+            .generate_to_address(1, &address)
+            .expect("block mines");
+
+        assert!(
+            !read_spent_on_chain(&client, outpoint).await.expect("read"),
+            "a confirmed output with a UTXO entry is unspent"
+        );
+    }
+
+    #[tokio::test]
+    async fn only_a_confirmed_spend_reads_as_spent() {
+        let (node, client, address) = setup();
+        let outpoint = send(&node, &address);
+        node.client
+            .generate_to_address(1, &address)
+            .expect("block mines");
+        spend_all(&node, &address);
+        assert!(
+            !read_spent_on_chain(&client, outpoint).await.expect("read"),
+            "a mempool spend is not a confirmed spend"
+        );
+
+        node.client
+            .generate_to_address(1, &address)
+            .expect("block mines");
+
+        assert!(
+            read_spent_on_chain(&client, outpoint).await.expect("read"),
+            "a spend in a block is a confirmed spend"
+        );
     }
 
     /// `txindex` keeps the entry of a block that left the chain. A transaction in that block reads
