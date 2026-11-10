@@ -40,6 +40,12 @@ pub enum DriveErr {
     #[error("could not publish transaction: {0}")]
     PublishFailed(ClientError),
 
+    /// The transaction reached burial before the caller's condition was true. The driver
+    /// stops tracking a transaction at burial, so the condition can never become true after
+    /// this point.
+    #[error("transaction was buried before the wait condition was met")]
+    ConditionUnmet,
+
     /// Indicates that the transaction was evicted from the mempool and could not be rebroadcast.
     #[error("transaction {txid} was evicted from the mempool and rebroadcast failed: {source}")]
     Evicted {
@@ -283,6 +289,12 @@ impl TxDriver {
                                 if job.respond_on.send(Ok(())).is_err() {
                                     error!("could not send response to job submitter");
                                 }
+                            } else if tx_status.is_buried() {
+                                // A buried transaction sends no further event, so the condition
+                                // can never become true.
+                                if job.respond_on.send(Err(DriveErr::ConditionUnmet)).is_err() {
+                                    error!("could not send error response to job submitter");
+                                }
                             } else {
                                 // if the condition is not met, we still need to add the job
                                 // to the active jobs so that we can notify it later.
@@ -341,6 +353,11 @@ impl TxDriver {
                                     .filter_map(|(condition, response)| {
                                         if condition(&event.status) {
                                             let _ = response.send(Ok(()));
+                                            None
+                                        } else if event.status.is_buried() {
+                                            // The subscription ends at burial, so the condition
+                                            // can never become true.
+                                            let _ = response.send(Err(DriveErr::ConditionUnmet));
                                             None
                                         } else {
                                             Some(
@@ -708,6 +725,60 @@ mod e2e_tests {
         fst_res.expect("first drive succeeds");
         snd_res.expect("second drive succeeds");
 
+        Ok(())
+    }
+
+    /// A wallet payment of 1 BTC to `address`, funded and signed by the node's wallet.
+    fn signed_payment(
+        bitcoind: &corepc_node::Node,
+        address: bitcoin::Address,
+    ) -> Result<Transaction, Box<dyn std::error::Error>> {
+        let outs = vec![Output::new(address, Amount::from_btc(1.0)?)];
+        let raw_hex = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
+        let funded: FundRawTransaction = bitcoind
+            .client
+            .call("fundrawtransaction", &[raw_hex.into()])?;
+        Ok(bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&funded.into_model()?.tx)?
+            .into_model()?
+            .tx)
+    }
+
+    /// A caller whose condition the transaction never meets hears `ConditionUnmet` at burial,
+    /// rather than waiting for an event that a buried transaction never sends.
+    #[tokio::test]
+    #[serial]
+    async fn tx_drive_condition_unmet_at_burial() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init_from_env("tx_drive_condition_unmet_at_burial");
+
+        let (driver, bitcoind) = setup().await?;
+        let address = bitcoind.client.new_address()?;
+        bitcoind.client.generate_to_address(101, &address)?;
+        wait_for_height(&bitcoind, 101).await?;
+        let signed = signed_payment(&bitcoind, address.clone())?;
+
+        let never = driver.drive(signed.clone(), |_| false);
+        let bury = async {
+            driver
+                .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
+                .await?;
+            bitcoind
+                .client
+                .generate_to_address(crate::constants::DEFAULT_BURY_DEPTH + 2, &address)?;
+            Ok::<(), Box<dyn std::error::Error>>(())
+        };
+
+        let (never_result, buried) =
+            tokio::time::timeout(Duration::from_secs(60), futures::future::join(never, bury))
+                .await
+                .expect("a wait that can never be met must end at burial");
+        buried?;
+
+        assert!(
+            matches!(never_result, Err(DriveErr::ConditionUnmet)),
+            "the caller must hear that its condition went unmet, got {never_result:?}"
+        );
         Ok(())
     }
 
