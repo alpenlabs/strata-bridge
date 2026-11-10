@@ -6,7 +6,7 @@ use algebra::{
     monoid::{self, Monoid},
     semigroup::Semigroup,
 };
-use bitcoin::{Amount, Transaction, Txid};
+use bitcoin::{Amount, OutPoint, Transaction, Txid};
 use bitcoind_async_client::{
     error::ClientError,
     traits::{Broadcaster, Reader},
@@ -159,6 +159,30 @@ async fn resubmit(rpc_client: &BitcoinClient, tx: Transaction, active_jobs: &mut
     }
 }
 
+/// The predicate of a transaction subscription.
+///
+/// The filter compares txids, not witnesses. The driver tracks whether a transaction reaches the
+/// chain, not which spend path its witness takes, so a variant with another witness counts as the
+/// same transaction.
+fn matches_txid(tx: &Transaction) -> impl Fn(&Transaction) -> bool + Send + Sync + 'static {
+    let txid = tx.compute_txid();
+    let first_input = first_prevout(tx);
+    // `BtcNotifyClient` runs every subscription's filter on every transaction it sees, in the
+    // mempool and in each block, so this closure is on a hot path. Computing a candidate's txid
+    // means a double SHA-256 over its serialization. Comparing first prevouts is a plain
+    // comparison of outpoints, and it rejects nearly every other transaction before that hash
+    // runs.
+    //
+    // The prevout check never rejects a match: the first prevout is part of the data the txid
+    // commits to, so two transactions with equal txids spend the same first prevout.
+    move |candidate| first_prevout(candidate) == first_input && candidate.compute_txid() == txid
+}
+
+/// The outpoint that the first input of `tx` spends.
+fn first_prevout(tx: &Transaction) -> Option<OutPoint> {
+    tx.input.first().map(|input| input.previous_output)
+}
+
 fn broadcast_options(tx: &Transaction) -> Option<BroadcastOptions> {
     let max_burn_amount = tx
         .output
@@ -211,7 +235,7 @@ impl TxDriver {
                         let rawtx_rpc_client = job.tx.clone();
                         let txid = job.tx.compute_txid();
                         let tx_sub = zmq_client.subscribe_transactions(
-                            move |tx| tx == &rawtx_filter
+                            matches_txid(&rawtx_filter)
                         ).await;
 
                         if let Ok(tx_data) = rpc_client.get_raw_transaction_verbosity_one(&txid).await {
@@ -371,9 +395,12 @@ impl Drop for TxDriver {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{absolute, transaction, Amount, ScriptBuf, Transaction, TxOut};
+    use bitcoin::{
+        absolute, hashes::Hash, transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut,
+        Txid,
+    };
 
-    use super::broadcast_options;
+    use super::{broadcast_options, matches_txid};
 
     fn tx_with_outputs(output: Vec<TxOut>) -> Transaction {
         Transaction {
@@ -382,6 +409,44 @@ mod tests {
             input: vec![],
             output,
         }
+    }
+
+    /// A transaction that spends one output named by `seed`.
+    fn spending(seed: u8) -> Transaction {
+        Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(Txid::from_byte_array([seed; 32]), 0),
+                ..TxIn::default()
+            }],
+            output: vec![],
+        }
+    }
+
+    #[test]
+    fn the_subscription_filter_matches_another_witness_and_no_other_txid() {
+        let tx = spending(1);
+        let mut variant = tx.clone();
+        variant.input[0].witness.push([1]);
+        assert_ne!(tx, variant, "the variant carries another witness");
+        let mut same_first_input = tx.clone();
+        same_first_input.lock_time = absolute::LockTime::from_consensus(1);
+
+        let filter = matches_txid(&tx);
+
+        assert!(
+            filter(&variant),
+            "another witness of the transaction matches"
+        );
+        assert!(
+            !filter(&spending(2)),
+            "a transaction of another input does not match"
+        );
+        assert!(
+            !filter(&same_first_input),
+            "another txid with the same first input does not match"
+        );
     }
 
     #[test]
