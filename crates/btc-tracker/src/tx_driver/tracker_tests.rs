@@ -40,6 +40,7 @@ fn harness_with(bumper: FakeBumper, bump_check_interval: Duration) -> Harness {
         chain.clone(),
         Subscription::from_receiver(block_receiver),
         Some((bumper.clone(), bump_check_interval)),
+        BURY_DEPTH,
     );
     Harness {
         driver: Arc::new(driver),
@@ -59,6 +60,12 @@ impl Harness {
     async fn connect_block(&self) {
         self.send_block(BlockStatus::Mined);
         self.settle().await;
+    }
+
+    /// Connects a block at height `tip` and waits until the driver has handled it.
+    async fn connect_block_at(&self, tip: u64) {
+        self.chain.set_tip(tip);
+        self.connect_block().await;
     }
 
     fn send_block(&self, status: BlockStatus) {
@@ -742,5 +749,153 @@ mod cpfp_packages {
             "only the new package holds a state"
         );
         assert!(!second.is_finished(), "the new caller still waits");
+    }
+}
+
+mod conflicts {
+    use super::*;
+
+    /// A parent that the node rejects because an input is spent waits for the conflict to be
+    /// buried, and then ends with it.
+    #[tokio::test]
+    async fn a_rejected_parent_with_a_spent_input_ends_with_the_buried_conflict() {
+        let harness = harness(BumpOutcome::NoPackage);
+        harness.chain.spend(input_of(1));
+        let tx = parent(1);
+
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+        harness.connect_block_at(100).await;
+        harness.connect_block_at(105).await;
+        assert!(!drive.is_finished(), "the conflict is not buried yet");
+
+        harness.connect_block_at(106).await;
+        let outcome = outcome_of(drive).await;
+        assert!(
+            matches!(outcome, Err(DriveErr::ConflictBuried)),
+            "the caller hears the buried conflict, got {outcome:?}"
+        );
+    }
+
+    /// A buried conflict on an input ends a deadline parent, and the bumps end with it.
+    #[tokio::test]
+    async fn a_buried_conflict_stops_a_parent_through_the_loop() {
+        let harness = harness(BumpOutcome::Submitted);
+        let tx = parent(1);
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+
+        harness
+            .chain
+            .set_status(tx.compute_txid(), TxStatus::Unknown);
+        harness.chain.spend(input_of(1));
+        harness.connect_block_at(100).await;
+        harness.connect_block_at(105).await;
+        assert!(!drive.is_finished(), "the conflict is not buried yet");
+
+        harness.connect_block_at(106).await;
+        let outcome = outcome_of(drive).await;
+        assert!(
+            matches!(outcome, Err(DriveErr::ConflictBuried)),
+            "the caller hears the buried conflict, got {outcome:?}"
+        );
+        let calls = harness.bumper.calls();
+        harness.connect_block_at(107).await;
+        assert_eq!(
+            harness.bumper.calls(),
+            calls,
+            "the bumps end with the package"
+        );
+    }
+
+    /// A block that connects between the spend read and the tip read must not shorten the
+    /// burial of the conflict.
+    #[tokio::test]
+    async fn a_block_during_a_read_does_not_shorten_a_conflict_burial() {
+        let harness = harness(BumpOutcome::Submitted);
+        let tx = parent(1);
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+        harness
+            .chain
+            .set_status(tx.compute_txid(), TxStatus::Unknown);
+        harness.chain.spend(input_of(1));
+
+        // The spender is in block 101, and the read that sees it started at tip 100.
+        *harness
+            .chain
+            .tip_during_spend_read
+            .lock()
+            .expect("not poisoned") = Some(101);
+        harness.connect_block_at(100).await;
+        *harness
+            .chain
+            .tip_during_spend_read
+            .lock()
+            .expect("not poisoned") = None;
+
+        harness.connect_block_at(106).await;
+        assert!(!drive.is_finished(), "block 101 has five blocks on top");
+
+        harness.connect_block_at(107).await;
+        let outcome = outcome_of(drive).await;
+        assert!(
+            matches!(outcome, Err(DriveErr::ConflictBuried)),
+            "the caller hears the buried conflict, got {outcome:?}"
+        );
+    }
+
+    /// A block that leaves the chain restarts the burial of a seen conflict, also when the
+    /// output reads as spent the whole time.
+    #[tokio::test]
+    async fn a_disconnected_block_restarts_the_burial_of_a_conflict() {
+        let harness = harness(BumpOutcome::Submitted);
+        let tx = parent(1);
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+        harness
+            .chain
+            .set_status(tx.compute_txid(), TxStatus::Unknown);
+        harness.chain.spend(input_of(1));
+        harness.connect_block_at(100).await;
+
+        harness.chain.set_tip(104);
+        harness.send_block(BlockStatus::Uncled);
+        harness.settle().await;
+        harness.connect_block_at(106).await;
+        assert!(!drive.is_finished(), "the spender has two blocks on top");
+
+        harness.connect_block_at(110).await;
+        let outcome = outcome_of(drive).await;
+        assert!(
+            matches!(outcome, Err(DriveErr::ConflictBuried)),
+            "the caller hears the buried conflict, got {outcome:?}"
+        );
+    }
+
+    /// A read that fails on a disconnected block must not lose the restart of the burial.
+    #[tokio::test]
+    async fn a_failed_read_on_a_disconnected_block_still_restarts_the_burial() {
+        let harness = harness(BumpOutcome::Submitted);
+        let tx = parent(1);
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+        harness
+            .chain
+            .set_status(tx.compute_txid(), TxStatus::Unknown);
+        harness.chain.spend(input_of(1));
+        harness.connect_block_at(100).await;
+
+        harness.chain.rpc_down.store(true, Ordering::SeqCst);
+        harness.chain.set_tip(104);
+        harness.send_block(BlockStatus::Uncled);
+        harness.settle().await;
+        harness.chain.rpc_down.store(false, Ordering::SeqCst);
+
+        harness.connect_block_at(106).await;
+        assert!(
+            !drive.is_finished(),
+            "the spender has no six blocks on top yet"
+        );
     }
 }

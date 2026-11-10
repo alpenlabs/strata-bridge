@@ -21,6 +21,8 @@ pub(super) struct PackageId(pub(super) u64);
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Package {
     cpfp: Cpfp,
+    /// Blocks on top of a conflicting spend before the spend counts as final.
+    bury_depth: u64,
     /// Whether a bump that this package asked for has not reported yet.
     bump_running: bool,
     state: PackageState,
@@ -50,6 +52,10 @@ pub(super) enum PackageState {
     InMempool,
     /// In a block, not yet buried. No bumps run.
     Mined(TxStatus),
+    /// An input of the parent is spent in a block, first seen at tip `first_seen`.
+    Conflicted {
+        first_seen: u64,
+    },
     /// The package is over. The tracker drops it after its [`Action::Ended`].
     Ended,
 }
@@ -80,11 +86,20 @@ pub(super) enum Event {
     /// A job for this parent joined. Its caller hears the status of the package, and `cpfp`, the
     /// strategy of the job, arms a bare package.
     Joined { cpfp: Option<CpfpStrategy> },
-    /// A status of the parent from ZMQ, from a job, or from the read on each block. `Unknown`
-    /// means that it left the mempool.
+    /// A status of the parent from ZMQ or from a job. `Unknown` means that it left the mempool.
     Seen(TxStatus),
-    /// A block connected, after the read of every package on that block.
+    /// The read on each block. The node is read in this order: the spent inputs, the status,
+    /// the tip. A parent that spends its inputs itself in a block then shows in `status`, and
+    /// the tip is at or above the block of every spend seen.
+    Read {
+        input_spent: bool,
+        status: TxStatus,
+        tip: u64,
+    },
+    /// A block connected, after every [`Event::Read`] of that block.
     Block,
+    /// A block left the chain.
+    Reorged,
     /// The bump interval elapsed.
     Tick,
     /// A bare send that this package asked for finished.
@@ -114,6 +129,8 @@ pub(super) enum Action {
 pub(super) enum Ending {
     /// The parent is buried.
     Buried,
+    /// A conflicting spend of an input is buried.
+    ConflictBuried,
     /// The node rejected the bare parent and no bump can carry it.
     Rejected {
         cause: PendingCause,
@@ -124,9 +141,14 @@ pub(super) enum Ending {
 impl Package {
     /// Opens a package for a parent that a job read at `status`. A failed read counts as
     /// `Unknown`, and the node decides at the send.
-    pub(super) fn open(cpfp: Option<CpfpStrategy>, status: TxStatus) -> (Self, Vec<Action>) {
+    pub(super) fn open(
+        cpfp: Option<CpfpStrategy>,
+        bury_depth: u64,
+        status: TxStatus,
+    ) -> (Self, Vec<Action>) {
         let mut package = Self {
             cpfp: cpfp.map_or(Cpfp::Bare, Cpfp::Armed),
+            bury_depth,
             bump_running: false,
             state: PackageState::Pending {
                 cause: PendingCause::Publish,
@@ -149,20 +171,33 @@ impl Package {
         let actions = match event {
             Event::Joined { cpfp } => self.join(cpfp),
             Event::Seen(status) => self.observe(status),
+            Event::Read {
+                input_spent,
+                status,
+                tip,
+            } => self.read(input_spent, status, tip),
             Event::Block | Event::Tick => self.bump().into_iter().collect(),
+            Event::Reorged => {
+                if matches!(self.state, PackageState::Conflicted { .. }) {
+                    self.state = Self::evicted();
+                }
+                Vec::new()
+            }
             Event::Broadcasted(result) => self.broadcasted(result),
             Event::Bumped(outcome) => self.bumped(outcome),
         };
         (self, actions)
     }
 
-    /// The status that the state stands for. A pending or ended package stands for none, which
-    /// reads as `Unknown`.
+    /// The status that the state stands for. A pending, conflicted or ended package stands for
+    /// none, which reads as `Unknown`.
     fn status(&self) -> TxStatus {
         match &self.state {
             PackageState::InMempool => TxStatus::Mempool,
             PackageState::Mined(status) => status.clone(),
-            PackageState::Pending { .. } | PackageState::Ended => TxStatus::Unknown,
+            PackageState::Pending { .. }
+            | PackageState::Conflicted { .. }
+            | PackageState::Ended => TxStatus::Unknown,
         }
     }
 
@@ -200,7 +235,7 @@ impl Package {
     }
 
     /// Follows a status of the parent. A parent that left the mempool or its block goes back
-    /// bare, unless the package already waits on a send or a bump.
+    /// bare, unless the package already waits on a send, a bump or a conflict.
     fn observe(&mut self, status: TxStatus) -> Vec<Action> {
         match status {
             TxStatus::Buried { .. } => {
@@ -227,7 +262,9 @@ impl Package {
                     self.state = Self::evicted();
                     vec![Action::Broadcast]
                 }
-                PackageState::Pending { .. } | PackageState::Ended => Vec::new(),
+                PackageState::Pending { .. }
+                | PackageState::Conflicted { .. }
+                | PackageState::Ended => Vec::new(),
             },
         }
     }
@@ -238,6 +275,34 @@ impl Package {
         let mut actions = self.observe(TxStatus::Mempool);
         actions.extend(self.bump_at_publish());
         actions
+    }
+
+    /// Applies the read of one block. An input spent in a block makes an armed package
+    /// conflicted, and the conflict ends it once it is `bury_depth` blocks deep. A bare package
+    /// ignores the spend: the node's answer to its next send decides it.
+    fn read(&mut self, input_spent: bool, status: TxStatus, tip: u64) -> Vec<Action> {
+        if status != TxStatus::Unknown {
+            return self.observe(status);
+        }
+        let conflict = input_spent && matches!(self.cpfp, Cpfp::Armed(_));
+        match (&self.state, conflict) {
+            (PackageState::Conflicted { first_seen }, true) => {
+                if tip.saturating_sub(*first_seen) >= self.bury_depth {
+                    self.end(Ending::ConflictBuried)
+                } else {
+                    Vec::new()
+                }
+            }
+            (PackageState::Conflicted { .. }, false) => {
+                self.state = Self::evicted();
+                vec![Action::Broadcast]
+            }
+            (_, true) => {
+                self.state = PackageState::Conflicted { first_seen: tip };
+                Vec::new()
+            }
+            (_, false) => self.observe(TxStatus::Unknown),
+        }
     }
 
     /// Applies the result of a bare send. A result that arrives after the package moved on
@@ -341,6 +406,8 @@ mod tests {
     use super::*;
     use crate::cpfp::DeadlineClass;
 
+    const DEPTH: u64 = 6;
+
     fn strategy(first_bump: FirstBump) -> CpfpStrategy {
         CpfpStrategy {
             spend: ChildSpend::owned_output(OutPoint::null()),
@@ -358,6 +425,7 @@ mod tests {
     fn pkg(cpfp: Cpfp, state: PackageState) -> Package {
         Package {
             cpfp,
+            bury_depth: DEPTH,
             bump_running: false,
             state,
         }
@@ -365,7 +433,7 @@ mod tests {
 
     /// Opens a package that takes `cpfp`, for a parent read at `status`.
     fn open(cpfp: Option<CpfpStrategy>, status: TxStatus) -> (Package, Vec<Action>) {
-        Package::open(cpfp, status)
+        Package::open(cpfp, DEPTH, status)
     }
 
     /// A package in `state` that takes no bumps.
@@ -971,6 +1039,175 @@ mod tests {
         }
     }
 
+    mod conflicts {
+        use super::*;
+
+        fn read(input_spent: bool, status: TxStatus, tip: u64) -> Event {
+            Event::Read {
+                input_spent,
+                status,
+                tip,
+            }
+        }
+
+        #[test]
+        fn a_spent_input_makes_a_cpfp_package_conflicted() {
+            for state in [
+                pending(),
+                PackageState::InMempool,
+                PackageState::Mined(mined(100)),
+            ] {
+                let (package, actions) =
+                    pkg(armed(), state).step(read(true, TxStatus::Unknown, 100));
+
+                assert_eq!(
+                    package.state,
+                    PackageState::Conflicted { first_seen: 100 },
+                    "the burial counts from the first sight of the spend"
+                );
+                assert!(
+                    actions.is_empty(),
+                    "no send or bump can carry a parent with a spent input"
+                );
+            }
+        }
+
+        #[test]
+        fn a_job_that_joins_a_conflicted_package_hears_nothing() {
+            let conflicted = pkg(armed(), PackageState::Conflicted { first_seen: 100 });
+
+            let (package, actions) = conflicted.clone().step(bare_job());
+
+            assert_eq!(package, conflicted, "a job changes no state");
+            assert!(
+                actions.is_empty(),
+                "a conflicted package has no status to report"
+            );
+        }
+
+        #[test]
+        fn a_conflict_ends_the_package_once_it_is_buried() {
+            let conflicted = pkg(armed(), PackageState::Conflicted { first_seen: 100 });
+
+            let (package, actions) =
+                conflicted.step(read(true, TxStatus::Unknown, 100 + DEPTH - 1));
+            assert_eq!(
+                package.state,
+                PackageState::Conflicted { first_seen: 100 },
+                "one block short of the bury depth"
+            );
+            assert!(actions.is_empty(), "nothing runs before the bury depth");
+
+            let (package, actions) = package.step(read(true, TxStatus::Unknown, 100 + DEPTH));
+            assert_eq!(
+                package.state,
+                PackageState::Ended,
+                "a buried conflict ends the package"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Release, Action::Ended(Ending::ConflictBuried)],
+                "the child is released and the callers hear the conflict"
+            );
+        }
+
+        #[test]
+        fn a_conflict_that_disappears_sends_the_parent_again() {
+            let conflicted = pkg(armed(), PackageState::Conflicted { first_seen: 100 });
+
+            let (package, actions) = conflicted.step(read(false, TxStatus::Unknown, 101));
+
+            assert_eq!(package.state, evicted(), "the spend left the chain");
+            assert_eq!(
+                actions,
+                vec![Action::Broadcast],
+                "the parent goes back bare"
+            );
+        }
+
+        #[test]
+        fn a_reorg_restarts_the_burial_of_a_conflict() {
+            let conflicted = pkg(armed(), PackageState::Conflicted { first_seen: 100 });
+
+            let (package, actions) = conflicted.step(Event::Reorged);
+            assert!(actions.is_empty(), "the next read decides");
+            let (package, _) = package.step(read(true, TxStatus::Unknown, 104));
+
+            assert_eq!(
+                package.state,
+                PackageState::Conflicted { first_seen: 104 },
+                "the burial counts from the tip after the reorg"
+            );
+        }
+
+        #[test]
+        fn a_read_that_finds_the_parent_gone_sends_it_again() {
+            let (package, actions) =
+                pkg(armed(), PackageState::InMempool).step(read(false, TxStatus::Unknown, 100));
+
+            assert_eq!(
+                package.state,
+                evicted(),
+                "the parent left the mempool with no ZMQ event"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Broadcast],
+                "the parent goes back bare"
+            );
+        }
+
+        #[test]
+        fn a_bare_package_ignores_a_spent_input() {
+            let (package, actions) =
+                bare(PackageState::InMempool).step(read(true, TxStatus::Unknown, 100));
+
+            assert_eq!(
+                package.state,
+                evicted(),
+                "the node's answer to the send decides a bare parent"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Broadcast],
+                "the parent goes back bare"
+            );
+        }
+
+        #[test]
+        fn a_read_of_a_status_follows_it() {
+            let (package, actions) =
+                pkg(armed(), PackageState::InMempool).step(read(true, mined(101), 101));
+
+            assert_eq!(
+                package.state,
+                PackageState::Mined(mined(101)),
+                "a parent in a block spends its own inputs"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Report(mined(101))],
+                "the package reports the block"
+            );
+        }
+
+        #[test]
+        fn a_conflicted_package_waits_on_the_next_read() {
+            let conflicted = pkg(armed(), PackageState::Conflicted { first_seen: 100 });
+
+            for event in [
+                Event::Seen(TxStatus::Unknown),
+                Event::Broadcasted(BroadcastResult::Rejected(rejection())),
+                Event::Block,
+                Event::Tick,
+            ] {
+                let (package, actions) = conflicted.clone().step(event);
+                assert_eq!(package, conflicted, "only a read decides a conflict");
+                assert!(actions.is_empty(), "no send or bump can carry the parent");
+            }
+        }
+    }
+
     mod invariants {
         use super::*;
 
@@ -1000,6 +1237,14 @@ mod tests {
             prop_oneof![
                 arb_strategy(with_strategy).prop_map(|cpfp| Event::Joined { cpfp }),
                 arb_status().prop_map(Event::Seen),
+                (any::<bool>(), arb_status(), 100u64..120).prop_map(
+                    |(input_spent, status, tip)| Event::Read {
+                        input_spent,
+                        status,
+                        tip,
+                    }
+                ),
+                Just(Event::Reorged),
                 Just(Event::Block),
                 Just(Event::Tick),
                 arb_broadcast_result().prop_map(Event::Broadcasted),
@@ -1069,6 +1314,11 @@ mod tests {
             }
 
             if !is_armed(before) && !matches!(event, Event::Joined { cpfp: Some(_) }) {
+                prop_assert!(
+                    !matches!(after.state, PackageState::Conflicted { .. })
+                        || matches!(before.state, PackageState::Conflicted { .. }),
+                    "only an armed package becomes conflicted"
+                );
                 prop_assert_eq!(bumps, 0, "an unarmed package takes no bump");
             }
             Ok(())
@@ -1141,7 +1391,7 @@ mod tests {
             }
 
             #[test]
-            fn a_bare_package_never_bumps(
+            fn a_bare_package_never_bumps_or_conflicts(
                 status in arb_status(),
                 events in proptest::collection::vec(arb_event(false), 0..40),
             ) {
@@ -1153,6 +1403,10 @@ mod tests {
                     prop_assert!(
                         !actions.contains(&Action::Release),
                         "a bare package has no child to release"
+                    );
+                    prop_assert!(
+                        !matches!(after.state, PackageState::Conflicted { .. }),
+                        "only an armed package becomes conflicted"
                     );
                     package = after;
                 }

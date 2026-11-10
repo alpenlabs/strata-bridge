@@ -30,4 +30,9 @@ pub enum DriveErr {
     /// this point.
     #[error("transaction was buried before the wait condition was met")]
     ConditionUnmet,
+
+    /// A different transaction spends an input of this transaction and is buried to the bury
+    /// depth. The transaction can never confirm, so the driver stopped.
+    #[error("a buried transaction spends an input of the transaction")]
+    ConflictBuried,
 }

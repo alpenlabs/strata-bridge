@@ -26,6 +26,9 @@ use crate::{
     event::{TxEvent, TxStatus},
 };
 
+/// The bury depth of every test.
+pub(super) const BURY_DEPTH: u64 = 6;
+
 /// A bumper that reports a set outcome and records each parent it bumps.
 ///
 /// Each bump stores a clone of one shared token as the parent's state, so a test reads how many
@@ -110,11 +113,12 @@ impl CpfpBumper for FakeBumper {
     }
 }
 
-/// The node that a test scripts: statuses, spent outputs, and open subscriptions.
+/// The node that a test scripts: statuses, on-chain spends, the tip, and open subscriptions.
 #[derive(Default)]
 pub(super) struct FakeChain {
     pub(super) statuses: Mutex<HashMap<Txid, TxStatus>>,
     pub(super) spent: Mutex<BTreeSet<OutPoint>>,
+    pub(super) tip: Mutex<u64>,
     /// Rejects every send while set. A send whose input is spent is rejected regardless.
     pub(super) reject_broadcast: AtomicBool,
     pub(super) broadcasts: AtomicUsize,
@@ -122,6 +126,8 @@ pub(super) struct FakeChain {
     pub(super) subscriptions: AtomicUsize,
     /// Fails every read while set.
     pub(super) rpc_down: AtomicBool,
+    /// Moves the tip during a spend read, as a block that connects between two reads does.
+    pub(super) tip_during_spend_read: Mutex<Option<u64>>,
 }
 
 impl FakeChain {
@@ -130,6 +136,10 @@ impl FakeChain {
             .lock()
             .expect("not poisoned")
             .insert(txid, status);
+    }
+
+    pub(super) fn set_tip(&self, tip: u64) {
+        *self.tip.lock().expect("not poisoned") = tip;
     }
 
     pub(super) fn spend(&self, outpoint: OutPoint) {
@@ -175,6 +185,23 @@ impl ChainAccess for FakeChain {
             .get(&txid)
             .cloned()
             .unwrap_or(TxStatus::Unknown))
+    }
+
+    async fn is_spent_on_chain(&self, outpoint: OutPoint) -> Result<bool, ClientError> {
+        if self.rpc_down.load(Ordering::SeqCst) {
+            return Err(ClientError::Other("connection refused".into()));
+        }
+        if let Some(tip) = *self.tip_during_spend_read.lock().expect("not poisoned") {
+            self.set_tip(tip);
+        }
+        Ok(self.spent.lock().expect("not poisoned").contains(&outpoint))
+    }
+
+    async fn tip_height(&self) -> Result<u64, ClientError> {
+        if self.rpc_down.load(Ordering::SeqCst) {
+            return Err(ClientError::Other("connection refused".into()));
+        }
+        Ok(*self.tip.lock().expect("not poisoned"))
     }
 
     async fn broadcast(&self, tx: &Transaction) -> Result<Txid, ClientError> {
