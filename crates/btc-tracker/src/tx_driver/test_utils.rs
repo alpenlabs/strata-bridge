@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Mutex,
+        Arc, Mutex,
     },
 };
 
@@ -14,11 +14,101 @@ use bitcoin::{
     Transaction, TxIn, TxOut, Txid, Witness,
 };
 use bitcoind_async_client::error::ClientError;
-use strata_bridge_primitives::subscription::Subscription;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use strata_bridge_primitives::{cpfp::ChildSpend, subscription::Subscription};
+use tokio::sync::{
+    mpsc::{unbounded_channel, UnboundedSender},
+    Semaphore,
+};
 
 use super::node::ChainAccess;
-use crate::event::{TxEvent, TxStatus};
+use crate::{
+    cpfp::{BumpOutcome, CpfpBumper, CpfpStrategy, DeadlineClass, FirstBump},
+    event::{TxEvent, TxStatus},
+};
+
+/// A bumper that reports a set outcome and records each parent it bumps.
+///
+/// Each bump stores a clone of one shared token as the parent's state, so a test reads how many
+/// states, and with them leases, are still held. With a gate, each bump waits for one permit.
+#[derive(Debug)]
+pub(super) struct FakeBumper {
+    outcome: Mutex<BumpOutcome>,
+    gate: Option<Arc<Semaphore>>,
+    calls: AtomicUsize,
+    bumped: Mutex<Vec<Txid>>,
+    saw_state: Mutex<Vec<bool>>,
+    lease: Arc<()>,
+}
+
+impl FakeBumper {
+    pub(super) fn reporting(outcome: BumpOutcome) -> Self {
+        Self {
+            outcome: Mutex::new(outcome),
+            gate: None,
+            calls: AtomicUsize::new(0),
+            bumped: Mutex::new(Vec::new()),
+            saw_state: Mutex::new(Vec::new()),
+            lease: Arc::new(()),
+        }
+    }
+
+    /// A bumper whose gate starts closed.
+    pub(super) fn gated(outcome: BumpOutcome) -> (Self, Arc<Semaphore>) {
+        let gate = Arc::new(Semaphore::new(0));
+        let bumper = Self {
+            gate: Some(gate.clone()),
+            ..Self::reporting(outcome)
+        };
+        (bumper, gate)
+    }
+
+    pub(super) fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    /// The parents in the order that their bumps started.
+    pub(super) fn bumped(&self) -> Vec<Txid> {
+        self.bumped.lock().expect("not poisoned").clone()
+    }
+
+    /// For each bump, whether it found the state of an earlier bump.
+    pub(super) fn saw_state(&self) -> Vec<bool> {
+        self.saw_state.lock().expect("not poisoned").clone()
+    }
+
+    /// How many bump states hold the token.
+    pub(super) fn leases_held(&self) -> usize {
+        Arc::strong_count(&self.lease) - 1
+    }
+}
+
+#[async_trait]
+impl CpfpBumper for FakeBumper {
+    /// The token while a bump has run.
+    type State = Option<Arc<()>>;
+
+    async fn bump(
+        &self,
+        parent: &Transaction,
+        _strategy: &CpfpStrategy,
+        state: &mut Self::State,
+    ) -> BumpOutcome {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.bumped
+            .lock()
+            .expect("not poisoned")
+            .push(parent.compute_txid());
+        self.saw_state
+            .lock()
+            .expect("not poisoned")
+            .push(state.is_some());
+        *state = Some(self.lease.clone());
+        if let Some(gate) = &self.gate {
+            gate.acquire().await.expect("the gate stays open").forget();
+        }
+        *self.outcome.lock().expect("not poisoned")
+    }
+}
 
 /// The node that a test scripts: statuses, spent outputs, and open subscriptions.
 #[derive(Default)]
@@ -130,6 +220,19 @@ pub(super) fn parent(seed: u8) -> Transaction {
             value: Amount::from_sat(330),
             script_pubkey: ScriptBuf::new(),
         }],
+    }
+}
+
+/// A strategy that bumps at the publish.
+pub(super) fn strategy(parent: &Transaction, deadline: DeadlineClass) -> CpfpStrategy {
+    CpfpStrategy {
+        spend: ChildSpend::owned_output(OutPoint {
+            txid: parent.compute_txid(),
+            vout: 0,
+        }),
+        parent_fee: Amount::ZERO,
+        deadline,
+        first_bump: FirstBump::AtPublish,
     }
 }
 

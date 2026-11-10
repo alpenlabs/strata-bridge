@@ -1,4 +1,4 @@
-//! The lifecycle of one package: a transaction that the driver sends and follows to burial.
+//! The lifecycle of one package: a parent and the child that bumps it.
 //!
 //! [`Package::step`] is a pure transition from one [`Event`] to the next package and the
 //! [`Action`]s that the tracker runs. The machine knows nothing of the callers that wait on the
@@ -7,7 +7,10 @@
 
 use bitcoind_async_client::error::ClientError;
 
-use crate::event::TxStatus;
+use crate::{
+    cpfp::{BumpOutcome, CpfpStrategy, FirstBump},
+    event::TxStatus,
+};
 
 /// Identifies one package for its whole life. A new job for a txid whose package ended opens a
 /// package with a new id, so a late result for the old one cannot touch it.
@@ -17,18 +20,35 @@ pub(super) struct PackageId(pub(super) u64);
 /// One package and where the driver last saw it.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Package {
+    cpfp: Cpfp,
+    /// Whether a bump that this package asked for has not reported yet.
+    bump_running: bool,
     state: PackageState,
+}
+
+/// Whether the package takes CPFP bumps.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Cpfp {
+    /// No job asked for CPFP.
+    Bare,
+    /// The bumper keeps the package at the target.
+    Armed(CpfpStrategy),
+    /// The bumper reported that the parent cannot carry a child. Every later bump would fail
+    /// the same way, so a later job does not arm the package again.
+    GaveUp,
 }
 
 /// Where the driver last saw the parent.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum PackageState {
-    /// In no mempool and in no block since `cause`.
+    /// In no mempool and in no block since `cause`. `rejection` is the error of the last bare
+    /// send, kept for the case that the package later loses its CPFP strategy.
     Pending {
         cause: PendingCause,
+        rejection: Option<ClientError>,
     },
     InMempool,
-    /// In a block, not yet buried.
+    /// In a block, not yet buried. No bumps run.
     Mined(TxStatus),
     /// The package is over. The tracker drops it after its [`Action::Ended`].
     Ended,
@@ -57,13 +77,20 @@ pub(super) enum BroadcastResult {
 /// One input to [`Package::step`].
 #[derive(Debug, Clone)]
 pub(super) enum Event {
-    /// A job for this parent joined. Its caller hears the status of the package.
-    Joined,
+    /// A job for this parent joined. Its caller hears the status of the package, and `cpfp`, the
+    /// strategy of the job, arms a bare package.
+    Joined { cpfp: Option<CpfpStrategy> },
     /// A status of the parent from ZMQ, from a job, or from the read on each block. `Unknown`
     /// means that it left the mempool.
     Seen(TxStatus),
+    /// A block connected, after the read of every package on that block.
+    Block,
+    /// The bump interval elapsed.
+    Tick,
     /// A bare send that this package asked for finished.
     Broadcasted(BroadcastResult),
+    /// A bump that this package asked for finished.
+    Bumped(BumpOutcome),
 }
 
 /// One output of [`Package::step`].
@@ -71,6 +98,10 @@ pub(super) enum Event {
 pub(super) enum Action {
     /// Send the parent bare.
     Broadcast,
+    /// Run one bump of the parent.
+    Bump,
+    /// Drop the bump state of the package, and with it the lease of its child.
+    Release,
     /// Report a status of the parent. The tracker answers each caller whose condition the status
     /// meets, and the others keep waiting.
     Report(TxStatus),
@@ -83,7 +114,7 @@ pub(super) enum Action {
 pub(super) enum Ending {
     /// The parent is buried.
     Buried,
-    /// The node rejected the parent.
+    /// The node rejected the bare parent and no bump can carry it.
     Rejected {
         cause: PendingCause,
         error: ClientError,
@@ -93,14 +124,18 @@ pub(super) enum Ending {
 impl Package {
     /// Opens a package for a parent that a job read at `status`. A failed read counts as
     /// `Unknown`, and the node decides at the send.
-    pub(super) fn open(status: TxStatus) -> (Self, Vec<Action>) {
+    pub(super) fn open(cpfp: Option<CpfpStrategy>, status: TxStatus) -> (Self, Vec<Action>) {
         let mut package = Self {
+            cpfp: cpfp.map_or(Cpfp::Bare, Cpfp::Armed),
+            bump_running: false,
             state: PackageState::Pending {
                 cause: PendingCause::Publish,
+                rejection: None,
             },
         };
         let actions = match status {
             TxStatus::Unknown => vec![Action::Broadcast],
+            TxStatus::Mempool => package.enter_mempool(),
             status => package.observe(status),
         };
         (package, actions)
@@ -112,9 +147,11 @@ impl Package {
             return (self, Vec::new());
         }
         let actions = match event {
-            Event::Joined => self.report().into_iter().collect(),
+            Event::Joined { cpfp } => self.join(cpfp),
             Event::Seen(status) => self.observe(status),
+            Event::Block | Event::Tick => self.bump().into_iter().collect(),
             Event::Broadcasted(result) => self.broadcasted(result),
+            Event::Bumped(outcome) => self.bumped(outcome),
         };
         (self, actions)
     }
@@ -135,14 +172,35 @@ impl Package {
         (status != TxStatus::Unknown).then_some(Action::Report(status))
     }
 
-    const fn evicted() -> PackageState {
-        PackageState::Pending {
-            cause: PendingCause::Eviction,
+    /// The strategy that the bumper runs, while the package is armed.
+    pub(super) const fn strategy(&self) -> Option<&CpfpStrategy> {
+        match &self.cpfp {
+            Cpfp::Armed(strategy) => Some(strategy),
+            Cpfp::Bare | Cpfp::GaveUp => None,
         }
     }
 
+    const fn evicted() -> PackageState {
+        PackageState::Pending {
+            cause: PendingCause::Eviction,
+            rejection: None,
+        }
+    }
+
+    /// A job joined. Its caller hears the status of the package, and the job's strategy arms a
+    /// bare package. A package that the bumper gave up on stays as it is, and an armed package
+    /// keeps its first strategy.
+    fn join(&mut self, cpfp: Option<CpfpStrategy>) -> Vec<Action> {
+        let mut actions: Vec<_> = self.report().into_iter().collect();
+        if let (Cpfp::Bare, Some(strategy)) = (&self.cpfp, cpfp) {
+            self.cpfp = Cpfp::Armed(strategy);
+            actions.extend(self.bump_at_publish());
+        }
+        actions
+    }
+
     /// Follows a status of the parent. A parent that left the mempool or its block goes back
-    /// bare, unless the package already waits on a send.
+    /// bare, unless the package already waits on a send or a bump.
     fn observe(&mut self, status: TxStatus) -> Vec<Action> {
         match status {
             TxStatus::Buried { .. } => {
@@ -174,45 +232,157 @@ impl Package {
         }
     }
 
+    /// The parent reached a mempool through a bare send or a job's read. A presigned parent
+    /// takes its first bump now.
+    fn enter_mempool(&mut self) -> Vec<Action> {
+        let mut actions = self.observe(TxStatus::Mempool);
+        actions.extend(self.bump_at_publish());
+        actions
+    }
+
     /// Applies the result of a bare send. A result that arrives after the package moved on
     /// changes nothing.
     fn broadcasted(&mut self, result: BroadcastResult) -> Vec<Action> {
-        let PackageState::Pending { cause } = self.state else {
+        let PackageState::Pending { cause, .. } = self.state else {
             return Vec::new();
         };
         match result {
-            BroadcastResult::Accepted => self.observe(TxStatus::Mempool),
+            BroadcastResult::Accepted => self.enter_mempool(),
             BroadcastResult::Known(status) => self.observe(status),
-            BroadcastResult::Rejected(error) => self.end(Ending::Rejected { cause, error }),
+            BroadcastResult::Rejected(error) => match self.cpfp {
+                Cpfp::Armed(_) => {
+                    self.state = PackageState::Pending {
+                        cause,
+                        rejection: Some(error),
+                    };
+                    self.bump().into_iter().collect()
+                }
+                Cpfp::Bare | Cpfp::GaveUp => self.end(Ending::Rejected { cause, error }),
+            },
         }
     }
 
-    /// Ends the package and reports `ending`.
+    /// Applies the outcome of a bump. A bump with no package changes no state: the next
+    /// trigger retries.
+    fn bumped(&mut self, outcome: BumpOutcome) -> Vec<Action> {
+        self.bump_running = false;
+        match outcome {
+            BumpOutcome::Submitted | BumpOutcome::ParentIsLive => {
+                if matches!(self.state, PackageState::Pending { .. }) {
+                    self.observe(TxStatus::Mempool)
+                } else {
+                    Vec::new()
+                }
+            }
+            BumpOutcome::NoPackage => Vec::new(),
+            BumpOutcome::Unbumpable => {
+                if !matches!(self.cpfp, Cpfp::Armed(_)) {
+                    return Vec::new();
+                }
+                self.cpfp = Cpfp::GaveUp;
+                let mut actions = vec![Action::Release];
+                if let PackageState::Pending {
+                    cause,
+                    rejection: Some(error),
+                } = &self.state
+                {
+                    let ending = Ending::Rejected {
+                        cause: *cause,
+                        error: error.clone(),
+                    };
+                    actions.extend(self.end(ending));
+                }
+                actions
+            }
+        }
+    }
+
+    /// Asks for a bump when the package can take one: armed, pending or in the mempool, and
+    /// with no bump running.
+    fn bump(&mut self) -> Option<Action> {
+        let bumpable = matches!(self.cpfp, Cpfp::Armed(_))
+            && !self.bump_running
+            && matches!(
+                self.state,
+                PackageState::Pending { .. } | PackageState::InMempool
+            );
+        bumpable.then(|| {
+            self.bump_running = true;
+            Action::Bump
+        })
+    }
+
+    /// Asks for a bump when the strategy wants one at the publish.
+    fn bump_at_publish(&mut self) -> Option<Action> {
+        match &self.cpfp {
+            Cpfp::Armed(strategy) if strategy.first_bump == FirstBump::AtPublish => self.bump(),
+            Cpfp::Armed(_) | Cpfp::Bare | Cpfp::GaveUp => None,
+        }
+    }
+
+    /// Ends the package: releases the child of an armed package and reports `ending`.
     fn end(&mut self, ending: Ending) -> Vec<Action> {
+        let mut actions = Vec::new();
+        if matches!(self.cpfp, Cpfp::Armed(_)) {
+            actions.push(Action::Release);
+        }
         self.state = PackageState::Ended;
-        vec![Action::Ended(ending)]
+        actions.push(Action::Ended(ending));
+        actions
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, BlockHash};
+    use bitcoin::{hashes::Hash, Amount, BlockHash, OutPoint};
     use proptest::prelude::*;
+    use strata_bridge_primitives::cpfp::ChildSpend;
 
     use super::*;
+    use crate::cpfp::DeadlineClass;
 
-    /// A package in `state`.
-    fn bare(state: PackageState) -> Package {
-        Package { state }
+    fn strategy(first_bump: FirstBump) -> CpfpStrategy {
+        CpfpStrategy {
+            spend: ChildSpend::owned_output(OutPoint::null()),
+            parent_fee: Amount::ZERO,
+            deadline: DeadlineClass::Deadline,
+            first_bump,
+        }
     }
 
-    /// Opens a package for a parent read at `status`.
+    fn armed() -> Cpfp {
+        Cpfp::Armed(strategy(FirstBump::AtPublish))
+    }
+
+    /// A package in `state` that takes `cpfp`, with no bump running.
+    fn pkg(cpfp: Cpfp, state: PackageState) -> Package {
+        Package {
+            cpfp,
+            bump_running: false,
+            state,
+        }
+    }
+
+    /// Opens a package that takes `cpfp`, for a parent read at `status`.
+    fn open(cpfp: Option<CpfpStrategy>, status: TxStatus) -> (Package, Vec<Action>) {
+        Package::open(cpfp, status)
+    }
+
+    /// A package in `state` that takes no bumps.
+    fn bare(state: PackageState) -> Package {
+        pkg(Cpfp::Bare, state)
+    }
+
+    /// Opens a package that takes no bumps, for a parent read at `status`.
     fn open_bare(status: TxStatus) -> (Package, Vec<Action>) {
-        Package::open(status)
+        open(None, status)
     }
 
     fn pending_since(cause: PendingCause) -> PackageState {
-        PackageState::Pending { cause }
+        PackageState::Pending {
+            cause,
+            rejection: None,
+        }
     }
 
     fn pending() -> PackageState {
@@ -243,7 +413,7 @@ mod tests {
 
     /// The event of a job with no strategy.
     fn bare_job() -> Event {
-        Event::Joined
+        Event::Joined { cpfp: None }
     }
 
     mod bare_packages {
@@ -479,6 +649,328 @@ mod tests {
         }
     }
 
+    mod cpfp_packages {
+        use super::*;
+
+        #[test]
+        fn opening_a_parent_in_the_mempool_bumps_it_at_the_publish_only() {
+            let (at_publish, actions) =
+                open(Some(strategy(FirstBump::AtPublish)), TxStatus::Mempool);
+            assert_eq!(
+                at_publish.state,
+                PackageState::InMempool,
+                "a parent that the node holds is in the mempool"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Report(TxStatus::Mempool), Action::Bump],
+                "a presigned parent bumps at once"
+            );
+
+            let (_, actions) = open(Some(strategy(FirstBump::AtTrigger)), TxStatus::Mempool);
+            assert_eq!(
+                actions,
+                vec![Action::Report(TxStatus::Mempool)],
+                "a parent priced at the market waits for a trigger"
+            );
+        }
+
+        #[test]
+        fn opening_a_mined_parent_takes_no_bump() {
+            let (package, actions) = open(Some(strategy(FirstBump::AtPublish)), mined(100));
+
+            assert_eq!(
+                package.state,
+                PackageState::Mined(mined(100)),
+                "the package follows the parent into its block"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Report(mined(100))],
+                "a mined parent needs no child"
+            );
+        }
+
+        #[test]
+        fn opening_a_buried_parent_releases_and_ends() {
+            let (package, actions) = open(Some(strategy(FirstBump::AtPublish)), buried());
+
+            assert_eq!(
+                package.state,
+                PackageState::Ended,
+                "a buried parent needs nothing more"
+            );
+            assert_eq!(
+                actions,
+                vec![
+                    Action::Report(buried()),
+                    Action::Release,
+                    Action::Ended(Ending::Buried)
+                ],
+                "a buried parent reports, releases and ends"
+            );
+        }
+
+        #[test]
+        fn a_job_with_a_strategy_arms_a_bare_package() {
+            let (package, actions) = bare(PackageState::InMempool).step(Event::Joined {
+                cpfp: Some(strategy(FirstBump::AtPublish)),
+            });
+
+            assert_eq!(package.cpfp, armed(), "the job arms the package");
+            assert_eq!(
+                actions,
+                vec![Action::Report(TxStatus::Mempool), Action::Bump],
+                "the caller hears the mempool, and a presigned parent bumps at once"
+            );
+        }
+
+        #[test]
+        fn a_job_does_not_arm_a_package_that_the_bumper_gave_up_on() {
+            let gave_up = pkg(Cpfp::GaveUp, PackageState::InMempool);
+
+            let (package, actions) = gave_up.clone().step(Event::Joined {
+                cpfp: Some(strategy(FirstBump::AtPublish)),
+            });
+
+            assert_eq!(package, gave_up, "every later bump would fail the same way");
+            assert_eq!(
+                actions,
+                vec![Action::Report(TxStatus::Mempool)],
+                "the caller hears the mempool, and no bump runs"
+            );
+        }
+
+        #[test]
+        fn a_job_leaves_an_armed_package_as_it_is() {
+            let armed = pkg(armed(), PackageState::InMempool);
+
+            for cpfp in [None, Some(strategy(FirstBump::AtTrigger))] {
+                let (package, actions) = armed.clone().step(Event::Joined { cpfp });
+                assert_eq!(package, armed, "the first strategy stays");
+                assert_eq!(
+                    actions,
+                    vec![Action::Report(TxStatus::Mempool)],
+                    "the caller hears the mempool, and a duplicate job runs no bump"
+                );
+            }
+        }
+
+        #[test]
+        fn a_job_with_a_strategy_arms_a_mined_parent_with_no_bump() {
+            let (package, actions) = bare(PackageState::Mined(mined(100))).step(Event::Joined {
+                cpfp: Some(strategy(FirstBump::AtPublish)),
+            });
+
+            assert_eq!(package.cpfp, armed(), "the job arms the package");
+            assert_eq!(
+                actions,
+                vec![Action::Report(mined(100))],
+                "the caller hears the block, and a mined parent needs no child"
+            );
+        }
+
+        #[test]
+        fn an_accepted_send_bumps_a_presigned_parent() {
+            let (package, actions) =
+                pkg(armed(), pending()).step(Event::Broadcasted(BroadcastResult::Accepted));
+
+            assert_eq!(
+                package.state,
+                PackageState::InMempool,
+                "the node holds the parent"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Report(TxStatus::Mempool), Action::Bump],
+                "the package reports the mempool and bumps a presigned parent"
+            );
+        }
+
+        #[test]
+        fn a_rejected_send_goes_to_the_bumper() {
+            let (package, actions) = pkg(armed(), pending())
+                .step(Event::Broadcasted(BroadcastResult::Rejected(rejection())));
+
+            assert_eq!(
+                package.state,
+                PackageState::Pending {
+                    cause: PendingCause::Publish,
+                    rejection: Some(rejection()),
+                },
+                "the rejection is kept"
+            );
+            assert_eq!(
+                actions,
+                vec![Action::Bump],
+                "a package can carry the parent"
+            );
+        }
+
+        #[test]
+        fn a_mined_parent_takes_no_bump_until_it_returns_to_the_mempool() {
+            let (mined_package, _) =
+                pkg(armed(), PackageState::InMempool).step(Event::Seen(mined(100)));
+            let (mined_package, actions) = mined_package.step(Event::Block);
+            assert!(actions.is_empty(), "a block does not bump a mined parent");
+            let (mined_package, actions) = mined_package.step(Event::Tick);
+            assert!(actions.is_empty(), "a tick does not bump a mined parent");
+
+            let (back, _) = mined_package.step(Event::Seen(TxStatus::Mempool));
+            let (_, actions) = back.step(Event::Block);
+            assert_eq!(
+                actions,
+                vec![Action::Bump],
+                "the bumps resume after the reorg"
+            );
+        }
+
+        #[test]
+        fn a_buried_parent_releases_its_child_and_ends() {
+            let (package, actions) =
+                pkg(armed(), PackageState::Mined(mined(100))).step(Event::Seen(buried()));
+
+            assert_eq!(
+                package.state,
+                PackageState::Ended,
+                "a buried parent needs nothing more"
+            );
+            assert_eq!(
+                actions,
+                vec![
+                    Action::Report(buried()),
+                    Action::Release,
+                    Action::Ended(Ending::Buried)
+                ],
+                "a buried parent reports, releases and ends"
+            );
+        }
+
+        #[test]
+        fn one_bump_runs_at_a_time() {
+            let live = pkg(armed(), PackageState::InMempool);
+
+            let (running, actions) = live.step(Event::Block);
+            assert_eq!(
+                actions,
+                vec![Action::Bump],
+                "a block bumps a package with no bump running"
+            );
+            let (running, actions) = running.step(Event::Tick);
+            assert!(actions.is_empty(), "a bump is already running");
+            let (done, _) = running.step(Event::Bumped(BumpOutcome::Submitted));
+            let (_, actions) = done.step(Event::Block);
+            assert_eq!(actions, vec![Action::Bump], "the next trigger bumps again");
+        }
+
+        #[test]
+        fn a_package_that_reaches_the_network_enters_the_mempool() {
+            for outcome in [BumpOutcome::Submitted, BumpOutcome::ParentIsLive] {
+                let sent = Package {
+                    bump_running: true,
+                    ..pkg(armed(), pending())
+                };
+
+                let (package, actions) = sent.step(Event::Bumped(outcome));
+
+                assert_eq!(package.state, PackageState::InMempool, "{outcome:?}");
+                assert!(!package.bump_running, "{outcome:?}");
+                assert_eq!(
+                    actions,
+                    vec![Action::Report(TxStatus::Mempool)],
+                    "the package reports the mempool"
+                );
+            }
+        }
+
+        #[test]
+        fn a_bump_with_no_package_changes_no_state() {
+            let sent = Package {
+                bump_running: true,
+                ..pkg(armed(), pending())
+            };
+
+            let (package, actions) = sent.clone().step(Event::Bumped(BumpOutcome::NoPackage));
+
+            assert_eq!(package.state, sent.state, "the parent stays where it was");
+            assert!(!package.bump_running, "the next trigger can bump again");
+            assert!(actions.is_empty(), "the caller keeps waiting");
+        }
+
+        #[test]
+        fn an_unbumpable_package_releases_its_child_and_continues_bare() {
+            let live = Package {
+                bump_running: true,
+                ..pkg(armed(), PackageState::InMempool)
+            };
+
+            let (package, actions) = live.step(Event::Bumped(BumpOutcome::Unbumpable));
+
+            assert_eq!(
+                package.cpfp,
+                Cpfp::GaveUp,
+                "the bumper gave up on the parent"
+            );
+            assert_eq!(
+                package.state,
+                PackageState::InMempool,
+                "the parent stays in the mempool"
+            );
+            assert_eq!(actions, vec![Action::Release], "the child's state goes");
+        }
+
+        #[test]
+        fn an_unbumpable_package_that_the_node_rejected_ends() {
+            let rejected = Package {
+                bump_running: true,
+                ..pkg(
+                    armed(),
+                    PackageState::Pending {
+                        cause: PendingCause::Eviction,
+                        rejection: Some(rejection()),
+                    },
+                )
+            };
+
+            let (package, actions) = rejected.step(Event::Bumped(BumpOutcome::Unbumpable));
+
+            assert_eq!(
+                package.state,
+                PackageState::Ended,
+                "no send or bump can carry the parent"
+            );
+            assert_eq!(
+                actions,
+                vec![
+                    Action::Release,
+                    Action::Ended(Ending::Rejected {
+                        cause: PendingCause::Eviction,
+                        error: rejection(),
+                    })
+                ],
+                "the child is released and the callers hear the rejection"
+            );
+        }
+
+        #[test]
+        fn an_ended_package_ignores_triggers_jobs_and_bumps() {
+            let ended = pkg(armed(), PackageState::Ended);
+
+            for event in [
+                Event::Block,
+                Event::Tick,
+                Event::Joined {
+                    cpfp: Some(strategy(FirstBump::AtPublish)),
+                },
+                Event::Bumped(BumpOutcome::Submitted),
+            ] {
+                let (package, actions) = ended.clone().step(event);
+                assert_eq!(package, ended, "an ended package stays ended");
+                assert!(actions.is_empty(), "an ended package emits nothing");
+            }
+        }
+    }
+
     mod invariants {
         use super::*;
 
@@ -491,11 +983,33 @@ mod tests {
             ]
         }
 
-        fn arb_event() -> impl Strategy<Value = Event> {
+        fn arb_strategy(with_strategy: bool) -> BoxedStrategy<Option<CpfpStrategy>> {
+            if with_strategy {
+                prop_oneof![
+                    Just(None),
+                    Just(Some(strategy(FirstBump::AtPublish))),
+                    Just(Some(strategy(FirstBump::AtTrigger))),
+                ]
+                .boxed()
+            } else {
+                Just(None).boxed()
+            }
+        }
+
+        fn arb_event(with_strategy: bool) -> impl Strategy<Value = Event> {
             prop_oneof![
-                Just(Event::Joined),
+                arb_strategy(with_strategy).prop_map(|cpfp| Event::Joined { cpfp }),
                 arb_status().prop_map(Event::Seen),
+                Just(Event::Block),
+                Just(Event::Tick),
                 arb_broadcast_result().prop_map(Event::Broadcasted),
+                prop_oneof![
+                    Just(BumpOutcome::Submitted),
+                    Just(BumpOutcome::ParentIsLive),
+                    Just(BumpOutcome::NoPackage),
+                    Just(BumpOutcome::Unbumpable),
+                ]
+                .prop_map(Event::Bumped),
             ]
         }
 
@@ -505,6 +1019,59 @@ mod tests {
                 (100u64..110).prop_map(|height| BroadcastResult::Known(mined(height))),
                 Just(BroadcastResult::Rejected(rejection())),
             ]
+        }
+
+        const fn is_armed(package: &Package) -> bool {
+            matches!(package.cpfp, Cpfp::Armed(_))
+        }
+
+        /// Checks the invariants of one step that concern bumps and children.
+        fn check_bumps(
+            before: &Package,
+            event: &Event,
+            after: &Package,
+            actions: &[Action],
+            releases: &mut usize,
+        ) -> Result<(), TestCaseError> {
+            let bumps = actions.iter().filter(|a| **a == Action::Bump).count();
+            prop_assert!(bumps <= 1, "one bump per step at most");
+            if bumps == 1 {
+                let was_running = before.bump_running && !matches!(event, Event::Bumped(_));
+                prop_assert!(!was_running, "a second bump while one runs");
+                prop_assert!(after.bump_running, "a bump marks the package as bumping");
+                prop_assert!(is_armed(after), "a bump needs a strategy");
+                prop_assert!(
+                    matches!(
+                        after.state,
+                        PackageState::Pending { .. } | PackageState::InMempool
+                    ),
+                    "only a pending or in-mempool package bumps, got {:?}",
+                    after.state
+                );
+            }
+
+            let released = actions.iter().filter(|a| **a == Action::Release).count();
+            if released > 0 {
+                prop_assert!(
+                    is_armed(before) && (!is_armed(after) || after.state == PackageState::Ended),
+                    "a release comes with the loss of the strategy or the end"
+                );
+            }
+            *releases += released;
+            prop_assert!(*releases <= 1, "a package releases its child once");
+
+            if matches!(event, Event::Bumped(BumpOutcome::NoPackage)) {
+                prop_assert_eq!(
+                    &after.state,
+                    &before.state,
+                    "a fruitless bump changes no state"
+                );
+            }
+
+            if !is_armed(before) && !matches!(event, Event::Joined { cpfp: Some(_) }) {
+                prop_assert_eq!(bumps, 0, "an unarmed package takes no bump");
+            }
+            Ok(())
         }
 
         /// Checks the invariants of one step that concern reports and the end.
@@ -542,7 +1109,7 @@ mod tests {
             }
 
             let status = after.status();
-            let joined = matches!(event, Event::Joined);
+            let joined = matches!(event, Event::Joined { .. });
             if joined && status != TxStatus::Unknown {
                 prop_assert!(
                     actions.contains(&Action::Report(status)),
@@ -555,16 +1122,38 @@ mod tests {
         proptest! {
             #[test]
             fn every_step_keeps_the_invariants(
+                cpfp in arb_strategy(true),
                 status in arb_status(),
-                events in proptest::collection::vec(arb_event(), 0..40),
+                events in proptest::collection::vec(arb_event(true), 0..40),
             ) {
-                let (mut package, actions) = open_bare(status);
+                let (mut package, actions) = open(cpfp, status);
+                let mut releases = actions.iter().filter(|a| **a == Action::Release).count();
                 let mut endings = actions.iter().filter(|a| matches!(a, Action::Ended(_))).count();
+                prop_assert!(releases <= 1, "the opening releases the child once at most");
 
                 for event in events {
                     let before = package.clone();
                     let (after, actions) = before.clone().step(event.clone());
+                    check_bumps(&before, &event, &after, &actions, &mut releases)?;
                     check_reports(&before, &event, &after, &actions, &mut endings)?;
+                    package = after;
+                }
+            }
+
+            #[test]
+            fn a_bare_package_never_bumps(
+                status in arb_status(),
+                events in proptest::collection::vec(arb_event(false), 0..40),
+            ) {
+                let (mut package, actions) = open_bare(status);
+                prop_assert!(!actions.contains(&Action::Bump), "a bare package takes no bump");
+                for event in events {
+                    let (after, actions) = package.step(event);
+                    prop_assert!(!actions.contains(&Action::Bump), "a bare package takes no bump");
+                    prop_assert!(
+                        !actions.contains(&Action::Release),
+                        "a bare package has no child to release"
+                    );
                     package = after;
                 }
             }
