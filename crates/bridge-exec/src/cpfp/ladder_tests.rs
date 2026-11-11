@@ -1,0 +1,815 @@
+//! Tests of one CPFP bump attempt, against a fake wallet, mempool and signers.
+
+use std::sync::Arc;
+
+use bitcoin::{
+    Address, Amount, FeeRate, Network, OutPoint, Transaction, TxIn, TxOut, Txid, Witness, absolute,
+    hashes::Hash,
+    secp256k1::{Message, SECP256K1, schnorr::Signature},
+    transaction::Version,
+};
+use btc_tracker::cpfp::{BumpOutcome, CpfpBumper, CpfpStrategy, DeadlineClass, FirstBump};
+use strata_bridge_primitives::cpfp::ChildSpend;
+
+use super::{errors::*, handle::*, interfaces::*, ladder::*, test_utils::*};
+
+fn anchor_strategy(parent: &Transaction) -> CpfpStrategy {
+    CpfpStrategy {
+        spend: ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0)),
+        parent_fee: Amount::from_sat(220),
+        deadline: DeadlineClass::NoDeadline,
+        first_bump: FirstBump::AtPublish,
+    }
+}
+
+/// The outpoints that the leases of the handle hold, or an empty vector when it holds none.
+fn held_by(handle: &CpfpHandle) -> Vec<OutPoint> {
+    [&handle.accepted, &handle.candidate]
+        .into_iter()
+        .flatten()
+        .flat_map(|child| child.lease.inputs().iter().map(|i| i.outpoint))
+        .collect()
+}
+
+fn contention_context(wallet: Arc<FakeWallet>, mempool: Arc<FakeMempool>) -> CpfpContext {
+    context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(8).unwrap(),
+        )),
+        wallet,
+        mempool,
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    )
+}
+
+/// A failed probe does not stop a first child: the submission is the authority.
+#[tokio::test]
+async fn a_failed_probe_builds_when_the_handle_records_no_child() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let wallet = Arc::new(FakeWallet::returning(
+        synthetic_child_psbt(&parent, 0),
+        vec![OutPoint {
+            txid: parent.compute_txid(),
+            vout: 7,
+        }],
+    ));
+    let mempool = Arc::new(FakeMempool::ok().with_failing_probe("probe RPC failure"));
+    let ctx = contention_context(wallet.clone(), mempool.clone());
+    let mut handle = CpfpHandle::default();
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("a probe failure must not fail the bump");
+    assert_eq!(bumped, BumpOutcome::Submitted);
+    assert_eq!(
+        mempool.captured.lock().unwrap().len(),
+        1,
+        "the build must reach the submission despite the probe error"
+    );
+}
+
+#[tokio::test]
+async fn happy_path_submits_package_and_updates_handle() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let psbt = synthetic_child_psbt(&parent, 0);
+    let wallet_funding = vec![OutPoint {
+        txid: bitcoin::Txid::from_slice(&[1u8; 32]).unwrap(),
+        vout: 0,
+    }];
+
+    let mempool = Arc::new(FakeMempool::ok());
+    let wallet = Arc::new(FakeWallet::returning(psbt, wallet_funding.clone()));
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        mempool.clone(),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(50).unwrap(),
+    );
+
+    let mut handle = CpfpHandle::default();
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("happy path must submit");
+    assert_eq!(bumped, BumpOutcome::Submitted);
+
+    // handle is updated
+    assert_eq!(wallet.target(), Some(FeeRate::from_sat_per_vb(10).unwrap()));
+    assert_eq!(held_by(&handle), wallet_funding);
+    assert!(handle.accepted.is_some());
+
+    // mempool received [parent, child]
+    let captured = mempool.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0].len(), 2);
+    assert_eq!(captured[0][0].compute_txid(), parent.compute_txid());
+}
+
+/// A rejected candidate is not the incumbent, and the node did not relay it: the handle
+/// records nothing and the inputs go back to the wallet.
+#[tokio::test]
+async fn a_rejected_candidate_is_not_recorded() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let psbt = synthetic_child_psbt(&parent, 0);
+    let wallet_funding = vec![OutPoint {
+        txid: bitcoin::Txid::from_slice(&[1u8; 32]).unwrap(),
+        vout: 0,
+    }];
+
+    let mempool = Arc::new(FakeMempool::failing("min relay fee not met"));
+    let wallet = Arc::new(FakeWallet::returning(psbt, wallet_funding.clone()));
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        mempool.clone(),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(50).unwrap(),
+    );
+
+    let mut handle = CpfpHandle::default();
+    run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect_err("a failing mempool must surface the error");
+
+    assert!(handle.accepted.is_none() && handle.candidate.is_none());
+    assert_eq!(*wallet.released.lock().unwrap(), wallet_funding);
+}
+
+/// An attempt that read no parent reports no parent, whatever an earlier attempt read.
+#[tokio::test]
+async fn a_fee_source_failure_after_an_eviction_does_not_report_a_live_parent() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let mempool = Arc::new(FakeMempool::ok().with_probe(ParentProbe::NoChild));
+    let ctx = context(
+        Arc::new(FakeFeeSource::failing()),
+        Arc::new(FakeWallet::failing("no build")),
+        mempool.clone(),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut state = CpfpHandle::default();
+    let strategy = anchor_strategy(&parent);
+
+    assert_eq!(
+        ctx.bump(&parent, &strategy, &mut state).await,
+        BumpOutcome::ParentIsLive
+    );
+    mempool.report(ParentProbe::Absent);
+    assert_eq!(
+        ctx.bump(&parent, &strategy, &mut state).await,
+        BumpOutcome::NoPackage
+    );
+}
+
+#[tokio::test]
+async fn fee_source_failure_surfaces() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let ctx = context(
+        Arc::new(FakeFeeSource::failing()),
+        Arc::new(FakeWallet::failing("wallet must not be called")),
+        Arc::new(FakeMempool::failing("mempool must not be called")),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut handle = CpfpHandle::default();
+    let err = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CpfpError::FeeSource(_)));
+    assert!(handle.accepted.is_none());
+}
+
+#[tokio::test]
+async fn anchor_signer_failure_surfaces() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let psbt = synthetic_child_psbt(&parent, 0);
+
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        Arc::new(FakeWallet::returning(psbt, Vec::new())),
+        Arc::new(FakeMempool::failing("must not be called when signer fails")),
+        fake_input_signer_failing("anchor sign boom"),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut handle = CpfpHandle::default();
+    let err = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, CpfpError::AnchorSigner(_)));
+    assert!(handle.accepted.is_none());
+}
+
+/// A funding failure can hide a top-up, so the next attempt must read a fresh view.
+#[tokio::test]
+async fn a_funding_failure_refreshes_the_wallet() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let wallet = Arc::new(FakeWallet::failing("insufficient funds"));
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        Arc::new(FakeMempool::failing("must not be called")),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut handle = CpfpHandle::default();
+    perform_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .outcome()
+        .unwrap_err();
+    assert_eq!(*wallet.refreshes.lock().unwrap(), 1);
+}
+
+/// A parent that cannot carry a child does not depend on the view of the wallet.
+#[tokio::test]
+async fn an_unbumpable_parent_does_not_refresh_the_wallet() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let wallet = Arc::new(FakeWallet::unbumpable("no such output"));
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        Arc::new(FakeMempool::failing("must not be called")),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut handle = CpfpHandle::default();
+    perform_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .outcome()
+        .unwrap_err();
+    assert_eq!(*wallet.refreshes.lock().unwrap(), 0);
+}
+
+/// The child spends an input that the chain already spent. The handle must forget the child,
+/// or the next build re-admits that input, and the view must catch up with the chain.
+#[tokio::test]
+async fn a_missing_input_clears_the_handle_and_refreshes_the_wallet() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let psbt = synthetic_child_psbt(&parent, 0);
+    let stale = OutPoint::new(Txid::from_byte_array([8; 32]), 0);
+    let wallet = Arc::new(FakeWallet::returning(psbt, vec![stale]));
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        Arc::new(FakeMempool::failing(
+            "package-not-child-with-unconfirmed-parents",
+        )),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut handle = seeded_handle(&wallet, &[stale], Txid::from_byte_array([7; 32]));
+    perform_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .outcome()
+        .unwrap_err();
+    assert!(handle.accepted.is_none());
+    assert!(handle.candidate.is_none());
+    assert_eq!(*wallet.refreshes.lock().unwrap(), 1);
+}
+
+/// A witness that the signer returns is final. The ladder must not sign that input
+/// again: its own signer holds another key.
+#[tokio::test]
+async fn a_signer_witness_is_used_verbatim() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let psbt = synthetic_child_psbt(&parent, 0);
+    let sentinel = Signature::from_slice(&[0x42u8; 64]).expect("64 bytes");
+    let mut sentinel_witness = Witness::new();
+    sentinel_witness.push(sentinel.as_ref());
+
+    let panicking_wallet_signer: InputSigner = Arc::new(|_msg: Message| {
+        Box::pin(async move { panic!("the signer signed every wallet input") })
+    });
+
+    let wallet = FakeWallet {
+        signer_witnesses: vec![(1, sentinel_witness.clone())],
+        ..FakeWallet::returning(psbt, Vec::new())
+    };
+    let wallet = Arc::new(wallet);
+    let mempool = Arc::new(FakeMempool::ok());
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        mempool.clone(),
+        fake_input_signer_ok(),
+        panicking_wallet_signer,
+        FeeRate::from_sat_per_vb(50).unwrap(),
+    );
+    let mut handle = CpfpHandle::default();
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("the bump must submit without the wallet input signer");
+    assert_eq!(bumped, BumpOutcome::Submitted);
+
+    assert_eq!(
+        *wallet.sign_requests.lock().unwrap(),
+        vec![vec![1]],
+        "the anchor is not a wallet input"
+    );
+    let captured = mempool.captured.lock().unwrap();
+    assert_eq!(captured[0][1].input[1].witness, sentinel_witness);
+}
+
+#[tokio::test]
+async fn an_owned_spend_submits_without_the_anchor_signer() {
+    // An owned spend has no foreign-key input. The bump must:
+    // (a) build the child via the wallet,
+    // (b) NOT invoke the anchor signer,
+    // (c) submit the package as usual.
+    //
+    // We assert (b) by supplying an anchor signer that panics if called — the test would
+    // panic instead of pass if the bump incorrectly entered the anchor path.
+    let wallet_script = Address::p2tr(
+        SECP256K1,
+        test_keypair_and_xonly().1,
+        None,
+        Network::Regtest,
+    )
+    .script_pubkey();
+    let payout_outpoint = OutPoint {
+        txid: bitcoin::Txid::from_slice(&[42u8; 32]).unwrap(),
+        vout: 1,
+    };
+    // The "parent" is a dummy v3 tx — its content doesn't matter for an owned spend,
+    // since the wallet builds the child against the payout outpoint directly.
+    let parent = Transaction {
+        version: Version(3),
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![TxIn::default()],
+        output: vec![TxOut {
+            value: Amount::from_sat(50_000),
+            script_pubkey: wallet_script.clone(),
+        }],
+    };
+    let psbt = owned_output_child_psbt(payout_outpoint, wallet_script);
+
+    let panicking_anchor_signer: InputSigner = Arc::new(|_msg: Message| {
+        Box::pin(async move {
+            panic!("anchor signer must NOT be called for an owned spend");
+        })
+    });
+
+    let mempool = Arc::new(FakeMempool::ok());
+    let wallet = Arc::new(FakeWallet::returning(psbt, vec![payout_outpoint]));
+    let ctx = context(
+        Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        wallet.clone(),
+        mempool.clone(),
+        panicking_anchor_signer,
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(50).unwrap(),
+    );
+
+    let mut handle = CpfpHandle::default();
+    let strategy = CpfpStrategy {
+        spend: ChildSpend::owned_output(payout_outpoint),
+        parent_fee: Amount::from_sat(300),
+        deadline: DeadlineClass::NoDeadline,
+        first_bump: FirstBump::AtPublish,
+    };
+    let bumped = run_bump(&ctx, &parent, &strategy, &mut handle)
+        .await
+        .expect("an owned spend must submit");
+    assert_eq!(bumped, BumpOutcome::Submitted);
+
+    assert_eq!(wallet.target(), Some(FeeRate::from_sat_per_vb(10).unwrap()));
+    assert!(handle.accepted.is_some());
+
+    // mempool received [parent, child]
+    let captured = mempool.captured.lock().unwrap();
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0].len(), 2);
+    assert_eq!(captured[0][0].compute_txid(), parent.compute_txid());
+}
+
+/// An RPC failure does not prove that the package stayed off the network. The candidate
+/// keeps its lease, and a later probe that reports the child promotes it. The child is ours,
+/// so its funding stays held and no lookup runs.
+#[tokio::test]
+async fn a_submission_with_an_unknown_result_keeps_the_child_of_a_later_probe() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let funding = vec![OutPoint::new(parent.compute_txid(), 7)];
+    let wallet = Arc::new(FakeWallet::returning(
+        synthetic_child_psbt(&parent, 0),
+        funding.clone(),
+    ));
+    let mempool = Arc::new(FakeMempool::with_result(SubmitResult::Unknown));
+    let ctx = contention_context(wallet.clone(), mempool.clone());
+    let mut handle = CpfpHandle::default();
+    run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .unwrap_err();
+    let child_txid = handle.candidate.as_ref().expect("the lease stays").txid;
+    assert!(handle.accepted.is_none());
+
+    mempool.report(child_at(child_txid, FeeRate::from_sat_per_vb(8).unwrap()));
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("the live child ends the attempt");
+
+    assert_eq!(bumped, BumpOutcome::ParentIsLive);
+    assert_eq!(handle.accepted_txid(), Some(child_txid));
+    assert!(wallet.released.lock().unwrap().is_empty());
+    assert_eq!(held_by(&handle), funding);
+}
+
+/// A wallet signing failure is a retry, never a stop.
+#[tokio::test]
+async fn a_wallet_signing_failure_retries_on_the_next_trigger() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let wallet = FakeWallet {
+        sign_error: Some(SignerError("vault offline".to_string())),
+        ..FakeWallet::returning(synthetic_child_psbt(&parent, 0), Vec::new())
+    };
+    let mempool = Arc::new(FakeMempool::ok().with_probe(ParentProbe::Absent));
+    let ctx = contention_context(Arc::new(wallet), mempool.clone());
+
+    let outcome = ctx
+        .bump(
+            &parent,
+            &anchor_strategy(&parent),
+            &mut CpfpHandle::default(),
+        )
+        .await;
+
+    assert_eq!(outcome, BumpOutcome::NoPackage);
+    assert_eq!(mempool.submissions(), 0);
+}
+
+/// A child holds the fee of the whole package in its own few vbytes. No limit on its own rate
+/// stops a package that the cap allows.
+#[tokio::test]
+async fn a_child_with_a_very_high_own_rate_reaches_the_node() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let mut psbt = synthetic_child_psbt(&parent, 0);
+    psbt.inputs[1].witness_utxo.as_mut().unwrap().value = Amount::from_btc(1.0).unwrap();
+    let mempool = Arc::new(FakeMempool::ok());
+    let ctx = contention_context(
+        Arc::new(FakeWallet::returning(psbt, Vec::new())),
+        mempool.clone(),
+    );
+
+    let bumped = run_bump(
+        &ctx,
+        &parent,
+        &anchor_strategy(&parent),
+        &mut CpfpHandle::default(),
+    )
+    .await
+    .expect("the package must submit");
+
+    assert_eq!(bumped, BumpOutcome::Submitted);
+    assert_eq!(mempool.submissions(), 1);
+}
+
+/// A signer that answers for fewer inputs than it was asked about must not reach the
+/// network: a missing witness is a signer fault, and the next trigger retries.
+#[tokio::test]
+async fn a_signer_that_drops_a_signature_fails_as_a_signer_fault() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let wallet = FakeWallet {
+        drops_a_signature: true,
+        ..FakeWallet::returning(synthetic_child_psbt(&parent, 0), Vec::new())
+    };
+    let mempool = Arc::new(FakeMempool::ok());
+    let ctx = contention_context(Arc::new(wallet), mempool.clone());
+
+    let err = run_bump(
+        &ctx,
+        &parent,
+        &anchor_strategy(&parent),
+        &mut CpfpHandle::default(),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, CpfpError::WalletSigner(_)), "got {err:?}");
+    assert_eq!(mempool.submissions(), 0);
+}
+
+/// A child with no fee must not reach a signer or the network.
+#[tokio::test]
+async fn a_child_with_no_readable_fee_fails_before_signing() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let mut psbt = synthetic_child_psbt(&parent, 0);
+    psbt.inputs[1].witness_utxo = None;
+    let wallet = Arc::new(FakeWallet::returning(psbt, Vec::new()));
+    let mempool = Arc::new(FakeMempool::ok());
+    let ctx = contention_context(wallet.clone(), mempool.clone());
+
+    let err = run_bump(
+        &ctx,
+        &parent,
+        &anchor_strategy(&parent),
+        &mut CpfpHandle::default(),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, CpfpError::MalformedChild(_)), "got {err:?}");
+    assert!(wallet.sign_requests.lock().unwrap().is_empty());
+    assert_eq!(mempool.submissions(), 0);
+}
+
+/// One slot holds the candidate. A newer child with an unknown result takes it over, and the
+/// lease of the older one drops.
+#[tokio::test]
+async fn a_newer_child_with_an_unknown_result_takes_over_the_candidate_slot() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let older = OutPoint::new(parent.compute_txid(), 8);
+    let newer = OutPoint::new(parent.compute_txid(), 7);
+    let wallet = Arc::new(FakeWallet::returning(
+        synthetic_child_psbt(&parent, 0),
+        vec![newer],
+    ));
+    let ctx = contention_context(
+        wallet.clone(),
+        Arc::new(FakeMempool::with_result(SubmitResult::Unknown)),
+    );
+    let mut handle = seeded_handle(&wallet, &[older], Txid::from_byte_array([0xAA; 32]));
+
+    run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .unwrap_err();
+
+    assert_eq!(held_by(&handle), vec![newer]);
+    assert_eq!(*wallet.released.lock().unwrap(), vec![older]);
+}
+
+/// With a live child recorded, a failed probe leaves nothing to price against. The build
+/// waits, and the outcome does not claim a parent that no probe read.
+#[tokio::test]
+async fn a_failed_probe_skips_the_build_when_the_handle_records_a_live_child() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let inputs = [OutPoint::new(parent.compute_txid(), 8)];
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let wallet = Arc::new(FakeWallet::failing("the build must wait"));
+    let mempool = Arc::new(FakeMempool::ok().with_failing_probe("probe RPC failure"));
+    let ctx = contention_context(wallet.clone(), mempool.clone());
+    let mut handle = seeded_handle(&wallet, &inputs, ours);
+
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("a failed probe is not an error");
+
+    assert_eq!(bumped, BumpOutcome::NoPackage);
+    assert!(wallet.builds.lock().unwrap().is_empty());
+    assert_eq!(held_by(&handle), inputs.to_vec());
+}
+
+/// The node refuses a package below its minimum when the parent is not in the mempool, so
+/// the minimum lifts the target there, and only there.
+#[tokio::test]
+async fn the_node_minimum_lifts_the_target_only_for_an_absent_parent() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let minimum = FeeRate::from_sat_per_vb(15).unwrap();
+
+    for (probe, expected, reads) in [
+        (ParentProbe::Absent, minimum, 1),
+        (
+            ParentProbe::NoChild,
+            FeeRate::from_sat_per_vb(8).unwrap(),
+            0,
+        ),
+    ] {
+        let wallet = Arc::new(FakeWallet::returning(
+            synthetic_child_psbt(&parent, 0),
+            Vec::new(),
+        ));
+        let mempool = Arc::new(
+            FakeMempool {
+                min_fee_rate: Some(minimum),
+                ..FakeMempool::ok()
+            }
+            .with_probe(probe),
+        );
+        let ctx = contention_context(wallet.clone(), mempool.clone());
+
+        run_bump(
+            &ctx,
+            &parent,
+            &anchor_strategy(&parent),
+            &mut CpfpHandle::default(),
+        )
+        .await
+        .expect("the package must submit");
+
+        assert_eq!(wallet.target(), Some(expected), "probe = {probe:?}");
+        assert_eq!(*mempool.min_fee_reads.lock().unwrap(), reads);
+    }
+}
+
+/// A failed read of the minimum does not stop the bump.
+#[tokio::test]
+async fn a_failed_read_of_the_node_minimum_prices_from_the_estimate() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let wallet = Arc::new(FakeWallet::returning(
+        synthetic_child_psbt(&parent, 0),
+        Vec::new(),
+    ));
+    let mempool = FakeMempool {
+        min_fee_rate: None,
+        ..FakeMempool::ok()
+    }
+    .with_probe(ParentProbe::Absent);
+    let ctx = contention_context(wallet.clone(), Arc::new(mempool));
+
+    run_bump(
+        &ctx,
+        &parent,
+        &anchor_strategy(&parent),
+        &mut CpfpHandle::default(),
+    )
+    .await
+    .expect("the package must submit");
+
+    assert_eq!(wallet.target(), Some(FeeRate::from_sat_per_vb(8).unwrap()));
+}
+
+/// A replacement rejection of the child proves nothing about the parent: the child also spends
+/// wallet inputs, and the rejection can come from any of them. Only the probe shows the
+/// parent. A rejection of the parent itself overrides the probe: a conflict holds its place.
+#[tokio::test]
+async fn a_rejected_child_reports_the_probe_and_a_rejected_parent_does_not() {
+    let (_, key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(key, Amount::from_sat(330));
+    let parent_txid = parent.compute_txid();
+    let child = Txid::from_byte_array([0xEE; 32]);
+    let funding = vec![OutPoint {
+        txid: parent_txid,
+        vout: 7,
+    }];
+    let marker = "insufficient fee, rejecting replacement";
+
+    for (rejected, probe, expected) in [
+        (parent_txid, ParentProbe::Absent, BumpOutcome::NoPackage),
+        (parent_txid, ParentProbe::NoChild, BumpOutcome::NoPackage),
+        (child, ParentProbe::Absent, BumpOutcome::NoPackage),
+        (child, ParentProbe::NoChild, BumpOutcome::ParentIsLive),
+    ] {
+        let ctx = context(
+            Arc::new(FakeFeeSource::returning(
+                FeeRate::from_sat_per_vb(10).unwrap(),
+            )),
+            Arc::new(FakeWallet::returning(
+                synthetic_child_psbt(&parent, 0),
+                funding.clone(),
+            )),
+            Arc::new(
+                FakeMempool::failing("package rbf failure")
+                    .with_tx_error(rejected, marker)
+                    .with_probe(probe),
+            ),
+            fake_input_signer_ok(),
+            fake_input_signer_ok(),
+            FeeRate::from_sat_per_vb(20).unwrap(),
+        );
+        let outcome = ctx
+            .bump(
+                &parent,
+                &anchor_strategy(&parent),
+                &mut CpfpHandle::default(),
+            )
+            .await;
+        assert_eq!(
+            outcome, expected,
+            "rejected = {rejected}, probe = {probe:?}"
+        );
+    }
+}
+
+/// A failed attempt on a parent that the probe read in the mempool reports a live parent, so
+/// no duty fails and no bare resubmission runs for it.
+#[tokio::test]
+async fn a_failed_attempt_on_a_parent_in_the_mempool_reports_it_live() {
+    let (_, key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(key, Amount::from_sat(330));
+    let psbt = synthetic_child_psbt(&parent, 0);
+    let no_funds = FakeWallet::failing("no funds now");
+    let bad_signer = FakeWallet {
+        sign_error: Some(SignerError("vault offline".to_string())),
+        ..FakeWallet::returning(psbt.clone(), Vec::new())
+    };
+    let rejected = FakeWallet::returning(psbt, Vec::new());
+
+    for (wallet, mempool) in [
+        (no_funds, FakeMempool::ok()),
+        (bad_signer, FakeMempool::ok()),
+        (rejected, FakeMempool::failing("package-not-valid")),
+    ] {
+        let ctx = contention_context(Arc::new(wallet), Arc::new(mempool));
+        let outcome = ctx
+            .bump(
+                &parent,
+                &anchor_strategy(&parent),
+                &mut CpfpHandle::default(),
+            )
+            .await;
+        assert_eq!(outcome, BumpOutcome::ParentIsLive);
+    }
+}
+
+/// A parent that meets the target reports what the probe read.
+#[tokio::test]
+async fn a_parent_that_needs_no_child_reports_what_the_probe_read() {
+    let (_, key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(key, Amount::from_sat(330));
+    let strategy = CpfpStrategy {
+        parent_fee: Amount::from_sat(1_000_000),
+        ..anchor_strategy(&parent)
+    };
+
+    for (probe, expected) in [
+        (ParentProbe::NoChild, BumpOutcome::ParentIsLive),
+        (ParentProbe::Absent, BumpOutcome::NoPackage),
+    ] {
+        let ctx = contention_context(
+            Arc::new(FakeWallet::failing("no build")),
+            Arc::new(FakeMempool::ok().with_probe(probe)),
+        );
+        let outcome = ctx
+            .bump(&parent, &strategy, &mut CpfpHandle::default())
+            .await;
+        assert_eq!(outcome, expected);
+    }
+}
+
+/// A wallet that reports a permanent failure stops the bumps, and a transient failure
+/// leaves the parent to the next trigger.
+#[tokio::test]
+async fn a_permanent_wallet_failure_reads_as_unbumpable() {
+    let (_, key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(key, Amount::from_sat(330));
+
+    for (wallet, expected) in [
+        (
+            FakeWallet::unbumpable("anchor vout 9 out of range"),
+            BumpOutcome::Unbumpable,
+        ),
+        (FakeWallet::failing("no funds now"), BumpOutcome::NoPackage),
+    ] {
+        let ctx = context(
+            Arc::new(FakeFeeSource::returning(
+                FeeRate::from_sat_per_vb(10).unwrap(),
+            )),
+            Arc::new(wallet),
+            Arc::new(
+                FakeMempool::failing("mempool must not be called").with_probe(ParentProbe::Absent),
+            ),
+            fake_input_signer_ok(),
+            fake_input_signer_ok(),
+            FeeRate::from_sat_per_vb(20).unwrap(),
+        );
+        let outcome = ctx
+            .bump(
+                &parent,
+                &anchor_strategy(&parent),
+                &mut CpfpHandle::default(),
+            )
+            .await;
+        assert_eq!(outcome, expected);
+    }
+}

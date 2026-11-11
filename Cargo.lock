@@ -12295,6 +12295,7 @@ dependencies = [
  "metrics",
  "musig2",
  "operator-wallet",
+ "proptest",
  "reqwest 0.12.28",
  "secret-service-client",
  "secret-service-proto",

@@ -39,11 +39,15 @@ pub struct WalletFundedPsbt {
     pub lease: Arc<dyn FundingLease>,
 }
 
-/// What a CPFP bump needs from the wallet: the next CPFP child, and a signature for each input
-/// that a wallet signer holds the key for.
+/// What the ladder needs from the wallet: the next CPFP child, and a signature for each input that
+/// a wallet signer holds the key for.
 ///
 /// Building and signing are separate so that the wallet stays free while a signer waits for a
-/// signature. The bump signs every other input itself.
+/// signature. [`perform_bump`](super::ladder::perform_bump) signs every other input itself: the
+/// anchor through
+/// [`CpfpContext::anchor_input_signer`](super::ladder::CpfpContext::anchor_input_signer), and a
+/// wallet input the signer does not sign through
+/// [`CpfpContext::wallet_input_signer`](super::ladder::CpfpContext::wallet_input_signer).
 #[async_trait]
 pub trait CpfpWallet: Send + Sync {
     /// Builds an unsigned CPFP child for `parent` under `strategy`, targeting
@@ -80,6 +84,16 @@ pub type InputSignFut =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Signature, SignerError>> + Send>>;
 
 /// Signs one Taproot input by computing a Schnorr signature over the caller-supplied sighash.
+///
+/// A [`CpfpContext`](super::ladder::CpfpContext) holds one signer per key and mode:
+///
+/// - [`CpfpContext::anchor_input_signer`](super::ladder::CpfpContext::anchor_input_signer) signs a
+///   keyed anchor with the key that built it, tweaked for a key-path spend. In the bridge this is
+///   the operator's musig2-signer pubkey, which also serves as its watchtower key.
+/// - [`CpfpContext::wallet_input_signer`](super::ladder::CpfpContext::wallet_input_signer) signs
+///   each funding input that the wallet's own signer does not sign, tweaked for a key-path spend.
+///   In the bridge this is the general-wallet pubkey that secret-service holds. A Fireblocks vault
+///   signs every funding input, so this signer does not run there.
 pub type InputSigner = Arc<dyn Fn(Message) -> InputSignFut + Send + Sync>;
 
 /// A mempool child of a parent.
