@@ -104,6 +104,13 @@ pub enum Error {
         /// Txid of the parent.
         parent: bdk_wallet::bitcoin::Txid,
     },
+    /// The parent output that a CPFP child must spend for the general wallet pays another script,
+    /// so no signer of this wallet can complete the child.
+    #[error("the parent output {outpoint} does not pay the general wallet")]
+    SpendNotOwned {
+        /// The output that the child would spend.
+        outpoint: bdk_wallet::bitcoin::OutPoint,
+    },
     /// Another lease holds the wallet output of the parent that a CPFP child must spend.
     #[error("the parent output {outpoint} that the child spends is held by another lease")]
     ParentOutputHeld {

@@ -441,7 +441,8 @@ impl<P: WalletStore> OperatorWallet<P> {
     /// `max_package_rate` is a hard limit: a child that lifts the package past it is not built,
     /// and the error is [`Error::ChildAboveCap`]. A wallet output of the parent that a lease
     /// outside `replaced` holds is not spent either, and the error is
-    /// [`Error::ParentOutputHeld`].
+    /// [`Error::ParentOutputHeld`]. Nor is a parent output that the general wallet must sign for
+    /// but that pays another script: the error is [`Error::SpendNotOwned`].
     ///
     /// `replaced` describes what this build supersedes through RBF: the live child to outbid and
     /// the prior children of this wallet. The lease of a prior child is untouched: a failed build
@@ -485,8 +486,8 @@ impl<P: WalletStore> OperatorWallet<P> {
             &held_by_others,
             &self.general.output_states(&prior_outpoints),
         );
-        let spent = spent_output(parent, spend)?;
         let drain_script = self.general.script_pubkey();
+        let spent = spent_output(parent, spend, &drain_script)?;
         let wallet_input = self.general_signer.input_prediction();
         let request = ChildRequest {
             // cast: tx vsize is bounded by the 4 MWU consensus limit, far inside u64.
@@ -759,8 +760,13 @@ fn respendable(state: Option<&OutputState>, children: &[Txid]) -> bool {
 }
 
 /// The parent output that `spend` names, as an input of the child. It comes from `parent` itself,
-/// because the parent is usually not broadcast yet. Fails when `spend` names another transaction.
-fn spent_output(parent: &Transaction, spend: &ChildSpend) -> Result<FundingInput, Error> {
+/// because the parent is usually not broadcast yet. Fails when `spend` names another transaction,
+/// and when the general wallet must sign for an output that does not pay `general_script`.
+fn spent_output(
+    parent: &Transaction,
+    spend: &ChildSpend,
+    general_script: &ScriptBuf,
+) -> Result<FundingInput, Error> {
     let spent_outpoint = spend.outpoint();
     let parent_txid = parent.compute_txid();
     if spent_outpoint.txid != parent_txid {
@@ -775,6 +781,12 @@ fn spent_output(parent: &Transaction, spend: &ChildSpend) -> Result<FundingInput
             parent_outputs: parent.output.len(),
         });
     };
+    if spend.signer() == ChildSigner::GeneralWallet && spent_txout.script_pubkey != *general_script
+    {
+        return Err(Error::SpendNotOwned {
+            outpoint: spent_outpoint,
+        });
+    }
     Ok(FundingInput {
         outpoint: spent_outpoint,
         txout: spent_txout.clone(),
@@ -994,8 +1006,8 @@ mod tests {
         incumbent: Option<IncumbentChild>,
         candidates: Vec<FundingInput>,
     ) -> Result<(Psbt, Vec<FundingInput>), Error> {
-        let spent = spent_output(parent, spend)?;
         let drain_script = wallet_script();
+        let spent = spent_output(parent, spend, &drain_script)?;
         let request = ChildRequest {
             parent_vbytes: parent.vsize() as u64,
             parent_fee: Amount::from_sat(parent_fee),
@@ -1260,7 +1272,8 @@ mod tests {
     fn an_output_of_the_wallet_costs_a_wallet_input() {
         let parent = parent_with_script_pubkey(vault_script(), Amount::from_sat(1_000_000));
         let spend = ChildSpend::owned_output(OutPoint::new(parent.compute_txid(), 0));
-        let spent = spent_output(&parent, &spend).expect("the payout is an output of the parent");
+        let spent = spent_output(&parent, &spend, &vault_script())
+            .expect("the payout is an output of the parent that pays the vault");
         let drain_script = vault_script();
         let request = ChildRequest {
             parent_vbytes: parent.vsize() as u64,
@@ -1440,6 +1453,21 @@ mod tests {
         assert!(
             matches!(err, Error::SpendVoutOutOfRange { vout: 5, .. }),
             "a vout past the parent outputs is refused"
+        );
+    }
+
+    /// An owned spend names an output that the general wallet signs for. One that pays another
+    /// script would build a child that no signer can complete, on every attempt.
+    #[test]
+    fn an_owned_spend_of_an_output_that_pays_another_script_is_refused() {
+        let parent = parent_with_script_pubkey(vault_script(), Amount::from_sat(400));
+        let spend = ChildSpend::owned_output(OutPoint::new(parent.compute_txid(), 0));
+
+        let err = build(&parent, 0, &spend, 5, None, vec![funding(1_000_000, 1)]).unwrap_err();
+
+        assert!(
+            matches!(err, Error::SpendNotOwned { outpoint } if outpoint == spend.outpoint()),
+            "an output that pays another script is refused, got {err:?}"
         );
     }
 
