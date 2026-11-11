@@ -20,7 +20,7 @@ from utils.operator_set import (
     restart_with_operator_schedule,
     scheduled_operator,
 )
-from utils.utils import read_all_operator_keys, wait_until_bridge_ready
+from utils.utils import read_all_operator_keys, wait_until, wait_until_bridge_ready
 from utils.withdrawal import (
     assert_cooperative_payout,
     fulfill_withdrawal,
@@ -60,10 +60,11 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
       update's activation block leaves once: the exit applies first, so the admin removal
       changes nothing and the successor covenant keeps its activation height,
     - an admin addition and another operator's unstaking exit in the same block both apply, and
-      the successor covenant takes the admin update's activation height,
+      the successor covenant takes the admin update's activation height, with the earlier
+      removed operator's bridge node and mosaic service down,
     - ASM records a deposit to each successor that the exited operators take no part in, and
-    - every covenant's deposit pays out, cooperatively or, for an assignee that skips the
-      cooperative payout, through its own claim.
+    - every covenant's deposit pays out, cooperatively or, for the covenant with a torn-down
+      member, through the assignee's own claim.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -103,6 +104,23 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
                 "left"
             )
 
+        def wait_until_online(members: list[int]):
+            """Wait until each of `members` sees every other one online."""
+            operators = rpcs[members[0]].stratabridge_bridgeOperators()
+            wait_until(
+                lambda: all(
+                    rpcs[idx].stratabridge_operatorStatus(operators[peer]) == "online"
+                    for idx in members
+                    for peer in members
+                    if peer != idx
+                ),
+                timeout=300,
+                step=10,
+                error_msg=f"operators {members} must all be online to each other",
+            )
+
+        torn_down: list[int] = []
+
         def update_with_exit_at_activation(
             update: OperatorSetUpdate,
             unstaking_operator: int,
@@ -113,7 +131,8 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
             update's activation block.
 
             `schedule_at` maps the activation height to the schedule the network restarts on.
-            Returns the activation height and that schedule.
+            Torn-down operators' bridge nodes stay stopped across the restart. Returns the
+            activation height and that schedule.
             """
             # No node may process the activation block before it restarts on the edited
             # schedule, and the intent must confirm in exactly that block.
@@ -124,7 +143,10 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
                 mine_to_height(bitcoin_rpc, mining_address, activation_height - 1)
                 schedule = schedule_at(activation_height)
                 restart_with_operator_schedule(
-                    nodes, schedule, deposit_index_offset=deposit_index_offset
+                    nodes,
+                    schedule,
+                    deposit_index_offset=deposit_index_offset,
+                    offline=torn_down,
                 )
                 intent_txid = dev_cli.send_unstaking_intent(
                     unstaking_operator,
@@ -141,7 +163,13 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
                     f"Admin update {update.seqno} and operator {unstaking_operator}'s unstaking "
                     f"intent both take effect at {activation_height}"
                 )
-            wait_until_p2p_connected(member_rpcs([registration.index for registration in schedule]))
+            wait_until_online(
+                [
+                    registration.index
+                    for registration in schedule
+                    if registration.index not in torn_down
+                ]
+            )
             return activation_height, schedule
 
         self.logger.info("Genesis: the genesis members admit a deposit")
@@ -187,6 +215,14 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
         assert_absent(DOUBLY_REMOVED_OPERATOR, double_removal_deposit_idx)
 
         self.logger.info(
+            f"Teardown: operator {DOUBLY_REMOVED_OPERATOR}'s bridge node and mosaic service stop"
+        )
+        nodes[DOUBLY_REMOVED_OPERATOR].stop()
+        ctx.get_service(f"mosaic_{DOUBLY_REMOVED_OPERATOR}").stop()
+        torn_down.append(DOUBLY_REMOVED_OPERATOR)
+        live_operators = [idx for idx in all_operators if idx not in torn_down]
+
+        self.logger.info(
             f"Different operators, two sources: operator {JOINING_OPERATOR} is added by an admin "
             f"update while operator {UNSTAKING_OPERATOR} unstakes in its activation block"
         )
@@ -209,8 +245,7 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
         exit_at_addition_deposit_txid = deposit(
             exit_at_addition_members, exit_at_addition_deposit_idx
         )
-        for operator in (DOUBLY_REMOVED_OPERATOR, UNSTAKING_OPERATOR):
-            assert_absent(operator, exit_at_addition_deposit_idx)
+        assert_absent(UNSTAKING_OPERATOR, exit_at_addition_deposit_idx)
 
         def withdraw(deposit_idx: int, assignee: int):
             self.logger.info(f"Withdrawing deposit {deposit_idx} through operator {assignee}")
@@ -238,12 +273,6 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
             payout_txid = wait_until_deposit_paid_out(deposit_idx, deposit_txid, assignee)
             assert_cooperative_payout(bitcoin_rpc, payout_txid, deposit_txid)
 
-        # ASM assigns the oldest unassigned deposit first, so the deposits are withdrawn in the
-        # order they were made. Each assignee is active and belongs to that deposit's covenant;
-        # operator 0 is the only active member left of the covenants before the addition.
-        self.logger.info("Withdrawals: every covenant's deposit pays out")
-        withdraw_cooperatively(genesis_deposit_idx, genesis_deposit_txid, GENESIS_MEMBERS[0])
-
         def restart_with_cooperative_payout_timeout(operator: int, timeout: int):
             restart_bridge_node_with_overrides(
                 nodes[operator],
@@ -251,23 +280,26 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
                 params_overrides={},
             )
             wait_until_bridge_ready(rpcs[operator])
-            wait_until_p2p_connected(member_rpcs(all_operators))
+            wait_until_online(live_operators)
 
+        # ASM assigns the oldest unassigned deposit first, so the deposits are withdrawn in the
+        # order they were made. Each assignee is active and belongs to that deposit's covenant;
+        # operator 0 is the only active member left of the covenants before the addition.
+        self.logger.info("Withdrawals: every covenant's deposit pays out")
+
+        # The genesis covenant cannot pay out cooperatively without its torn-down member.
         self.logger.info(
             f"Unilateral reimbursement: operator {CLAIMING_OPERATOR} skips the cooperative payout"
         )
         restart_with_cooperative_payout_timeout(CLAIMING_OPERATOR, 0)
-        withdraw(double_removal_deposit_idx, CLAIMING_OPERATOR)
+        withdraw(genesis_deposit_idx, CLAIMING_OPERATOR)
         claim = wait_until_active_valid_claim(rpcs[CLAIMING_OPERATOR])
         assert (claim.deposit_idx, claim.assigned_operator) == (
-            double_removal_deposit_idx,
+            genesis_deposit_idx,
             CLAIMING_OPERATOR,
-        ), (
-            f"operator {CLAIMING_OPERATOR} must claim deposit {double_removal_deposit_idx}, "
-            f"got {claim}"
-        )
+        ), f"operator {CLAIMING_OPERATOR} must claim deposit {genesis_deposit_idx}, got {claim}"
         payout_txid = wait_until_deposit_paid_out(
-            double_removal_deposit_idx, double_removal_deposit_txid, CLAIMING_OPERATOR
+            genesis_deposit_idx, genesis_deposit_txid, CLAIMING_OPERATOR
         )
         payout_inputs = tx_inputs(bitcoin_rpc, payout_txid)
         assert any(txid == claim.claim_txid for txid, _ in payout_inputs), (
@@ -278,6 +310,9 @@ class OperatorSetExitAtAdminActivationTest(StrataTestBase):
         # zero timeout refuses to co-sign another assignee's cooperative payout too.
         restart_with_cooperative_payout_timeout(
             CLAIMING_OPERATOR, BridgeConfigParams().cooperative_payout_timeout
+        )
+        withdraw_cooperatively(
+            double_removal_deposit_idx, double_removal_deposit_txid, CLAIMING_OPERATOR
         )
         withdraw_cooperatively(
             exit_at_addition_deposit_idx, exit_at_addition_deposit_txid, JOINING_OPERATOR
