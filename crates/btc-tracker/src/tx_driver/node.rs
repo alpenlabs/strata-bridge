@@ -112,7 +112,8 @@ pub(super) const NULL_RESULT: &str = "Empty data received";
 /// mempool. `txindex` also keeps a transaction of a block that a reorg removed, and answers it
 /// with that block's hash and zero confirmations. The node then holds it in no mempool, so it
 /// reads as unknown. A confirmed transaction with no block hash is a malformed answer, and it
-/// reads as in the mempool, so that the driver does not stop.
+/// reads as in the mempool, so that the driver does not stop. A failed read of the height of a
+/// confirmed transaction is an error.
 pub(super) async fn read_status(
     rpc_client: &BitcoinClient,
     txid: Txid,
@@ -127,9 +128,7 @@ pub(super) async fn read_status(
         (_, None) => Ok(TxStatus::Mempool),
         (0, Some(_)) => Ok(TxStatus::Unknown),
         (confirmations, Some(blockhash)) => {
-            // This uses `0` as the default since a block height of `0` does not satisfy any
-            // practical predicate.
-            let height = rpc_client.get_block_height(&blockhash).await.unwrap_or(0);
+            let height = rpc_client.get_block_height(&blockhash).await?;
             Ok(confirmed_status(
                 confirmations,
                 blockhash,
@@ -325,9 +324,21 @@ mod rpc_tests {
 
     use super::*;
 
+    /// A node user that may read transactions and nothing else.
+    const READER: &str = "reader";
+    const READER_PASSWORD: &str = "reader-password";
+    /// The `rpcauth` of [`READER`]: the salt, and the HMAC-SHA256 of the password keyed by it.
+    const READER_AUTH: &str =
+        "-rpcauth=reader:0123456789abcdef$69a4d8f8437dcc11493811874b9b78695019631e45fa076d740ca250f0d4e035";
+
     fn setup() -> (Node, BitcoinClient, Address) {
+        setup_with(&[])
+    }
+
+    fn setup_with(args: &[&'static str]) -> (Node, BitcoinClient, Address) {
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
+        conf.args.extend(args);
         let node = Node::with_conf("bitcoind", &conf).expect("bitcoind must start");
         let cookie = node
             .params
@@ -470,6 +481,30 @@ mod rpc_tests {
             read_status(&client, txid, 2).await.expect("read"),
             TxStatus::Unknown,
             "a replaced transaction of a disconnected block is in no mempool"
+        );
+    }
+
+    /// A confirmed status carries its height, so a failed read of the height fails the read.
+    #[tokio::test]
+    async fn a_failed_read_of_the_block_height_fails_the_status_read() {
+        let (node, _, address) = setup_with(&[
+            READER_AUTH,
+            "-rpcwhitelist=reader:getrawtransaction",
+            "-rpcwhitelistdefault=0",
+        ]);
+        let txid = send(&node, &address).txid;
+        node.client
+            .generate_to_address(1, &address)
+            .expect("block mines");
+        let auth = bitcoind_async_client::Auth::UserPass(READER.into(), READER_PASSWORD.into());
+        let reader = BitcoinClient::new(node.rpc_url(), auth, None, None, None)
+            .expect("can set up rpc client");
+
+        let status = read_status(&reader, txid, 2).await;
+
+        assert!(
+            status.is_err(),
+            "a status with no height is no status, got {status:?}"
         );
     }
 
