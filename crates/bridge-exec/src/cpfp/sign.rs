@@ -1,15 +1,16 @@
 //! Signing of a CPFP child.
 
 use bitcoin::{
-    FeeRate, Psbt, TapSighashType, Transaction, TxOut, Witness,
+    FeeRate, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Witness,
     secp256k1::Message,
     sighash::{Prevouts, SighashCache},
+    taproot::{LeafVersion, TapLeafHash},
 };
 use btc_tracker::cpfp::CpfpStrategy;
 use strata_bridge_primitives::cpfp::{ChildSigner, ChildWitness};
 
 use super::{
-    errors::{CpfpError, CpfpWalletError, SignerError},
+    errors::{CpfpError, SignerError},
     ladder::CpfpContext,
 };
 
@@ -54,11 +55,23 @@ pub(super) async fn sign_child(
                 witness.push(sig.as_ref());
                 witness
             }
-            // A script-path anchor is shared, and this ladder holds no signer for one.
-            ChildWitness::ScriptPath { .. } => {
-                return Err(CpfpError::Wallet(CpfpWalletError::Unbumpable(
-                    "a script-path anchor has no signer".to_string(),
-                )));
+            // Script-path: the sighash commits to the leaf, the signature is untweaked,
+            // and the witness carries the leaf script and control block after it.
+            ChildWitness::ScriptPath {
+                leaf_script,
+                control_block,
+            } => {
+                let sighash =
+                    script_path_sighash(&psbt.unsigned_tx, anchor_idx, &prevouts, leaf_script)
+                        .map_err(CpfpError::MalformedChild)?;
+                let sig = (ctx.multi_anchor_signer)(Message::from(sighash))
+                    .await
+                    .map_err(CpfpError::AnchorSigner)?;
+                let mut witness = Witness::new();
+                witness.push(sig.as_ref());
+                witness.push(leaf_script.to_bytes());
+                witness.push(control_block.serialize());
+                witness
             }
         };
         psbt.inputs[anchor_idx].final_script_witness = Some(witness);
@@ -118,6 +131,29 @@ fn prevouts_of(psbt: &Psbt) -> Result<Vec<TxOut>, String> {
                 .ok_or_else(|| format!("PSBT input {i}: witness_utxo not populated"))
         })
         .collect()
+}
+
+/// Computes the BIP-341 **script-path** sighash for one input of a child.
+///
+/// Differs from [`key_path_sighash`] in that the message commits to the specific leaf being
+/// satisfied (via its [`TapLeafHash`]), so a signature made for one leaf cannot be replayed
+/// against another. Used for multi-anchor outputs, whose leaves are
+/// `<watchtower_pubkey> OP_CHECKSIG`.
+fn script_path_sighash(
+    tx: &Transaction,
+    input_idx: usize,
+    prevouts: &[TxOut],
+    leaf_script: &ScriptBuf,
+) -> Result<bitcoin::TapSighash, String> {
+    let leaf_hash = TapLeafHash::from_script(leaf_script, LeafVersion::TapScript);
+    SighashCache::new(tx)
+        .taproot_script_spend_signature_hash(
+            input_idx,
+            &Prevouts::All(prevouts),
+            leaf_hash,
+            TapSighashType::Default,
+        )
+        .map_err(|e| format!("script-path sighash compute (input {input_idx}): {e:?}"))
 }
 
 /// Computes the BIP-341 key-path Taproot sighash for one input of a child.

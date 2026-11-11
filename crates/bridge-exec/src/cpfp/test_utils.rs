@@ -528,6 +528,7 @@ pub(super) fn context(
     CpfpContext {
         wallet,
         fee_source,
+        multi_anchor_signer: anchor_signer.clone(),
         anchor_input_signer: anchor_signer,
         wallet_input_signer: wallet_signer,
         // Neutral fee settings: the premium and floor stay off, so that the target is the raw

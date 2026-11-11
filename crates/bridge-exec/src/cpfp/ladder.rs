@@ -55,6 +55,14 @@ pub struct CpfpContext {
     /// anchor pins to. Bound to the operator's musig2-signer pubkey in production (see
     /// [`InputSigner`] doc). Not called for a child that spends an owned output.
     pub anchor_input_signer: InputSigner,
+    /// Signs the **script-path anchor input** of a multi-anchor child (`contest`,
+    /// `bridge_proof_timeout`).
+    ///
+    /// Distinct from [`Self::anchor_input_signer`] because a script-path spend satisfies the leaf
+    /// directly: the signature must be made with the raw key, *not* BIP-341 tap-tweaked. In the
+    /// bridge this is the operator's musig2 signer used untweaked — the same key and mode
+    /// `publish_contest` uses to sign the contest transaction's own input.
+    pub multi_anchor_signer: InputSigner,
     /// Signs each wallet input that the wallet signer leaves to the ladder. Bound to the
     /// operator's general-wallet-signer pubkey in production. Called once per such input.
     pub wallet_input_signer: InputSigner,
@@ -152,20 +160,23 @@ impl BumpAttempt {
 /// child stays in the mempool. The wallet hides the inputs of that child once a sync observes it,
 /// so without adoption a small wallet cannot fund the replacement, and without a lease a
 /// concurrent duty can select those inputs before a sync.
+///
+/// Returns whether the live child is proven foreign: the wallet owns no input of it. A failed
+/// lookup proves nothing, so a later attempt reads the child again.
 async fn reconcile(
     ctx: &CpfpContext,
     parent_txid: Txid,
     probe: Option<&ParentProbe>,
     handle: &mut CpfpHandle,
-) {
+) -> bool {
     let Some(unknown) = handle.observe(probe) else {
-        return;
+        return false;
     };
     let inputs = match ctx.mempool.child_inputs(unknown).await {
         Ok(inputs) => inputs,
         Err(e) => {
             warn!(%parent_txid, child_txid = %unknown, error = %e, "could not read a live child");
-            return;
+            return false;
         }
     };
     match ctx.wallet.adopt_child(parent_txid, inputs).await {
@@ -176,9 +187,11 @@ async fn reconcile(
                 lease,
             });
             handle.candidate = None;
+            false
         }
         None => {
             handle.demote_accepted();
+            true
         }
     }
 }
@@ -217,9 +230,19 @@ pub async fn perform_bump(
         .await
         .inspect_err(|e| warn!(%parent_txid, error = %e, "CPFP probe failed"))
         .ok();
-    reconcile(ctx, parent_txid, probe.as_ref(), handle).await;
+    let foreign_child = reconcile(ctx, parent_txid, probe.as_ref(), handle).await;
 
     let result = act(ctx, parent, strategy, handle, probe).await;
+
+    // No live child spends the inputs of a child that lost to a foreign one, so the wallet can
+    // use them. `NoPackage` here is the `AboveCap` refusal or the `StandDown` behind the foreign
+    // child; a failed build keeps them, and that does no harm: the next build can spend them. A
+    // child of ours keeps its lease: a release lets a concurrent duty double-spend the inputs and
+    // evict it. The design review of 2026-11-02 names this safe only when the probe proved the
+    // output unspent and the rejection followed, which the `foreign_child` read is.
+    if foreign_child && matches!(result, Ok(BumpOutcome::NoPackage)) {
+        handle.candidate = None;
+    }
 
     BumpAttempt {
         parent_in_mempool: matches!(probe, Some(ParentProbe::NoChild | ParentProbe::Child(_))),
