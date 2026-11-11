@@ -68,17 +68,18 @@ impl FundingLease for ChildLease {
 }
 
 /// Classifies a build error at the boundary. The driver reads this to stop bumping a parent that
-/// cannot carry a child at all: the outputs of a signed parent and the size of a spend of them do
-/// not change, so these two fail the same way on every attempt.
+/// cannot carry a child at all: the outputs of a signed parent, the size of a spend of them, and
+/// what the spend names do not change, so these fail the same way on every attempt.
 fn classify(error: WalletError) -> CpfpWalletError {
     if let WalletError::ChildAboveCap { needed, ceiling } = error {
         return CpfpWalletError::AboveCap { needed, ceiling };
     }
     let message = error.to_string();
     match error {
-        WalletError::SpendVoutOutOfRange { .. } | WalletError::ChildTooLarge { .. } => {
-            CpfpWalletError::Unbumpable(message)
-        }
+        WalletError::SpendVoutOutOfRange { .. }
+        | WalletError::SpendOfAnotherParent { .. }
+        | WalletError::SpendNotOwned { .. }
+        | WalletError::ChildTooLarge { .. } => CpfpWalletError::Unbumpable(message),
         _ => CpfpWalletError::Transient(message),
     }
 }
@@ -387,7 +388,7 @@ fn fee_rate_of_btc_per_kvb(rate: f64) -> Result<FeeRate, String> {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::hashes::Hash;
+    use bitcoin::{OutPoint, hashes::Hash};
 
     use super::*;
 
@@ -397,6 +398,27 @@ mod tests {
 
     /// Each wallet error maps to the driver behaviour it needs: a shape error stops the bumps,
     /// a refusal at the cap stays typed, and a shortage retries.
+    /// A spend that names an output the wallet cannot sign for, or an output of another
+    /// transaction, fails the same way on every attempt, so the driver stops bumping the parent.
+    #[test]
+    fn a_spend_that_no_attempt_can_fix_reads_as_unbumpable() {
+        for error in [
+            WalletError::SpendNotOwned {
+                outpoint: OutPoint::null(),
+            },
+            WalletError::SpendOfAnotherParent {
+                spend: OutPoint::null(),
+                parent: Txid::all_zeros(),
+            },
+        ] {
+            let classified = classify(error);
+            assert!(
+                matches!(classified, CpfpWalletError::Unbumpable(_)),
+                "the parent can never carry this child, got {classified:?}"
+            );
+        }
+    }
+
     #[test]
     fn a_wallet_error_maps_to_what_the_driver_needs() {
         assert!(matches!(
