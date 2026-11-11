@@ -353,6 +353,19 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         Ok(())
     }
 
+    #[instrument(skip_all, fields(%operator_idx, %role))]
+    async fn is_setup_complete(
+        &self,
+        operator_idx: OperatorIdx,
+        role: Role,
+    ) -> Result<bool, MosaicError> {
+        let tableset_id = self.get_tableset_id(role, operator_idx).await?;
+        let status = self
+            .read_tableset_status(tableset_id, operator_idx, role)
+            .await?;
+        setup_completed(status)
+    }
+
     #[instrument(skip_all, fields(%operator_idx, %role, %game_index))]
     async fn is_setup_available(
         &self,
@@ -576,5 +589,71 @@ impl<R: MosaicRpcClient + Send + Sync + 'static, P: MosaicIdResolver> MosaicClie
         self.subscribers.lock().await.push(send);
 
         Subscription::from_receiver(recv)
+    }
+}
+
+/// Maps a tableset status to whether its setup has completed, failing on an aborted setup.
+fn setup_completed(status: RpcTablesetStatus) -> Result<bool, MosaicError> {
+    match status {
+        RpcTablesetStatus::SetupComplete
+        | RpcTablesetStatus::Contest { .. }
+        | RpcTablesetStatus::Consumed { .. } => Ok(true),
+        RpcTablesetStatus::Incomplete { .. } => Ok(false),
+        RpcTablesetStatus::Aborted { reason } => Err(MosaicError::Aborted(reason)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mosaic_rpc_types::RpcDepositId;
+
+    use super::*;
+
+    #[test]
+    fn setup_counts_as_complete_once_it_completes_even_after_a_contest() {
+        let deposit = RpcDepositId::from([1; 32]);
+        for status in [
+            RpcTablesetStatus::SetupComplete,
+            RpcTablesetStatus::Contest { deposit },
+            RpcTablesetStatus::Consumed {
+                deposit,
+                success: true,
+            },
+            RpcTablesetStatus::Consumed {
+                deposit,
+                success: false,
+            },
+        ] {
+            assert!(
+                matches!(setup_completed(status.clone()), Ok(true)),
+                "a setup that completed must count as complete in {status:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn incomplete_setup_is_not_complete() {
+        assert!(
+            matches!(
+                setup_completed(RpcTablesetStatus::Incomplete {
+                    details: "garbling".to_string()
+                }),
+                Ok(false)
+            ),
+            "an incomplete setup must not count as complete"
+        );
+    }
+
+    #[test]
+    fn aborted_setup_is_an_error() {
+        assert!(
+            matches!(
+                setup_completed(RpcTablesetStatus::Aborted {
+                    reason: "protocol violation".to_string()
+                }),
+                Err(MosaicError::Aborted(_))
+            ),
+            "an aborted setup needs a new setup and must be reported"
+        );
     }
 }

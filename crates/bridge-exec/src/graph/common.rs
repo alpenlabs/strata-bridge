@@ -1,5 +1,7 @@
 //! Executors for uncontested payout graph duties.
 
+use std::collections::BTreeSet;
+
 use algebra::predicate;
 use bitcoin::{
     Amount, OutPoint, TapSighashType, TxOut, Txid, XOnlyPublicKey,
@@ -38,6 +40,7 @@ use crate::{
     config::ExecutionConfig,
     errors::ExecutorError,
     fees::funding_fee_rate,
+    mosaic_setup::ensure_evaluator_setups,
     output_handles::OutputHandles,
 };
 
@@ -790,7 +793,8 @@ async fn funding_confirmed_or_drive(
     Ok(confirmed)
 }
 
-/// Publishes the claim transaction to Bitcoin.
+/// Publishes the claim transaction to Bitcoin once this node's evaluator setup with each of
+/// `watchtowers` has completed.
 ///
 /// The prevout comes from the reserved wallet, or from the node once a transaction spends the
 /// output and the wallet stops listing it: a retry after the claim reached a mempool must still
@@ -798,10 +802,16 @@ async fn funding_confirmed_or_drive(
 /// publishing, and the retry tick runs it again.
 pub(super) async fn publish_claim(
     output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+    watchtowers: &BTreeSet<OperatorIdx>,
     claim_tx: &ClaimTx,
 ) -> Result<(), ExecutorError> {
     let unsigned_claim_tx = claim_tx.as_ref().clone();
     let claim_txid = unsigned_claim_tx.compute_txid();
+
+    ensure_evaluator_setups(output_handles.mosaic_client.as_ref(), watchtowers)
+        .await
+        .inspect_err(|e| warn!(%claim_txid, ?graph_idx, %e, "withholding claim"))?;
     info!(
         %claim_txid,
         "signing claim transaction"

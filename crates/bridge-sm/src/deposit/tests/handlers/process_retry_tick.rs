@@ -1,7 +1,7 @@
 //! Unit tests for process_retry_tick.
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use musig2::AggNonce;
 
@@ -42,6 +42,7 @@ mod tests {
             event: DepositEvent::RetryTick(RetryTickEvent),
             expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
+                watchtowers: BTreeSet::from([1, 2]),
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc,
                 deposit_amount: TEST_DEPOSIT_AMOUNT,
