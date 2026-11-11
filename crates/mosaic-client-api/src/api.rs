@@ -128,6 +128,19 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         game_index: GameIndex,
     ) -> Result<bool, MosaicError>;
 
+    /// Returns whether the tableset for the given operator and role has completed setup.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
+    /// `role`: own role in the setup (garbler or evaluator).
+    ///
+    /// A tableset that a contest has since used or consumed still counts as set up. Returns
+    /// `false` while setup is incomplete, and an error if setup is missing or aborted.
+    async fn is_setup_complete(
+        &self,
+        operator_idx: OperatorIdx,
+        role: Role,
+    ) -> Result<bool, MosaicError>;
+
     /// Garbler side: completes adaptor signatures for a contested withdrawal.
     ///
     /// `operator_idx`: the remote operator in this setup.

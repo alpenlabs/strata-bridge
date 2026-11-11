@@ -1,7 +1,7 @@
 //! Unit tests for the DepositDuty safe-harbour suppression taxonomy.
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use crate::deposit::{duties::NagDuty, tests::*};
 
@@ -108,6 +108,7 @@ mod tests {
             (
                 DepositDuty::FulfillWithdrawalRequest {
                     deposit_idx: TEST_DEPOSIT_IDX,
+                    watchtowers: BTreeSet::from([1, 2]),
                     deadline: LATER_BLOCK_HEIGHT,
                     recipient_desc: desc.clone(),
                     deposit_amount: TEST_DEPOSIT_AMOUNT,

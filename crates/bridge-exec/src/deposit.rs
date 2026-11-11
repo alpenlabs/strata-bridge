@@ -35,6 +35,7 @@ use crate::{
     cpfp::adapters::multi_anchor_spend_material,
     errors::ExecutorError,
     fees::funding_fee_rate,
+    mosaic_setup::ensure_evaluator_setups,
     output_handles::OutputHandles,
 };
 
@@ -88,6 +89,7 @@ pub async fn execute_deposit_duty(
         } => publish_deposit(&output_handles, signed_deposit_transaction.clone()).await,
         DepositDuty::FulfillWithdrawalRequest {
             deposit_idx,
+            watchtowers,
             deadline,
             recipient_desc,
             deposit_amount,
@@ -96,6 +98,7 @@ pub async fn execute_deposit_duty(
                 &cfg,
                 &output_handles,
                 *deposit_idx,
+                watchtowers,
                 *deadline,
                 recipient_desc.clone(),
                 *deposit_amount,
@@ -466,11 +469,13 @@ async fn publish_deposit(
 
 /// Fulfills a user's withdrawal request by fronting funds to the user.
 ///
-/// Only the assignee executes this duty.
+/// Only the assignee executes this duty, and only once its evaluator setup with each of
+/// `watchtowers` has completed, so that it can defend the claim that reimburses it.
 async fn fulfill_withdrawal(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
+    watchtowers: &BTreeSet<OperatorIdx>,
     deadline: BitcoinBlockHeight,
     recipient_desc: Descriptor,
     deposit_amount: Amount,
@@ -540,6 +545,10 @@ async fn fulfill_withdrawal(
         );
         return Ok(());
     }
+
+    ensure_evaluator_setups(output_handles.mosaic_client.as_ref(), watchtowers)
+        .await
+        .inspect_err(|e| warn!(%deposit_idx, %e, "withholding withdrawal fulfillment"))?;
 
     info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
 

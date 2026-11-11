@@ -1,7 +1,7 @@
 //! Unit tests for process_retry_tick.
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{collections::BTreeSet, sync::Arc};
 
     use bitcoin::{
         OutPoint,
@@ -118,6 +118,8 @@ mod tests {
                 state,
                 event: GraphEvent::RetryTick(RetryTickEvent),
                 expected_duties: vec![GraphDuty::PublishClaim {
+                    graph_idx: sm.context().graph_idx(),
+                    watchtowers: BTreeSet::from([1, 2, 3, 4]),
                     claim_tx: game_graph.claim,
                 }],
             },

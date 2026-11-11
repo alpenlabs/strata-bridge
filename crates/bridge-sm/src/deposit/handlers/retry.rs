@@ -27,6 +27,7 @@ impl DepositSM {
             } if self.context().operator_table().pov_idx() == *assignee => {
                 vec![DepositDuty::FulfillWithdrawalRequest {
                     deposit_idx: self.context().deposit_idx(),
+                    watchtowers: self.context().watchtower_idxs(*assignee),
                     deadline: *deadline,
                     recipient_desc: recipient_desc.clone(),
                     deposit_amount: cfg.deposit_amount(),
