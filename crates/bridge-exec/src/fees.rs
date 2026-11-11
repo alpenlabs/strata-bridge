@@ -200,10 +200,21 @@ impl MempoolExplorerFeeSource {
 /// Joins the recommended-fees path onto `base_url`, e.g. `https://mempool.space/signet` or
 /// `https://mempool.space` for mainnet.
 ///
-/// A scheme other than `http` or `https` is an error: `reqwest` would refuse it on every read, and
-/// the Core fallback would hide that.
+/// A URL with credentials or a query is an error: the endpoint is public and takes no query, and
+/// the config is logged. A scheme other than `https` is an error too: a quote over plain `http`
+/// can be changed on the way, and the Core fallback would hide a scheme that `reqwest` refuses.
 fn recommended_fees_url(mut base_url: Url) -> Result<Url, FeeConfigError> {
-    if !matches!(base_url.scheme(), "http" | "https") {
+    if !base_url.username().is_empty() || base_url.password().is_some() {
+        return Err(FeeConfigError::InvalidExplorerUrl(
+            "the url carries credentials".to_string(),
+        ));
+    }
+    if base_url.query().is_some() {
+        return Err(FeeConfigError::InvalidExplorerUrl(
+            "the url carries a query".to_string(),
+        ));
+    }
+    if base_url.scheme() != "https" {
         return Err(FeeConfigError::InvalidExplorerUrl(format!(
             "unsupported scheme in {base_url}"
         )));
@@ -408,7 +419,8 @@ pub enum FeeSourceConfig {
     /// Query a mempool.space-compatible explorer's `/api/v1/fees/recommended` endpoint, with
     /// Bitcoin Core as the fallback if the explorer is unreachable.
     MempoolExplorer {
-        /// Base URL, e.g. `https://mempool.space/signet` or `https://mempool.space`.
+        /// Base URL, e.g. `https://mempool.space/signet` or `https://mempool.space`. It must use
+        /// `https`, and carry no credentials and no query.
         base_url: Url,
     },
     /// Return a constant rate. Intended for tests and emergency manual overrides.
@@ -592,12 +604,11 @@ mod tests {
         server
     }
 
+    /// A source over the plain-`http` mock server. The endpoint joins onto the server URI
+    /// directly, because [`recommended_fees_url`] accepts `https` only.
     fn explorer(server: &MockServer, fallback: MockFeeRateRpc) -> MempoolExplorerFeeSource {
-        MempoolExplorerFeeSource::new(
-            recommended_fees_url(Url::parse(&server.uri()).unwrap()).unwrap(),
-            bitcoind(fallback),
-        )
-        .unwrap()
+        let url = Url::parse(&format!("{}/api/v1/fees/recommended", server.uri())).unwrap();
+        MempoolExplorerFeeSource::new(url, bitcoind(fallback)).unwrap()
     }
 
     #[tokio::test]
@@ -665,23 +676,14 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn mempool_base_url_without_trailing_slash_works() {
-        // mempool.space/signet style — must still resolve to .../signet/api/v1/fees/recommended.
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/signet/api/v1/fees/recommended"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(recommended_fees_body(12)))
-            .mount(&server)
-            .await;
+    #[test]
+    fn a_base_url_without_a_trailing_slash_keeps_its_path() {
+        let base = Url::parse("https://mempool.space/signet").unwrap();
 
-        let base = Url::parse(&format!("{}/signet", server.uri())).unwrap();
-        let url = recommended_fees_url(base).unwrap();
-        let source =
-            MempoolExplorerFeeSource::new(url, bitcoind(MockFeeRateRpc::failing())).unwrap();
         assert_eq!(
-            source.next_block_rate().await.unwrap(),
-            FeeRate::from_sat_per_vb(12).unwrap()
+            recommended_fees_url(base).unwrap().as_str(),
+            "https://mempool.space/signet/api/v1/fees/recommended",
+            "the endpoint joins under the network path"
         );
     }
 
@@ -727,6 +729,60 @@ mod tests {
             cfg.validate(),
             Err(FeeConfigError::InvalidExplorerUrl(_))
         ));
+    }
+
+    /// A quote over plain `http` can be changed on the way.
+    #[test]
+    fn validate_rejects_a_plain_http_explorer_url() {
+        let cfg = FeeSourceConfig::MempoolExplorer {
+            base_url: "http://mempool.space".parse().unwrap(),
+        };
+
+        let result = cfg.validate();
+
+        assert!(
+            matches!(result, Err(FeeConfigError::InvalidExplorerUrl(_))),
+            "only https is accepted, got {result:?}"
+        );
+    }
+
+    /// The endpoint needs no credentials, and the config is logged, so a URL with them is
+    /// refused without echoing them.
+    #[test]
+    fn validate_rejects_an_explorer_url_with_credentials() {
+        let cfg = FeeSourceConfig::MempoolExplorer {
+            base_url: "http://user:secret@mempool.space".parse().unwrap(),
+        };
+
+        let Err(error) = cfg.validate() else {
+            panic!("a URL with credentials must be refused");
+        };
+
+        assert!(
+            matches!(error, FeeConfigError::InvalidExplorerUrl(_)),
+            "the URL is refused as invalid, got {error:?}"
+        );
+        assert!(
+            !error.to_string().contains("secret"),
+            "the error must not echo the password, got {error}"
+        );
+    }
+
+    /// The endpoint takes no query, so a token there would only reach the logs.
+    #[test]
+    fn validate_rejects_an_explorer_url_with_a_query() {
+        let cfg = FeeSourceConfig::MempoolExplorer {
+            base_url: "https://mempool.space/?token=secret".parse().unwrap(),
+        };
+
+        let Err(error) = cfg.validate() else {
+            panic!("a URL with a query must be refused");
+        };
+
+        assert!(
+            !error.to_string().contains("secret"),
+            "the error must not echo the query, got {error}"
+        );
     }
 
     #[test]
