@@ -864,11 +864,7 @@ mod tests {
                 store: MemoryStore::new(),
             },
             xonly_pubkey(42),
-            OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest).with_sync_policy(
-                0,
-                1,
-                Duration::ZERO,
-            ),
+            OperatorWalletConfig::new(0, Network::Regtest).with_sync_policy(0, 1, Duration::ZERO),
             Backend::BitcoinCore(Arc::new(core_rpc_client(bitcoind))),
             MemoryStore::new(),
             None,

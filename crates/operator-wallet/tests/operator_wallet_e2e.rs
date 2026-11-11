@@ -123,7 +123,7 @@ async fn open_wallet(
     bootstrap_checkpoint: Option<BlockId>,
     persist_every_blocks: NonZeroU32,
 ) -> OperatorWallet<MemoryStore> {
-    let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest)
+    let config = OperatorWalletConfig::new(0, Network::Regtest)
         .with_persist_every_blocks(persist_every_blocks);
     open_wallet_with_config(
         bitcoind,
@@ -760,7 +760,7 @@ async fn initial_leases_hold_outpoints_across_a_restart() {
             store: stores.general.clone(),
         },
         reserved_pubkey,
-        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
+        OperatorWalletConfig::new(0, Network::Regtest),
         Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
         stores.reserved.clone(),
         None,
@@ -1483,7 +1483,7 @@ async fn a_store_ahead_of_the_node_is_refused() {
             store: stores.general.clone(),
         },
         reserved_pubkey,
-        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
+        OperatorWalletConfig::new(0, Network::Regtest),
         Backend::BitcoinCore(Arc::new(sync_rpc_client(&bitcoind))),
         stores.reserved.clone(),
         None,
@@ -1555,8 +1555,8 @@ async fn unconfirmed_outputs_stay_spendable_across_a_failed_sync() {
     let stores = Stores::default();
     let (general_kp, general_pubkey) = keypair_from_seed(45);
     // No retries: the injected failure fires once, and a retry would succeed.
-    let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest)
-        .with_sync_policy(0, 1, Duration::ZERO);
+    let config =
+        OperatorWalletConfig::new(0, Network::Regtest).with_sync_policy(0, 1, Duration::ZERO);
     let mut wallet = open_wallet_with_config(&bitcoind, 45, 46, &stores, None, config).await;
 
     let general_addr = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
@@ -1835,7 +1835,7 @@ async fn wallet_with_one_buried_coin(
     operator_wallet::UtxoInfo,
 ) {
     let (general_kp, general_pubkey) = keypair_from_seed(seed);
-    let config = OperatorWalletConfig::new(Amount::from_sat(330), bury_depth, Network::Regtest);
+    let config = OperatorWalletConfig::new(bury_depth, Network::Regtest);
     let mut wallet = open_wallet_with_config(bitcoind, seed, seed + 1, stores, None, config).await;
     let general_addr = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
     bitcoind
@@ -2095,43 +2095,6 @@ async fn row_backed_funding_selects_only_buried_inputs() {
         funded.lease().outpoints().len(),
         1,
         "a buried input funds the row-backed transaction under one lease"
-    );
-}
-
-/// `IncludeUnconfirmed` admits a mempool credit.
-#[tokio::test]
-#[serial]
-async fn create_reserved_utxos_can_include_unconfirmed_general_utxos_when_allowed() {
-    let bitcoind = setup_bitcoind();
-    let (mut wallet, _, general_pubkey) =
-        build_operator_wallet(&bitcoind, 15, 16, 0, Amount::ZERO).await;
-
-    let unconfirmed_amount = Amount::from_btc(1.0).unwrap();
-    let general_address = Address::p2tr(&Secp256k1::new(), general_pubkey, None, Network::Regtest);
-    bitcoind
-        .client
-        .send_to_address(&general_address, unconfirmed_amount)
-        .expect("send unconfirmed funds");
-    wallet.sync().await.expect("sync unconfirmed deposit");
-
-    let unconfirmed_outpoint = wallet.general().list_utxos()[0].outpoint;
-    let funded = wallet
-        .create_reserved_utxos(
-            FeeRate::from_sat_per_vb(5).unwrap(),
-            Amount::from_btc(0.01).unwrap(),
-            1,
-            GeneralUtxoPolicy::IncludeUnconfirmed,
-            LeaseOwner::StakeFunding,
-        )
-        .expect("unconfirmed general-wallet funds may be selected when allowed");
-
-    assert!(
-        funded.lease().outpoints().contains(&unconfirmed_outpoint),
-        "funding transaction should spend the unconfirmed general-wallet UTXO"
-    );
-    assert!(
-        wallet.leased_outpoints().contains(&unconfirmed_outpoint),
-        "selected unconfirmed UTXO must be leased"
     );
 }
 
@@ -2486,7 +2449,7 @@ async fn open_sqlite_wallet(
             store: general_store,
         },
         reserved_pubkey,
-        OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest),
+        OperatorWalletConfig::new(0, Network::Regtest),
         Backend::BitcoinCore(Arc::new(sync_rpc_client(bitcoind))),
         reserved_store,
         None,

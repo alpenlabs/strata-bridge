@@ -8,7 +8,7 @@
 
 use std::{num::NonZeroU32, time::Duration};
 
-use bdk_wallet::bitcoin::{Amount, Network};
+use bdk_wallet::bitcoin::Network;
 
 /// How many times wallet sync is reattempted after an error before propagating.
 pub const DEFAULT_SYNC_RETRIES: u32 = 5;
@@ -27,11 +27,6 @@ pub const DEFAULT_PERSIST_EVERY_BLOCKS: NonZeroU32 =
 /// Configuration for [`crate::OperatorWallet`].
 #[derive(Debug, Clone)]
 pub struct OperatorWalletConfig {
-    /// Value of a CPFP anchor output. An unconfirmed general-wallet UTXO of exactly this value is
-    /// an anchor that a future CPFP child spends, so selection under
-    /// [`GeneralUtxoPolicy::IncludeUnconfirmed`](crate::GeneralUtxoPolicy::IncludeUnconfirmed)
-    /// skips it.
-    pub(crate) cpfp_value: Amount,
     /// Blocks after which the protocol treats a transaction as final. A sync drops a lease only
     /// once the spend of its outpoint has more than this many confirmations. Selection that takes
     /// a depth per call (`reserve_settled`, `GeneralUtxoPolicy`) uses the depth it is given.
@@ -55,9 +50,8 @@ impl OperatorWalletConfig {
     /// ([`DEFAULT_SYNC_RETRIES`] / [`DEFAULT_SYNC_BACKOFF`] / [`DEFAULT_SYNC_BASE_DELAY`]) and the
     /// persistence cadence at [`DEFAULT_PERSIST_EVERY_BLOCKS`]. Use [`Self::with_sync_policy`] and
     /// [`Self::with_persist_every_blocks`] to override them.
-    pub const fn new(cpfp_value: Amount, bury_depth: u32, network: Network) -> Self {
+    pub const fn new(bury_depth: u32, network: Network) -> Self {
         Self {
-            cpfp_value,
             bury_depth,
             network,
             sync_retries: DEFAULT_SYNC_RETRIES,

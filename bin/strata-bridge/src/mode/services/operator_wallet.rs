@@ -16,7 +16,7 @@ use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use strata_bridge_common::params::Params;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb};
-use strata_bridge_primitives::{constants::SEGWIT_MIN_AMOUNT, subscription::Subscription};
+use strata_bridge_primitives::subscription::Subscription;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
@@ -55,9 +55,8 @@ pub(in crate::mode) async fn init_operator_wallet(
         .persist_every_blocks
         .unwrap_or(DEFAULT_PERSIST_EVERY_BLOCKS);
     let bury_depth = u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32");
-    let operator_wallet_config =
-        OperatorWalletConfig::new(SEGWIT_MIN_AMOUNT, bury_depth, params.network)
-            .with_persist_every_blocks(persist_every_blocks);
+    let operator_wallet_config = OperatorWalletConfig::new(bury_depth, params.network)
+        .with_persist_every_blocks(persist_every_blocks);
     debug!(?operator_wallet_config, "operator wallet config");
 
     // Resolved before the stores are opened: opening creates the files, and a rejected checkpoint
