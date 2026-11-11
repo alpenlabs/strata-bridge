@@ -15,7 +15,9 @@ use bitcoin::{
 };
 use bitcoind_async_client::error::ClientError;
 use btc_tracker::cpfp::{BumpOutcome, CpfpStrategy};
-use operator_wallet::FundingInput;
+use operator_wallet::{
+    FundingInput, IncumbentChild, Lease, ReplacedChild, test_utils::empty_lease,
+};
 
 use super::{
     errors::*,
@@ -57,11 +59,16 @@ impl FeeSource for FakeFeeSource {
 #[derive(Debug)]
 pub(super) struct FakeLease {
     pub(super) inputs: Vec<FundingInput>,
+    pub(super) lease: Lease,
     pub(super) released: Arc<Mutex<Vec<OutPoint>>>,
 }
 impl FundingLease for FakeLease {
     fn inputs(&self) -> &[FundingInput] {
         &self.inputs
+    }
+
+    fn lease(&self) -> &Lease {
+        &self.lease
     }
 }
 impl Drop for FakeLease {
@@ -77,6 +84,8 @@ impl Drop for FakeLease {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RecordedBuild {
     pub(super) target: FeeRate,
+    pub(super) inputs: Vec<OutPoint>,
+    pub(super) incumbent: Option<IncumbentChild>,
 }
 
 #[derive(Debug)]
@@ -139,6 +148,18 @@ impl FakeWallet {
         )
     }
 
+    /// A wallet that refuses a replacement above the cap.
+    pub(super) fn above_cap() -> Self {
+        Self::with(
+            None,
+            Vec::new(),
+            Some(CpfpWalletError::AboveCap {
+                needed: Amount::from_sat(2),
+                ceiling: Amount::from_sat(1),
+            }),
+        )
+    }
+
     /// The package rate of the last build.
     pub(super) fn target(&self) -> Option<FeeRate> {
         self.last_build().map(|build| build.target)
@@ -159,6 +180,7 @@ impl FakeWallet {
                     txout: TxOut::NULL,
                 })
                 .collect(),
+            lease: empty_lease(),
             released: Arc::clone(&self.released),
         })
     }
@@ -170,13 +192,26 @@ impl CpfpWallet for FakeWallet {
         _parent: &Transaction,
         _strategy: &CpfpStrategy,
         target_pkg_fee_rate: FeeRate,
+        _max_package_rate: FeeRate,
+        replaced: ReplacedChild<'_>,
     ) -> Result<WalletFundedPsbt, CpfpWalletError> {
         self.builds.lock().unwrap().push(RecordedBuild {
             target: target_pkg_fee_rate,
+            inputs: replaced
+                .prior
+                .iter()
+                .flat_map(|child| child.inputs)
+                .map(|i| i.outpoint)
+                .collect(),
+            incumbent: replaced.incumbent,
         });
         if let Some(e) = &self.error {
             return Err(match e {
                 CpfpWalletError::Unbumpable(m) => CpfpWalletError::Unbumpable(m.clone()),
+                CpfpWalletError::AboveCap { needed, ceiling } => CpfpWalletError::AboveCap {
+                    needed: *needed,
+                    ceiling: *ceiling,
+                },
                 CpfpWalletError::Transient(m) => CpfpWalletError::Transient(m.clone()),
             });
         }

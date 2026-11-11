@@ -2,7 +2,7 @@
 
 use bitcoin::{Amount, FeeRate};
 
-use super::interfaces::ParentProbe;
+use super::interfaces::{MempoolChild, ParentProbe};
 use crate::fees::FeeTargetPolicy;
 
 /// Everything [`decide`] reads.
@@ -31,7 +31,7 @@ pub(super) enum BumpAction {
     /// The parent meets the target alone. A child would only pay for its own vbytes, and a child
     /// asked to cover nothing can select no funding input and fail on a below-dust drain.
     ParentSuffices,
-    /// A live child is in the mempool.
+    /// A live child meets the target.
     StandDown,
     /// The probe failed and the handle records a child that can be live. The fee of that child is
     /// unknown, so a build cannot be priced to replace it, and each refused build costs a signing
@@ -40,8 +40,11 @@ pub(super) enum BumpAction {
     /// The node holds no parent and asks more than the cap for a package. A package cannot enter,
     /// so an attempt spends no lease and no signing round on one.
     NodeMinAboveCap,
-    /// Build a child.
-    Build,
+    /// Build a child. It must outbid `incumbent` when there is one.
+    Build {
+        /// The live child that the new child replaces.
+        incumbent: Option<MempoolChild>,
+    },
 }
 
 /// What [`decide`] returns.
@@ -76,8 +79,8 @@ pub(super) struct Decision {
 /// ## Action
 ///
 /// A parent that meets the target alone needs nothing, whatever the mempool holds. Otherwise, a
-/// live child ends the attempt, and an empty slot gets a new child. A failed probe with a child on
-/// the handle waits for the next trigger.
+/// live child at the target ends the attempt, and a live child under the target or an empty slot
+/// gets a new child. A failed probe with a child on the handle waits for the next trigger.
 pub(super) fn decide(inputs: BumpInputs) -> Decision {
     let BumpInputs {
         estimate,
@@ -103,9 +106,14 @@ pub(super) fn decide(inputs: BumpInputs) -> Decision {
         Some(ParentProbe::Absent) if node_min > Some(policy.max_fee_rate) => {
             BumpAction::NodeMinAboveCap
         }
-        Some(ParentProbe::Child(_)) => BumpAction::StandDown,
+        Some(ParentProbe::Child(child)) if child.pkg_fee_rate >= target => BumpAction::StandDown,
+        Some(ParentProbe::Child(child)) => BumpAction::Build {
+            incumbent: Some(child),
+        },
         None if child_may_be_live => BumpAction::AwaitProbe,
-        None | Some(ParentProbe::Absent | ParentProbe::NoChild) => BumpAction::Build,
+        None | Some(ParentProbe::Absent | ParentProbe::NoChild) => {
+            BumpAction::Build { incumbent: None }
+        }
     };
 
     Decision {
@@ -123,7 +131,6 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::cpfp::interfaces::MempoolChild;
 
     fn rate() -> impl Strategy<Value = FeeRate> {
         (0u64..4_000_000).prop_map(FeeRate::from_sat_per_kwu)
@@ -209,10 +216,21 @@ mod tests {
         #[test]
         fn no_build_runs_at_or_above_the_target(inputs in bump_inputs()) {
             let decision = decide(inputs);
-            if let (BumpAction::Build, Some(ParentProbe::Child(child))) =
+            if let (BumpAction::Build { .. }, Some(ParentProbe::Child(child))) =
                 (decision.action, inputs.probe)
             {
                 prop_assert!(child.pkg_fee_rate < decision.target);
+            }
+        }
+
+        #[test]
+        fn a_build_prices_against_the_live_child(inputs in bump_inputs()) {
+            if let BumpAction::Build { incumbent } = decide(inputs).action {
+                let live = match inputs.probe {
+                    Some(ParentProbe::Child(child)) => Some(child),
+                    _ => None,
+                };
+                prop_assert_eq!(incumbent, live);
             }
         }
 
@@ -225,14 +243,14 @@ mod tests {
                 probe: Some(ParentProbe::Absent),
                 ..inputs
             };
-            let is_build = matches!(decide(inputs).action, BumpAction::Build);
+            let is_build = matches!(decide(inputs).action, BumpAction::Build { .. });
             prop_assert!(!is_build);
         }
 
         #[test]
         fn a_failed_probe_with_a_recorded_child_never_builds(inputs in bump_inputs()) {
             let inputs = BumpInputs { probe: None, child_may_be_live: true, ..inputs };
-            let is_build = matches!(decide(inputs).action, BumpAction::Build);
+            let is_build = matches!(decide(inputs).action, BumpAction::Build { .. });
             prop_assert!(!is_build);
         }
 
