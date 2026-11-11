@@ -513,6 +513,10 @@ impl Default for FeeSourceConfig {
 /// they clamp up. The memo uses it as the rate of a source with no estimate.
 const MIN_SOURCE_FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(1);
 
+/// One vbyte is four weight units, and one kiloweight unit is 1000 weight units, so one sat/vB is
+/// 250 sat per kiloweight unit.
+pub(crate) const SAT_PER_KWU_PER_SAT_PER_VB: u64 = 250;
+
 // ────────────────────────────────────────────────────────────────────────────
 // helpers
 // ────────────────────────────────────────────────────────────────────────────
