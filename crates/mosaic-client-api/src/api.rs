@@ -39,7 +39,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     ///
     /// This is a long-running call that blocks until setup is done.
     /// If setup is aborted due to a protocol violation, returns an error.
-    /// Bridge should not proceed ahead until all setups are completed successfully.
+    /// Deposit operations that need this tableset fail until its setup completes.
     async fn ensure_mosaic_setup(
         &self,
         operator_idx: OperatorIdx,

@@ -107,9 +107,9 @@ class OperatorSetOverlappingChangesTest(StrataTestBase):
             """Mine single blocks until every node has processed `height` but not
             `unprocessed_height`.
 
-            A restarted node reports no covenant until its mosaic setup with every peer completes,
-            and only then catches up, on the next block to arrive. Nodes process a block once
-            `bury_depth` blocks cover it.
+            A restarted node reports no covenant until its orchestrator starts, and only then
+            catches up, on the next block to arrive. Nodes process a block once `bury_depth` blocks
+            cover it.
             """
             wait_until(
                 lambda: all(
