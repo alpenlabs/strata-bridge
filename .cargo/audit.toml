@@ -1,17 +1,5 @@
 [advisories]
 ignore = [
-  # hickory-proto 0.25.2 via libp2p-dns 0.44 / libp2p-mdns 0.48.
-  # Patched hickory >=0.26.1 is available through libp2p >=0.57, but the
-  # latest strata-p2p tag (v0.4.0) requires libp2p ^0.56. Upgrading only
-  # our direct libp2p would introduce incompatible transport/behaviour types.
-  # RUSTSEC-2026-0118 requires DNSSEC validation; no dnssec-* feature is
-  # enabled. RUSTSEC-2026-0119 affects DNS message encoding, so retain this
-  # upstream-blocked DoS exception until strata-p2p supports libp2p >=0.57.
-  # https://github.com/libp2p/rust-libp2p/issues/6411
-  # https://github.com/libp2p/rust-libp2p/issues/6412
-  "RUSTSEC-2026-0118",
-  "RUSTSEC-2026-0119",
-
   # crypto-bigint 0.5.5 via elliptic-curve 0.13 / k256 0.13 in SP1,
   # Alloy, strata-predicate, and zkaleido-native-adapter (including the
   # SP1-patched k256 in both guests). Fix requires crypto-bigint >=0.7.6.
