@@ -6,10 +6,12 @@
 
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
+    panic::AssertUnwindSafe,
     sync::Arc,
 };
 
 use bitcoin::Transaction;
+use futures::FutureExt;
 use tokio::task::{Id, JoinSet};
 use tracing::error;
 
@@ -69,8 +71,9 @@ impl<B: CpfpBumper> Bumper<B> {
     }
 
     /// The outcome of the next bump to finish. `None` while no bump runs. A released package
-    /// reports nothing. A bump whose task panicked reports [`BumpOutcome::NoPackage`], so that
-    /// its package can take the next bump.
+    /// reports nothing. A bump that panicked reports [`BumpOutcome::NoPackage`], so that its
+    /// package can take the next bump, and its state comes back as the panic left it: a child
+    /// that reached the network keeps the lease of its inputs.
     pub(super) async fn next_outcome(&mut self) -> Option<(PackageId, BumpOutcome)> {
         loop {
             let (task, id, state, outcome) = match self.tasks.join_next_with_id().await? {
@@ -106,7 +109,11 @@ impl<B: CpfpBumper> Bumper<B> {
             let mut state = self.states.remove(&id).unwrap_or_default();
             let bumper = self.bumper.clone();
             let task = self.tasks.spawn(async move {
-                let outcome = bumper.bump(&tx, &strategy, &mut state).await;
+                let bump = AssertUnwindSafe(bumper.bump(&tx, &strategy, &mut state));
+                let outcome = bump.catch_unwind().await.unwrap_or_else(|_| {
+                    error!(?id, "a bump panicked");
+                    BumpOutcome::NoPackage
+                });
                 (id, state, outcome)
             });
             self.running.insert(task.id(), id);
@@ -286,26 +293,30 @@ mod tests {
         wait_until(|| fake.leases_held() == 0).await;
     }
 
-    #[derive(Debug)]
-    struct PanickingBumper;
+    /// A bumper that takes a lease into the state and then panics.
+    #[derive(Debug, Default)]
+    struct PanickingBumper {
+        lease: Arc<()>,
+    }
 
     #[async_trait]
     impl CpfpBumper for PanickingBumper {
-        type State = ();
+        type State = Option<Arc<()>>;
 
         async fn bump(
             &self,
             _parent: &Transaction,
             _strategy: &CpfpStrategy,
-            _state: &mut (),
+            state: &mut Self::State,
         ) -> BumpOutcome {
+            *state = Some(self.lease.clone());
             panic!("the bump fails");
         }
     }
 
     #[tokio::test]
     async fn a_bump_that_panics_reports_no_package() {
-        let mut bumper = Bumper::new(Arc::new(PanickingBumper));
+        let mut bumper = Bumper::new(Arc::new(PanickingBumper::default()));
 
         request(&mut bumper, 1, DeadlineClass::Deadline);
 
@@ -313,6 +324,21 @@ mod tests {
             next(&mut bumper).await,
             (PackageId(1), BumpOutcome::NoPackage),
             "the package hears an outcome, so its next trigger can bump again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bump_that_panics_keeps_its_state() {
+        let panicking = Arc::new(PanickingBumper::default());
+        let mut bumper = Bumper::new(panicking.clone());
+        request(&mut bumper, 1, DeadlineClass::Deadline);
+
+        next(&mut bumper).await;
+
+        assert_eq!(
+            Arc::strong_count(&panicking.lease),
+            2,
+            "the state, and with it the lease of the child, outlives the panic"
         );
     }
 }
