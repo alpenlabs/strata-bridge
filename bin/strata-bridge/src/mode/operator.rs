@@ -7,14 +7,14 @@ use strata_bridge_common::params::Params;
 use strata_bridge_db::fdb::client::FdbClient;
 use strata_tasks::TaskExecutor;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     config::Config,
     constants::DEFAULT_HEALTH_PROBE_INTERVAL,
     health::{
-        COMPONENT_ASM_RPC, COMPONENT_BITCOIN_RPC, COMPONENT_MOSAIC, COMPONENT_P2P, COMPONENT_S2,
-        COMPONENT_WALLET, HealthRegistry,
+        COMPONENT_ASM_RPC, COMPONENT_BITCOIN_RPC, COMPONENT_MOSAIC, COMPONENT_MOSAIC_SETUP,
+        COMPONENT_P2P, COMPONENT_S2, COMPONENT_WALLET, HealthRegistry,
     },
     mode::{
         rpc_server::init_rpc_server,
@@ -26,7 +26,7 @@ use crate::{
                 spawn_p2p_probe, spawn_s2_probe, spawn_wallet_probe,
             },
             mosaic_client::{
-                init_mosaic_client, init_mosaic_rpc_client, run_mosaic_setup, spawn_mosaic_poller,
+                init_mosaic_client, init_mosaic_rpc_client, spawn_mosaic_poller, spawn_mosaic_setup,
             },
             operator_table::init_operator_table,
             operator_wallet::{init_operator_wallet, spawn_initial_operator_wallet_sync},
@@ -145,16 +145,17 @@ pub(crate) async fn bootstrap(
         operator_table.pov_idx(),
     )?);
     info!("mosaic client initialized");
-    health_registry.mark_degraded(COMPONENT_MOSAIC, "setup_pending");
+    health_registry.mark_degraded(COMPONENT_MOSAIC, "client_initialized_not_checked");
+    health_registry.mark_degraded(COMPONENT_MOSAIC_SETUP, "setup_pending");
 
-    debug!("running mosaic setup for all operator pairs");
-    if let Err(err) = run_mosaic_setup(mosaic_client.as_ref(), &operator_table).await {
-        health_registry.mark_unhealthy(COMPONENT_MOSAIC, "setup_failed");
-        error!(%err, "mosaic setup failed");
-        return Err(err);
-    }
-    info!("mosaic setup complete for all operator pairs");
-    health_registry.mark_ok(COMPONENT_MOSAIC, "setup_complete");
+    spawn_mosaic_setup(
+        &executor,
+        mosaic_client.clone(),
+        &operator_table,
+        config.mosaic.retry_delay,
+        health_registry.clone(),
+    );
+    info!("mosaic setup with every other operator started");
 
     let probe_interval = DEFAULT_HEALTH_PROBE_INTERVAL;
     let expected_peer_count = operator_table.cardinality().saturating_sub(1);

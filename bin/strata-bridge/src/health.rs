@@ -35,6 +35,8 @@ pub(crate) const COMPONENT_FDB: &str = "fdb";
 pub(crate) const COMPONENT_P2P: &str = "p2p";
 /// Mosaic component name.
 pub(crate) const COMPONENT_MOSAIC: &str = "mosaic";
+/// Mosaic setup with covenant peers component name.
+pub(crate) const COMPONENT_MOSAIC_SETUP: &str = "mosaic_setup";
 /// Secret service component name.
 pub(crate) const COMPONENT_S2: &str = "s2";
 /// Operator wallet component name.
@@ -56,6 +58,7 @@ const ALL_COMPONENTS: &[&str] = &[
     COMPONENT_FDB,
     COMPONENT_P2P,
     COMPONENT_MOSAIC,
+    COMPONENT_MOSAIC_SETUP,
     COMPONENT_S2,
     COMPONENT_WALLET,
     COMPONENT_TX_DRIVER,
