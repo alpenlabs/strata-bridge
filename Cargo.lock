@@ -12025,6 +12025,7 @@ name = "strata-bridge-exec"
 version = "0.1.0"
 dependencies = [
  "algebra",
+ "async-trait",
  "bdk_bitcoind_rpc",
  "bdk_wallet",
  "bitcoin",

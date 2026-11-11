@@ -83,6 +83,8 @@ impl GraphSM {
                 let game_graph = generate_game_graph(&cfg, self.context(), graph_data);
 
                 vec![GraphDuty::PublishClaim {
+                    graph_idx: self.context().graph_idx(),
+                    watchtowers: self.context().watchtower_idxs(),
                     claim_tx: game_graph.claim,
                 }]
             }

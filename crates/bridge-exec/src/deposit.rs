@@ -36,6 +36,7 @@ use crate::{
     chain::{is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    mosaic_setup::ensure_evaluator_setups,
     output_handles::OutputHandles,
 };
 
@@ -89,6 +90,7 @@ pub async fn execute_deposit_duty(
         } => publish_deposit(&output_handles, signed_deposit_transaction.clone()).await,
         DepositDuty::FulfillWithdrawalRequest {
             deposit_idx,
+            watchtowers,
             deadline,
             recipient_desc,
             deposit_amount,
@@ -97,6 +99,7 @@ pub async fn execute_deposit_duty(
                 &cfg,
                 &output_handles,
                 *deposit_idx,
+                watchtowers,
                 *deadline,
                 recipient_desc.clone(),
                 *deposit_amount,
@@ -463,11 +466,13 @@ async fn publish_deposit(
 
 /// Fulfills a user's withdrawal request by fronting funds to the user.
 ///
-/// Only the assignee executes this duty.
+/// Only the assignee executes this duty, and only once its evaluator setup with each of
+/// `watchtowers` has completed, so that it can defend the claim that reimburses it.
 async fn fulfill_withdrawal(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
+    watchtowers: &BTreeSet<OperatorIdx>,
     deadline: BitcoinBlockHeight,
     recipient_desc: Descriptor,
     deposit_amount: Amount,
@@ -492,6 +497,10 @@ async fn fulfill_withdrawal(
         );
         return Ok(());
     }
+
+    ensure_evaluator_setups(output_handles.mosaic_client.as_ref(), watchtowers)
+        .await
+        .inspect_err(|e| warn!(%deposit_idx, %e, "withholding withdrawal fulfillment"))?;
 
     // Calculate the amount to send to user (deposit_amount - operator_fee)
     let amount = deposit_amount

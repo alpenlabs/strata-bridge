@@ -14,5 +14,6 @@ pub mod config;
 pub mod deposit;
 pub mod errors;
 pub mod graph;
+mod mosaic_setup;
 pub mod output_handles;
 pub mod stake;

@@ -118,6 +118,8 @@ impl GraphSM {
                 let duties =
                     if self.context().operator_idx() == self.context().operator_table().pov_idx() {
                         vec![GraphDuty::PublishClaim {
+                            graph_idx: graph_ctx.graph_idx(),
+                            watchtowers: graph_ctx.watchtower_idxs(),
                             claim_tx: game_graph.claim,
                         }]
                     } else {

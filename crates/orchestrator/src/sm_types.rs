@@ -199,6 +199,7 @@ mod tests {
 
         let fulfill: UnifiedDuty = DepositDuty::FulfillWithdrawalRequest {
             deposit_idx: 0,
+            watchtowers: Default::default(),
             deadline: 100,
             recipient_desc: random_p2tr_desc(),
             deposit_amount: Amount::from_sat(1_000_000),

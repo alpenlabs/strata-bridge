@@ -39,6 +39,7 @@ use crate::{
     chain::{is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
+    mosaic_setup::ensure_evaluator_setups,
     output_handles::OutputHandles,
 };
 
@@ -698,13 +699,20 @@ pub(super) async fn publish_graph_partials(
     Ok(())
 }
 
-/// Publishes the claim transaction to Bitcoin.
+/// Publishes the claim transaction to Bitcoin once this node's evaluator setup with each of
+/// `watchtowers` has completed.
 pub(super) async fn publish_claim(
     output_handles: &OutputHandles,
+    graph_idx: GraphIdx,
+    watchtowers: &BTreeSet<OperatorIdx>,
     claim_tx: &ClaimTx,
 ) -> Result<(), ExecutorError> {
     let unsigned_claim_tx = claim_tx.as_ref().clone();
     let claim_txid = unsigned_claim_tx.compute_txid();
+
+    ensure_evaluator_setups(output_handles.mosaic_client.as_ref(), watchtowers)
+        .await
+        .inspect_err(|e| warn!(%claim_txid, ?graph_idx, %e, "withholding claim"))?;
     info!(
         %claim_txid,
         "signing claim transaction"

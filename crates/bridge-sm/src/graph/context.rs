@@ -1,5 +1,7 @@
 //! Context for the Graph State Machine.
 
+use std::collections::BTreeSet;
+
 use bitcoin::{Amount, OutPoint, XOnlyPublicKey, hashes::sha256};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::{
@@ -200,6 +202,16 @@ impl GraphSMCtx {
         );
 
         ClaimTx::claim_funds_required(&claim_contest, &claim_admin_payout, &claim_unstaking_payout)
+    }
+
+    /// Returns the indices of the operators that watch this graph: every member but its owner.
+    pub fn watchtower_idxs(&self) -> BTreeSet<OperatorIdx> {
+        let owner_idx = self.operator_idx();
+        self.operator_table()
+            .operator_idxs()
+            .into_iter()
+            .filter(|idx| *idx != owner_idx)
+            .collect()
     }
 
     /// Returns the list of watchtower pubkeys for this graph.
