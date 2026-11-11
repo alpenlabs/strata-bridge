@@ -104,6 +104,8 @@ pub(super) struct FakeWallet {
     pub(super) sign_requests: Mutex<Vec<Vec<usize>>>,
     /// Error that the wallet signer reports, when set.
     pub(super) sign_error: Option<SignerError>,
+    /// Whether the inputs of a child read as this wallet's own.
+    pub(super) owns_children: bool,
     /// Whether the signer answers for one input too few.
     pub(super) drops_a_signature: bool,
     /// How many refreshes the ladder asked for.
@@ -124,6 +126,7 @@ impl FakeWallet {
             signer_witnesses: Vec::new(),
             sign_requests: Mutex::new(Vec::new()),
             sign_error: None,
+            owns_children: false,
             drops_a_signature: false,
             refreshes: Mutex::new(0),
         }
@@ -222,6 +225,15 @@ impl CpfpWallet for FakeWallet {
         })
     }
 
+    async fn adopt_child(
+        &self,
+        _parent: Txid,
+        inputs: Vec<FundingInput>,
+    ) -> Option<Arc<dyn FundingLease>> {
+        self.owns_children
+            .then(|| self.lease(inputs.into_iter().map(|i| i.outpoint).collect()))
+    }
+
     async fn refresh(&self) -> Result<(), CpfpWalletError> {
         *self.refreshes.lock().unwrap() += 1;
         Ok(())
@@ -271,6 +283,8 @@ pub(super) struct FakeMempool {
     pub(super) parent_probe: Mutex<ParentProbe>,
     /// Error the probe reports, when set.
     pub(super) probe_error: Mutex<Option<String>>,
+    /// Whether a lookup of the inputs of a child fails.
+    pub(super) inputs_fail: bool,
     /// The answer of [`CpfpMempool::min_fee_rate`]. `None` fails the call.
     pub(super) min_fee_rate: Option<FeeRate>,
     /// How often the ladder read the minimum.
@@ -284,6 +298,7 @@ impl FakeMempool {
             captured: Mutex::new(Vec::new()),
             parent_probe: Mutex::new(ParentProbe::NoChild),
             probe_error: Mutex::new(None),
+            inputs_fail: false,
             min_fee_rate: Some(FeeRate::ZERO),
             min_fee_reads: Mutex::new(0),
         }
@@ -343,6 +358,16 @@ impl CpfpMempool for FakeMempool {
             return Err(MempoolError(err));
         }
         Ok(*self.parent_probe.lock().unwrap())
+    }
+
+    async fn child_inputs(&self, _child: Txid) -> Result<Vec<FundingInput>, MempoolError> {
+        if self.inputs_fail {
+            return Err(MempoolError("child lookup failed".to_string()));
+        }
+        Ok(vec![FundingInput {
+            outpoint: OutPoint::new(Txid::from_byte_array([0xCC; 32]), 0),
+            txout: TxOut::NULL,
+        }])
     }
 
     async fn min_fee_rate(&self) -> Result<FeeRate, MempoolError> {

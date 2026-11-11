@@ -70,17 +70,22 @@ impl CpfpHandle {
         }
     }
 
-    /// Applies a probe. A live child that the handle does not know changes nothing.
+    /// Applies a probe. Returns the live child when the handle does not know it.
     ///
     /// A `None` probe teaches nothing, so it changes nothing.
-    pub(super) fn observe(&mut self, probe: Option<&ParentProbe>) {
+    pub(super) fn observe(&mut self, probe: Option<&ParentProbe>) -> Option<Txid> {
         let is = |held: &Option<HeldChild>, txid| held.as_ref().is_some_and(|c| c.txid == txid);
-        match probe {
-            Some(ParentProbe::Absent | ParentProbe::NoChild) => self.demote_accepted(),
-            Some(ParentProbe::Child(child)) if is(&self.candidate, child.txid) => {
-                self.accepted = self.candidate.take();
+        match probe? {
+            ParentProbe::Absent | ParentProbe::NoChild => {
+                self.demote_accepted();
+                None
             }
-            Some(ParentProbe::Child(_)) | None => {}
+            ParentProbe::Child(child) if is(&self.accepted, child.txid) => None,
+            ParentProbe::Child(child) if is(&self.candidate, child.txid) => {
+                self.accepted = self.candidate.take();
+                None
+            }
+            ParentProbe::Child(child) => Some(child.txid),
         }
     }
 
@@ -174,7 +179,7 @@ mod tests {
             candidate: Some(b),
         };
 
-        handle.observe(Some(&child_at(second, FeeRate::ZERO)));
+        assert_eq!(handle.observe(Some(&child_at(second, FeeRate::ZERO))), None);
 
         assert_eq!(handle.accepted_txid(), Some(second));
         assert!(handle.candidate.is_none());
@@ -191,7 +196,7 @@ mod tests {
         for probe in [ParentProbe::Absent, ParentProbe::NoChild] {
             let ours = Txid::from_byte_array([0xAA; 32]);
             let mut handle = seeded_handle(&wallet, &[], ours);
-            handle.observe(Some(&probe));
+            assert_eq!(handle.observe(Some(&probe)), None);
             assert!(handle.accepted.is_none());
             assert_eq!(handle.candidate.as_ref().map(|c| c.txid), Some(ours));
         }
@@ -203,7 +208,17 @@ mod tests {
         let wallet = FakeWallet::failing("no build");
         let ours = Txid::from_byte_array([0xAA; 32]);
         let mut handle = seeded_handle(&wallet, &[], ours);
-        handle.observe(None);
+        assert_eq!(handle.observe(None), None);
         assert_eq!(handle.accepted_txid(), Some(ours));
+    }
+
+    /// A spender that neither slot knows comes back for the ownership lookup.
+    #[test]
+    fn an_unknown_child_returns_for_the_ownership_lookup() {
+        let wallet = FakeWallet::failing("no build");
+        let theirs = Txid::from_byte_array([0xBB; 32]);
+        let mut handle = seeded_handle(&wallet, &[], Txid::from_byte_array([0xAA; 32]));
+        let probe = child_at(theirs, FeeRate::ZERO);
+        assert_eq!(handle.observe(Some(&probe)), Some(theirs));
     }
 }

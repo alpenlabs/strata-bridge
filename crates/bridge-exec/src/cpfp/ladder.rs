@@ -145,6 +145,44 @@ impl BumpAttempt {
     }
 }
 
+/// Brings `handle` up to date with `probe`, and adopts a live child that the handle does not
+/// know.
+///
+/// A process restart empties the handle, and so does a reorg that wakes a mined parent, while the
+/// child stays in the mempool. The wallet hides the inputs of that child once a sync observes it,
+/// so without adoption a small wallet cannot fund the replacement, and without a lease a
+/// concurrent duty can select those inputs before a sync.
+async fn reconcile(
+    ctx: &CpfpContext,
+    parent_txid: Txid,
+    probe: Option<&ParentProbe>,
+    handle: &mut CpfpHandle,
+) {
+    let Some(unknown) = handle.observe(probe) else {
+        return;
+    };
+    let inputs = match ctx.mempool.child_inputs(unknown).await {
+        Ok(inputs) => inputs,
+        Err(e) => {
+            warn!(%parent_txid, child_txid = %unknown, error = %e, "could not read a live child");
+            return;
+        }
+    };
+    match ctx.wallet.adopt_child(parent_txid, inputs).await {
+        Some(lease) => {
+            info!(%parent_txid, child_txid = %unknown, "adopted a live CPFP child");
+            handle.accepted = Some(HeldChild {
+                txid: unknown,
+                lease,
+            });
+            handle.candidate = None;
+        }
+        None => {
+            handle.demote_accepted();
+        }
+    }
+}
+
 /// Drives one CPFP bump attempt for `parent` under `strategy`.
 ///
 /// Returns what the attempt read and did. Every attempt reads the mempool, and then the fee source,
@@ -152,8 +190,8 @@ impl BumpAttempt {
 ///
 /// ## The probe
 ///
-/// The probe runs first, because it needs no price: the handle follows the mempool even through a
-/// fee outage.
+/// The probe and the adoption of a live child run first, because neither needs a price: a fee
+/// outage must not leave the inputs of a live child without a lease.
 ///
 /// A failed probe does not stop a first child: the submission is the authority on whether a
 /// package is acceptable. With a live child on the handle it skips the build. The probe is not a
@@ -179,7 +217,7 @@ pub async fn perform_bump(
         .await
         .inspect_err(|e| warn!(%parent_txid, error = %e, "CPFP probe failed"))
         .ok();
-    handle.observe(probe.as_ref());
+    reconcile(ctx, parent_txid, probe.as_ref(), handle).await;
 
     let result = act(ctx, parent, strategy, handle, probe).await;
 
