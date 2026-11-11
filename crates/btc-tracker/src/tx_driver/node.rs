@@ -108,12 +108,11 @@ pub(super) const NULL_RESULT: &str = "Empty data received";
 /// Reads the status of `txid` through `getrawtransaction`. The result covers confirmed
 /// transactions only when the node runs with `txindex=1`.
 ///
-/// A transaction with no confirmations reads as in the mempool. `txindex` also keeps a
-/// transaction of a block that a reorg removed, with a block hash and zero confirmations, and it
-/// reads the same way. The package of such a parent learns of the reorg through a ZMQ `Unknown`
-/// event or the buried-conflict rule, not through the read on each block. A confirmed transaction
-/// with no block hash is a malformed answer, and it reads as in the mempool too, so that the
-/// driver does not stop.
+/// The node answers from its mempool first, with no block hash, so such an answer reads as in the
+/// mempool. `txindex` also keeps a transaction of a block that a reorg removed, and answers it
+/// with that block's hash and zero confirmations. The node then holds it in no mempool, so it
+/// reads as unknown. A confirmed transaction with no block hash is a malformed answer, and it
+/// reads as in the mempool, so that the driver does not stop.
 pub(super) async fn read_status(
     rpc_client: &BitcoinClient,
     txid: Txid,
@@ -125,7 +124,8 @@ pub(super) async fn read_status(
         Err(err) => return Err(err),
     };
     match (tx_data.confirmations.unwrap_or(0), tx_data.block_hash) {
-        (0, _) | (_, None) => Ok(TxStatus::Mempool),
+        (_, None) => Ok(TxStatus::Mempool),
+        (0, Some(_)) => Ok(TxStatus::Unknown),
         (confirmations, Some(blockhash)) => {
             // This uses `0` as the default since a block height of `0` does not satisfy any
             // practical predicate.
@@ -437,9 +437,11 @@ mod rpc_tests {
     }
 
     /// `txindex` keeps the entry of a block that left the chain. A transaction in that block reads
-    /// as in the mempool, also once a replacement has taken its place there.
+    /// as in the mempool while the node holds it there, and as unknown once a replacement has
+    /// taken its place.
     #[tokio::test]
-    async fn a_transaction_of_a_disconnected_block_reads_as_in_the_mempool() {
+    async fn a_transaction_of_a_disconnected_block_reads_as_in_the_mempool_only_while_it_is_there()
+    {
         let (node, client, address) = setup();
         let txid = send(&node, &address).txid;
         let blocks = node
@@ -466,8 +468,8 @@ mod rpc_tests {
 
         assert_eq!(
             read_status(&client, txid, 2).await.expect("read"),
-            TxStatus::Mempool,
-            "a replaced transaction of a disconnected block still reads as in the mempool"
+            TxStatus::Unknown,
+            "a replaced transaction of a disconnected block is in no mempool"
         );
     }
 
