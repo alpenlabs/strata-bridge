@@ -3,9 +3,9 @@
 //! Bridge presigned transactions pay a protocol-floor fee rate (`fee::FEE_RATE = 2 sat/vB`).
 //! On any non-trivial network load they get evicted from the mempool before confirming. To drive
 //! them to confirmation the bump builds a CPFP child that lifts the **package** (parent + child)
-//! fee rate to whatever the fee source reports as the current target. Package fee accounting
-//! only: the child's per-vB rate can far exceed the operator's `max_fee_rate` as long as the
-//! package average does not.
+//! fee rate to whatever the fee source reports as the current target, and replaces the child
+//! while it is below the target. Package fee accounting only: the child's per-vB rate can far
+//! exceed the operator's `max_fee_rate` as long as the package average does not.
 //!
 //! - `decide` is the policy: a pure function from what an attempt read to what it does.
 //! - [`perform_bump`] is one attempt: all the I/O around one `decide`.
@@ -20,22 +20,24 @@
 //!
 //! ## `max_fee_rate`
 //!
-//! `max_fee_rate` is a hard limit on what a package pays. The target clamps to it, so a parent
-//! can stay below the market. That state counts in the metrics of [`observability`] and logs at
-//! debug on each attempt.
+//! `max_fee_rate` is a hard limit on what a package pays. The target clamps to it, and a
+//! replacement that the mempool rules would price above it is not built. A parent can therefore
+//! stay below the market. That state counts in the metrics of
+//! [`observability`] and logs at debug on each attempt.
 
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use bitcoin::{Amount, FeeRate, Transaction, Txid};
 use btc_tracker::cpfp::{BumpOutcome, CpfpBumper, CpfpStrategy};
+use operator_wallet::{IncumbentChild, ReplacedChild};
 use tracing::{debug, info, trace, warn};
 
 use super::{
     decide::{BumpAction, BumpInputs, Decision, decide},
     errors::{CpfpError, CpfpWalletError},
     handle::{CpfpHandle, HeldChild},
-    interfaces::{CpfpMempool, CpfpWallet, InputSigner, ParentProbe},
+    interfaces::{CpfpMempool, CpfpWallet, InputSigner, MempoolChild, ParentProbe},
     observability::{self, CapReason},
     sign::sign_child,
 };
@@ -162,7 +164,7 @@ impl BumpAttempt {
 ///
 /// A failed signature drops the new lease, because nothing reached the network. The handle then
 /// records the submission, see `CpfpHandle::record_submission`. The accepted slot changes only on
-/// a success result or a probe, so the accepted child keeps its inputs through every failure.
+/// a success result or a probe, so the incumbent keeps its inputs through every failure.
 pub async fn perform_bump(
     ctx: &CpfpContext,
     parent: &Transaction,
@@ -227,7 +229,7 @@ async fn act(
         child_may_be_live: handle.accepted.is_some() || handle.candidate.is_some(),
     });
 
-    let held_back = (wanted > target).then_some(CapReason::Target);
+    let mut held_back = (wanted > target).then_some(CapReason::Target);
     if held_back.is_some() {
         // Every attempt of a capped parent lands here, so this stays at debug; the metric in
         // `record_capped_attempt` carries the signal.
@@ -254,10 +256,25 @@ async fn act(
             Ok(BumpOutcome::NoPackage)
         }
         BumpAction::StandDown => {
-            debug!(%parent_txid, ?probe, "a live child is in the mempool; skipping");
+            debug!(%parent_txid, ?target, ?probe, "a live child meets the target; skipping");
             Ok(BumpOutcome::NoPackage)
         }
-        BumpAction::Build => build_and_submit(ctx, parent, strategy, handle, target).await,
+        BumpAction::Build { incumbent } => {
+            match build_and_submit(ctx, parent, strategy, handle, target, incumbent).await {
+                Err(CpfpError::Wallet(e @ CpfpWalletError::AboveCap { .. })) => {
+                    warn!(
+                        %parent_txid,
+                        ?target,
+                        ?incumbent,
+                        error = %e,
+                        "a child needs more than max_fee_rate; not building"
+                    );
+                    held_back = Some(CapReason::ChildRefused);
+                    Ok(BumpOutcome::NoPackage)
+                }
+                outcome => outcome,
+            }
+        }
     };
 
     if let Some(reason) = held_back {
@@ -273,10 +290,23 @@ async fn build_and_submit(
     strategy: &CpfpStrategy,
     handle: &mut CpfpHandle,
     target: FeeRate,
+    incumbent: Option<MempoolChild>,
 ) -> Result<BumpOutcome, CpfpError> {
     let parent_txid = parent.compute_txid();
+    let prior = handle.prior_children();
+    let replaced = ReplacedChild {
+        prior: &prior,
+        incumbent: incumbent.map(|child| IncumbentChild {
+            fee: child.fee,
+            vbytes: child.vbytes,
+        }),
+    };
 
-    let funded = match ctx.wallet.build_cpfp_child(parent, strategy, target).await {
+    let funded = match ctx
+        .wallet
+        .build_cpfp_child(parent, strategy, target, ctx.policy.max_fee_rate, replaced)
+        .await
+    {
         Ok(funded) => funded,
         Err(e) => {
             if matches!(e, CpfpWalletError::Transient(_)) {
@@ -308,12 +338,22 @@ async fn build_and_submit(
         Ok(summary) => summary,
         Err(e) => {
             // A missing input means that the view of the wallet is behind the chain. The new
-            // child cannot enter any mempool, and its lease would hold a spent input, so the
-            // candidate goes. The accepted child stays: the node names no input, and it can be
-            // live; the next probe demotes it if it is gone.
+            // child cannot enter any mempool, and a lease on the spent input would steer the next
+            // build to that input again, so the candidate goes. The accepted child stays: the
+            // node names no input, and the incumbent can be live; the next probe demotes it if it
+            // is gone.
             if e.is_missing_inputs() {
                 handle.candidate = None;
                 refresh_wallet(ctx, parent_txid).await;
+            }
+            if let (Some(rejection), Some(child)) = (e.replacement_rejection(), incumbent) {
+                warn!(
+                    %parent_txid,
+                    ?target,
+                    ?rejection,
+                    incumbent = ?child,
+                    "the mempool refused a replacement while the parent is below its target"
+                );
             }
             return Err(e.into());
         }

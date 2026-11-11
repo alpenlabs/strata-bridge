@@ -1,6 +1,6 @@
 //! Errors of a CPFP bump and of the seams it calls.
 
-use bitcoin::Txid;
+use bitcoin::{Amount, Txid};
 use thiserror::Error;
 
 use super::submitpackage::{ReplacementRejection, SubmitPackageError};
@@ -30,6 +30,14 @@ pub enum CpfpWalletError {
     /// every later attempt fails at the same step.
     #[error("parent cannot carry a child: {0}")]
     Unbumpable(String),
+    /// The child lifts the package past the cap.
+    #[error("the package needs a fee of {needed}, past the cap of {ceiling}")]
+    AboveCap {
+        /// Fee of the (parent, child) package with the replacement.
+        needed: Amount,
+        /// Most that the package may pay at its size.
+        ceiling: Amount,
+    },
     /// The wallet could not fund a child now. Funds arrive, the chain moves, and a later
     /// attempt can pass.
     #[error("{0}")]

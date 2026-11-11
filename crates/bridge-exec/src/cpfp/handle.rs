@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use bitcoin::Txid;
+use operator_wallet::PriorChild;
 
 use super::{
     interfaces::{FundingLease, ParentProbe},
@@ -15,16 +16,13 @@ pub(super) struct HeldChild {
     /// Txid of the child.
     pub(super) txid: Txid,
     /// The wallet frees the inputs when the last clone of this value drops.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "held for its drop, which frees the inputs")
-    )]
     pub(super) lease: Arc<dyn FundingLease>,
 }
 
 /// Per-parent state the driver carries between bump attempts.
 ///
-/// The handle holds leases and identities only.
+/// The handle holds leases and identities only. The fee that a replacement must beat comes from
+/// the mempool on every attempt.
 ///
 /// Every path that stops the bumps for a parent frees the inputs by dropping the handle, and no
 /// path needs an explicit release call. The driver clones the handle to run a bump without the
@@ -36,8 +34,8 @@ pub struct CpfpHandle {
     pub(super) accepted: Option<HeldChild>,
     /// The most recent child with no known place in a mempool: one with an unknown submission
     /// result, or one that left this mempool. It can be in another mempool, so its inputs stay
-    /// held. One slot: a newer such child takes it over, and the older lease drops. A rejection of
-    /// a later child, a demotion of the accepted child
+    /// held, and the next build can spend them again. One slot: a newer such child takes it over,
+    /// and the older lease drops. A rejection of a later child, a demotion of the accepted child
     /// and a promotion of the candidate also free the inputs, so a child in another mempool can
     /// lose them to another duty. The design accepts that: such a child is in no mempool this node
     /// sees, and the inputs cannot stay held on a guess.
@@ -48,6 +46,21 @@ impl CpfpHandle {
     /// Txid of the child that the mempool holds, as far as this handle knows.
     pub fn accepted_txid(&self) -> Option<Txid> {
         self.accepted.as_ref().map(|child| child.txid)
+    }
+
+    /// The children whose inputs the next child may spend again. Those of [`Self::accepted`]
+    /// conflict with it, which a replacement must do. Those of [`Self::candidate`] are spent by no
+    /// child in this mempool.
+    pub(super) fn prior_children(&self) -> Vec<PriorChild<'_>> {
+        [&self.accepted, &self.candidate]
+            .into_iter()
+            .flatten()
+            .map(|child| PriorChild {
+                txid: child.txid,
+                lease: child.lease.lease(),
+                inputs: child.lease.inputs(),
+            })
+            .collect()
     }
 
     /// Moves [`Self::accepted`] to [`Self::candidate`]: the mempool does not hold that child.

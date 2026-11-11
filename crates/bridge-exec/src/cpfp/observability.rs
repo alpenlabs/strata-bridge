@@ -16,12 +16,15 @@ const CAPPED_ATTEMPTS_TOTAL: &str = "strata_bridge_cpfp_capped_attempts_total";
 pub(crate) enum CapReason {
     /// The target asked for more than the cap.
     Target,
+    /// The wallet refused a child above the cap.
+    ChildRefused,
 }
 
 impl CapReason {
     const fn label(self) -> &'static str {
         match self {
             Self::Target => "target",
+            Self::ChildRefused => "child_refused",
         }
     }
 }

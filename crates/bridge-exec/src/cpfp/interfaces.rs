@@ -8,7 +8,7 @@ use bitcoin::{
     secp256k1::{Message, schnorr::Signature},
 };
 use btc_tracker::cpfp::CpfpStrategy;
-use operator_wallet::FundingInput;
+use operator_wallet::{FundingInput, Lease, ReplacedChild};
 
 use super::{
     errors::{CpfpWalletError, MempoolError, SignerError},
@@ -19,14 +19,17 @@ use super::{
 ///
 /// The wallet frees the inputs when this value drops. The handle keeps the value for as long as
 /// the child can be live, so that no other duty selects the inputs and evicts the child. A wallet
-/// sync that observes the child prunes its record in the lease set, and this value still holds
-/// the inputs.
+/// sync that observes the child prunes its record in the lease set, and this value still carries
+/// the inputs for the next rebuild.
 ///
 /// A trait rather than [`operator_wallet::Lease`] so that tests can observe the drop.
 pub trait FundingLease: Send + Sync + fmt::Debug {
     /// The inputs that this lease holds, with the outputs they spend. The anchor input is not
     /// one of them, unless the output that the child spends belongs to the wallet.
     fn inputs(&self) -> &[FundingInput];
+
+    /// The wallet lease behind this value. Selection for a replacement looks past it.
+    fn lease(&self) -> &Lease;
 }
 
 /// A funded PSBT returned by [`CpfpWallet::build_cpfp_child`].
@@ -52,11 +55,19 @@ pub struct WalletFundedPsbt {
 pub trait CpfpWallet: Send + Sync {
     /// Builds an unsigned CPFP child for `parent` under `strategy`, targeting
     /// `target_pkg_fee_rate` on the (parent, child) package.
+    ///
+    /// `max_package_rate` is a hard limit: a child past it is [`CpfpWalletError::AboveCap`].
+    ///
+    /// `replaced` names the live child that the new one must outbid, and the earlier children
+    /// whose inputs stay available to the build. A lease over those inputs stays valid across the
+    /// call: the handle drops it once a mempool accepts the new child.
     async fn build_cpfp_child(
         &self,
         parent: &Transaction,
         strategy: &CpfpStrategy,
         target_pkg_fee_rate: FeeRate,
+        max_package_rate: FeeRate,
+        replaced: ReplacedChild<'_>,
     ) -> Result<WalletFundedPsbt, CpfpWalletError>;
 
     /// Brings the view of the wallet up to date with the node.
@@ -101,9 +112,9 @@ pub type InputSigner = Arc<dyn Fn(Message) -> InputSignFut + Send + Sync>;
 pub struct MempoolChild {
     /// Txid of the child.
     pub txid: Txid,
-    /// Absolute fee of the child alone.
+    /// Absolute fee of the child alone. A replacement must beat it.
     pub fee: Amount,
-    /// Size of the child alone.
+    /// Size of the child alone. A replacement must beat its own fee rate.
     pub vbytes: NonZeroU64,
     /// Rate that the child and its unconfirmed ancestors pay together.
     pub pkg_fee_rate: FeeRate,
