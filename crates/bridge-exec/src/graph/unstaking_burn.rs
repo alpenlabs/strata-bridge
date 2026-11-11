@@ -241,7 +241,7 @@ mod tests {
             .expect("general store should open");
         let reserved_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::Reserved)
             .expect("reserved store should open");
-        let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest);
+        let config = OperatorWalletConfig::new(0, Network::Regtest);
         let wallet = OperatorWallet::load_or_create(
             GeneralCustody::SecretService {
                 general_key: xonly_pubkey(1),

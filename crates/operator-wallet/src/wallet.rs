@@ -138,8 +138,6 @@ pub struct ReplacedChild<'a> {
 /// Which general-wallet UTXOs reserved-wallet funding may select from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneralUtxoPolicy {
-    /// Allow the general wallet backend to select confirmed or unconfirmed UTXOs.
-    IncludeUnconfirmed,
     /// Exclude unconfirmed general-wallet UTXOs from automatic input selection.
     ConfirmedOnly,
     /// Require more confirmations than the number of blocks defining burial.
@@ -651,19 +649,6 @@ impl<P: WalletStore> OperatorWallet<P> {
 
     // ── Internal helpers ───────────────────────────────────────────────────
 
-    /// Every spendable general-wallet output that is not held, confirmed or not, apart from an
-    /// unconfirmed output of exactly the CPFP anchor value: that is an anchor a future child
-    /// spends.
-    fn general_inputs(&self, held: &BTreeSet<OutPoint>) -> Vec<FundingInput> {
-        self.general
-            .list_utxos()
-            .iter()
-            .filter(|utxo| !held.contains(&utxo.outpoint))
-            .filter(|utxo| !(utxo.confirmations == 0 && utxo.amount == self.config.cpfp_value))
-            .map(FundingInput::from)
-            .collect()
-    }
-
     /// The general-wallet outputs outside `held` that `general_utxo_policy` admits. An error
     /// names the outputs that the policy excluded, when nothing else is there.
     fn general_candidates(
@@ -672,7 +657,6 @@ impl<P: WalletStore> OperatorWallet<P> {
         general_utxo_policy: GeneralUtxoPolicy,
     ) -> Result<Vec<FundingInput>, Error> {
         let required_depth = match general_utxo_policy {
-            GeneralUtxoPolicy::IncludeUnconfirmed => return Ok(self.general_inputs(held)),
             GeneralUtxoPolicy::ConfirmedOnly => 0,
             GeneralUtxoPolicy::BuriedOnly { bury_depth } => bury_depth,
         };

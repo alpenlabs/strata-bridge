@@ -526,7 +526,7 @@ mod tests {
             let auth = Auth::CookieFile(bitcoind.params.cookie_file.clone());
             Arc::new(CoreRpcClient::new(bitcoind.rpc_url().as_str(), auth).expect("core client"))
         };
-        let config = OperatorWalletConfig::new(Amount::from_sat(330), 0, Network::Regtest);
+        let config = OperatorWalletConfig::new(0, Network::Regtest);
         let general_store =
             SqliteStore::open_in_dir(data_dir.path(), WalletKind::General).expect("general store");
         let reserved_store = SqliteStore::open_in_dir(data_dir.path(), WalletKind::Reserved)
