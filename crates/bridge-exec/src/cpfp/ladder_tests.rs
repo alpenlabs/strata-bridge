@@ -154,6 +154,35 @@ async fn a_rejected_candidate_is_not_recorded() {
     assert_eq!(*wallet.released.lock().unwrap(), wallet_funding);
 }
 
+/// The mempool read needs no price. A fee outage still adopts a live child of ours, and the
+/// fresh read still reports the parent.
+#[tokio::test]
+async fn a_fee_source_failure_still_adopts_a_live_child() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let ctx = context(
+        Arc::new(FakeFeeSource::failing()),
+        Arc::new(FakeWallet {
+            owns_children: true,
+            ..FakeWallet::failing("no build")
+        }),
+        Arc::new(FakeMempool::ok().with_probe(child_at(ours, FeeRate::ZERO))),
+        fake_input_signer_ok(),
+        fake_input_signer_ok(),
+        FeeRate::from_sat_per_vb(20).unwrap(),
+    );
+    let mut state = CpfpHandle::default();
+
+    let outcome = ctx
+        .bump(&parent, &anchor_strategy(&parent), &mut state)
+        .await;
+
+    assert_eq!(outcome, BumpOutcome::ParentIsLive);
+    let handle = &state;
+    assert_eq!(handle.accepted_txid(), Some(ours));
+}
+
 /// An attempt that read no parent reports no parent, whatever an earlier attempt read.
 #[tokio::test]
 async fn a_fee_source_failure_after_an_eviction_does_not_report_a_live_parent() {
@@ -868,6 +897,100 @@ async fn a_build_after_a_child_left_the_mempool_has_no_incumbent() {
     let build = wallet.last_build().expect("the ladder must build");
     assert_eq!(build.incumbent, None);
     assert_eq!(build.inputs, vec![outpoint(8)]);
+}
+
+/// After a restart the handle is empty and our child is in the mempool. The ladder adopts it:
+/// the handle takes its identity and a lease on its wallet inputs, and it stands.
+#[tokio::test]
+async fn an_empty_handle_adopts_our_live_child() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let wallet = Arc::new(FakeWallet {
+        owns_children: true,
+        ..FakeWallet::failing("the live child meets the target")
+    });
+    let ctx = contention_context(
+        wallet.clone(),
+        Arc::new(
+            FakeMempool::ok().with_probe(child_at(ours, FeeRate::from_sat_per_vb_unchecked(10))),
+        ),
+    );
+    let mut handle = CpfpHandle::default();
+
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("an adopted child ends the attempt");
+
+    assert_eq!(bumped, BumpOutcome::ParentIsLive);
+    assert_eq!(handle.accepted_txid(), Some(ours));
+    assert_eq!(
+        held_by(&handle),
+        vec![OutPoint::new(Txid::from_byte_array([0xCC; 32]), 0)]
+    );
+}
+
+/// A small wallet can only fund the replacement of an adopted child from that child's own
+/// inputs, so they reach the same attempt's build.
+#[tokio::test]
+async fn an_adopted_child_below_the_target_passes_its_inputs_to_the_build() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let wallet = Arc::new(FakeWallet {
+        owns_children: true,
+        ..FakeWallet::returning(synthetic_child_psbt(&parent, 0), Vec::new())
+    });
+    let ctx = contention_context(
+        wallet.clone(),
+        Arc::new(
+            FakeMempool::ok().with_probe(child_at(ours, FeeRate::from_sat_per_vb_unchecked(5))),
+        ),
+    );
+
+    run_bump(
+        &ctx,
+        &parent,
+        &anchor_strategy(&parent),
+        &mut CpfpHandle::default(),
+    )
+    .await
+    .expect("the replacement must submit");
+
+    let build = wallet.last_build().expect("the ladder must build");
+    assert_eq!(
+        build.inputs,
+        vec![OutPoint::new(Txid::from_byte_array([0xCC; 32]), 0)]
+    );
+    assert_eq!(build.incumbent, Some(incumbent_of_child_at()));
+}
+
+/// With no answer on who owns the live child, nothing is released. The next attempt reads
+/// it again.
+#[tokio::test]
+async fn a_failed_child_lookup_releases_nothing() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let inputs = [OutPoint::new(parent.compute_txid(), 8)];
+    let wallet = Arc::new(FakeWallet::failing("the live child meets the target"));
+    let mempool = FakeMempool {
+        inputs_fail: true,
+        ..FakeMempool::ok()
+    }
+    .with_probe(child_at(
+        Txid::from_byte_array([0xBB; 32]),
+        FeeRate::from_sat_per_vb_unchecked(10),
+    ));
+    let ctx = contention_context(wallet.clone(), Arc::new(mempool));
+    let mut handle = seeded_handle(&wallet, &inputs, Txid::from_byte_array([0xAA; 32]));
+
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("the live child ends the attempt");
+
+    assert_eq!(bumped, BumpOutcome::ParentIsLive);
+    assert!(wallet.released.lock().unwrap().is_empty());
+    assert_eq!(held_by(&handle), inputs.to_vec());
 }
 
 /// The node refuses a package below its minimum when the parent is not in the mempool, so

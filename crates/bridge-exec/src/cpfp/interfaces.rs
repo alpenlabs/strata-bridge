@@ -42,8 +42,9 @@ pub struct WalletFundedPsbt {
     pub lease: Arc<dyn FundingLease>,
 }
 
-/// What the ladder needs from the wallet: the next CPFP child, and a signature for each input that
-/// a wallet signer holds the key for.
+/// What the ladder needs from the wallet: the next CPFP child, a lease on the inputs of a child
+/// that the handle does not know, and a signature for each input that a wallet signer holds the
+/// key for.
 ///
 /// Building and signing are separate so that the wallet stays free while a signer waits for a
 /// signature. [`perform_bump`](super::ladder::perform_bump) signs every other input itself: the
@@ -69,6 +70,16 @@ pub trait CpfpWallet: Send + Sync {
         max_package_rate: FeeRate,
         replaced: ReplacedChild<'_>,
     ) -> Result<WalletFundedPsbt, CpfpWalletError>;
+
+    /// Takes a lease on those of `inputs` that belong to this wallet. `None` when no input does,
+    /// which means that the child belongs to another operator.
+    ///
+    /// `inputs` are every input of a live child of `parent`, with the outputs they spend.
+    async fn adopt_child(
+        &self,
+        parent: Txid,
+        inputs: Vec<FundingInput>,
+    ) -> Option<Arc<dyn FundingLease>>;
 
     /// Brings the view of the wallet up to date with the node.
     ///
@@ -148,6 +159,9 @@ pub trait CpfpMempool: Send + Sync {
 
     /// Reports what the mempool holds for `parent`.
     async fn probe(&self, parent: Txid) -> Result<ParentProbe, MempoolError>;
+
+    /// Reads every input of the mempool transaction `child`, with the output it spends.
+    async fn child_inputs(&self, child: Txid) -> Result<Vec<FundingInput>, MempoolError>;
 
     /// The lowest fee rate at which this node admits a package.
     async fn min_fee_rate(&self) -> Result<FeeRate, MempoolError>;
