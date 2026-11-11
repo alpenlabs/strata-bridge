@@ -1,5 +1,6 @@
 import logging
 import time
+from collections.abc import Collection
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -84,19 +85,25 @@ def restart_with_operator_schedule(
     nodes: dict,
     registrations: list[ScheduledOperator],
     deposit_index_offset: int | None = None,
+    offline: Collection[int] = (),
 ) -> dict[str, int]:
     """Restart the network on a new operator schedule, as a coordinated restart does.
 
     Every running node stops before any node is rewritten, then every registered operator's
     node starts on the new schedule, so no node runs on the old schedule alongside the new one.
-    Returns log offsets of the registered nodes taken just before they start.
+    Registered operators in `offline` stay stopped. Returns log offsets of the started nodes
+    taken just before they start.
     """
     for node in nodes.values():
         if node.is_started():
             node.stop()
     time.sleep(5)  # ports need to be released before restarting
 
-    registered = [nodes[registration.index] for registration in registrations]
+    registered = [
+        nodes[registration.index]
+        for registration in registrations
+        if registration.index not in offline
+    ]
     for node in registered:
         write_operator_schedule(node, nodes, registrations, deposit_index_offset)
 
