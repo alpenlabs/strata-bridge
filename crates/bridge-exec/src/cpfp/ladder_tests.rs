@@ -3,9 +3,12 @@
 use std::{num::NonZeroU64, sync::Arc};
 
 use bitcoin::{
-    Address, Amount, FeeRate, Network, OutPoint, Transaction, TxIn, TxOut, Txid, Witness, absolute,
+    Address, Amount, FeeRate, Network, OutPoint, Transaction, TxIn, TxOut, Txid, Witness,
+    XOnlyPublicKey, absolute,
     hashes::Hash,
+    opcodes, script,
     secp256k1::{Message, SECP256K1, schnorr::Signature},
+    taproot::{LeafVersion, TaprootBuilder},
     transaction::Version,
 };
 use btc_tracker::cpfp::{BumpOutcome, CpfpBumper, CpfpStrategy, DeadlineClass, FirstBump};
@@ -13,10 +16,40 @@ use operator_wallet::IncumbentChild;
 use strata_bridge_primitives::cpfp::ChildSpend;
 
 use super::{errors::*, handle::*, interfaces::*, ladder::*, test_utils::*};
+use crate::fees::FeeTargetPolicy;
 
 fn anchor_strategy(parent: &Transaction) -> CpfpStrategy {
     CpfpStrategy {
         spend: ChildSpend::keyed_anchor(OutPoint::new(parent.compute_txid(), 0)),
+        parent_fee: Amount::from_sat(220),
+        deadline: DeadlineClass::NoDeadline,
+        first_bump: FirstBump::AtPublish,
+    }
+}
+
+/// A minimal one-leaf multi-anchor strategy. The contention tests use this shape to cover the
+/// shared-anchor path.
+/// The leaf and control block stay structurally valid even though the skip paths never
+/// spend the anchor.
+fn multi_anchor_strategy(parent: &Transaction, anchor_key: XOnlyPublicKey) -> CpfpStrategy {
+    let leaf = script::Builder::new()
+        .push_slice(anchor_key.serialize())
+        .push_opcode(opcodes::all::OP_CHECKSIG)
+        .into_script();
+    let spend_info = TaprootBuilder::new()
+        .add_leaf(0, leaf.clone())
+        .expect("depth 0 leaf is always valid")
+        .finalize(SECP256K1, anchor_key)
+        .expect("single-leaf tree finalizes");
+    let control_block = spend_info
+        .control_block(&(leaf.clone(), LeafVersion::TapScript))
+        .expect("control block for the only leaf");
+    CpfpStrategy {
+        spend: ChildSpend::multi_anchor(
+            OutPoint::new(parent.compute_txid(), 0),
+            leaf,
+            control_block,
+        ),
         parent_fee: Amount::from_sat(220),
         deadline: DeadlineClass::NoDeadline,
         first_bump: FirstBump::AtPublish,
@@ -51,6 +84,76 @@ fn contention_context(wallet: Arc<FakeWallet>, mempool: Arc<FakeMempool>) -> Cpf
         fake_input_signer_ok(),
         FeeRate::from_sat_per_vb(20).unwrap(),
     )
+}
+
+/// A competitor's child covers the shared anchor at (or above) our target: we stand
+/// down, and standing down must hand the last child's funding leases back — the next
+/// build for this parent may never come, and nothing else records those outpoints.
+#[tokio::test]
+async fn losing_a_shared_anchor_releases_the_last_childs_funding() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let theirs = Txid::from_byte_array([0xBB; 32]);
+    let inputs = [
+        OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+        OutPoint::new(Txid::from_byte_array([2; 32]), 1),
+    ];
+    let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+    let mempool = Arc::new(
+        FakeMempool::failing("skip must not submit")
+            .with_probe(child_at(theirs, FeeRate::from_sat_per_vb_unchecked(10))),
+    );
+    let ctx = contention_context(wallet.clone(), mempool);
+    let mut handle = seeded_handle(&wallet, &inputs, ours);
+    let bumped = run_bump(
+        &ctx,
+        &parent,
+        &multi_anchor_strategy(&parent, anchor_key),
+        &mut handle,
+    )
+    .await
+    .expect("losing the anchor is a skip, not an error");
+    assert_eq!(
+        bumped,
+        BumpOutcome::ParentIsLive,
+        "a child that spends the anchor proves the parent reached the network"
+    );
+    assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
+    assert!(handle.accepted.is_none() && handle.candidate.is_none());
+}
+
+/// Our own child holds the anchor at the target. This is the normal state. The leases
+/// must stay: a release lets a concurrent build double-spend the live child's funding
+/// and evict our own child.
+#[tokio::test]
+async fn our_own_winning_child_keeps_its_funding_leases() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let inputs = [OutPoint::new(Txid::from_byte_array([1; 32]), 0)];
+    let wallet = Arc::new(FakeWallet::failing("skip must not build"));
+    let mempool = Arc::new(
+        FakeMempool::failing("skip must not submit")
+            .with_probe(child_at(ours, FeeRate::from_sat_per_vb_unchecked(10))),
+    );
+    let ctx = contention_context(wallet.clone(), mempool);
+    let mut handle = seeded_handle(&wallet, &inputs, ours);
+    let bumped = run_bump(
+        &ctx,
+        &parent,
+        &multi_anchor_strategy(&parent, anchor_key),
+        &mut handle,
+    )
+    .await
+    .expect("holding the anchor is a skip, not an error");
+    assert_eq!(
+        bumped,
+        BumpOutcome::ParentIsLive,
+        "a child that spends the anchor proves the parent reached the network"
+    );
+    assert!(wallet.released.lock().unwrap().is_empty());
+    assert_eq!(held_by(&handle), inputs.to_vec());
 }
 
 /// A failed probe does not stop a first child: the submission is the authority.
@@ -751,6 +854,42 @@ async fn a_child_of_ours_below_the_target_is_outbid_with_its_own_inputs() {
     );
 }
 
+/// A foreign child below the target sets the price of the build. The inputs of our beaten
+/// child stay available to that build, and no lookup makes the foreign child ours.
+#[tokio::test]
+async fn a_foreign_child_below_the_target_is_outbid() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let outpoint = |vout| OutPoint::new(parent.compute_txid(), vout);
+    let ours = Txid::from_byte_array([0xAA; 32]);
+    let theirs = Txid::from_byte_array([0xBB; 32]);
+    let wallet = Arc::new(FakeWallet::returning(
+        synthetic_child_psbt(&parent, 0),
+        vec![outpoint(7)],
+    ));
+    let ctx = contention_context(
+        wallet.clone(),
+        Arc::new(
+            FakeMempool::ok().with_probe(child_at(theirs, FeeRate::from_sat_per_vb_unchecked(5))),
+        ),
+    );
+    let mut handle = seeded_handle(&wallet, &[outpoint(8)], ours);
+
+    let bumped = run_bump(
+        &ctx,
+        &parent,
+        &multi_anchor_strategy(&parent, anchor_key),
+        &mut handle,
+    )
+    .await
+    .expect("the outbid must submit");
+
+    assert_eq!(bumped, BumpOutcome::Submitted);
+    let build = wallet.last_build().expect("the ladder must build");
+    assert_eq!(build.inputs, vec![outpoint(8)]);
+    assert_eq!(build.incumbent, Some(incumbent_of_child_at()));
+}
+
 /// A replacement above the cap is refused. Nothing is signed or submitted, the live child
 /// keeps its lease, and the parent counts as live.
 #[tokio::test]
@@ -774,6 +913,31 @@ async fn a_replacement_above_the_cap_leaves_the_live_child_in_place() {
     assert_eq!(mempool.submissions(), 0);
     assert!(wallet.released.lock().unwrap().is_empty());
     assert_eq!(held_by(&handle), inputs.to_vec());
+}
+
+/// A foreign child that the cap keeps this operator from outbidding ends the attempt, so the
+/// inputs of our beaten child go back to the wallet.
+#[tokio::test]
+async fn a_refused_outbid_of_a_foreign_child_frees_the_beaten_child() {
+    let (_, anchor_key) = test_keypair_and_xonly();
+    let parent = synthetic_parent(anchor_key, Amount::from_sat(330));
+    let inputs = [OutPoint::new(parent.compute_txid(), 8)];
+    let wallet = Arc::new(FakeWallet::above_cap());
+    let ctx = contention_context(
+        wallet.clone(),
+        Arc::new(FakeMempool::ok().with_probe(child_at(
+            Txid::from_byte_array([0xBB; 32]),
+            FeeRate::from_sat_per_vb_unchecked(5),
+        ))),
+    );
+    let mut handle = seeded_handle(&wallet, &inputs, Txid::from_byte_array([0xAA; 32]));
+
+    let bumped = run_bump(&ctx, &parent, &anchor_strategy(&parent), &mut handle)
+        .await
+        .expect("a refusal is not an error");
+
+    assert_eq!(bumped, BumpOutcome::ParentIsLive);
+    assert_eq!(*wallet.released.lock().unwrap(), inputs.to_vec());
 }
 
 /// With no live child, nothing shows that a mempool holds the parent, so a refusal at the cap
@@ -1062,6 +1226,137 @@ async fn a_failed_read_of_the_node_minimum_prices_from_the_estimate() {
     .expect("the package must submit");
 
     assert_eq!(wallet.target(), Some(FeeRate::from_sat_per_vb(8).unwrap()));
+}
+
+/// A constant-byte signer whose output is recognisable in the final witness, so a test can
+/// prove *which* signer produced a given signature rather than only that signing happened.
+fn fake_input_signer_const(byte: u8) -> InputSigner {
+    Arc::new(move |_msg: Message| {
+        Box::pin(async move {
+            Ok::<_, SignerError>(
+                Signature::from_slice(&[byte; 64]).expect("64 bytes is a valid sig"),
+            )
+        })
+    })
+}
+
+/// The script-path bump must (a) route the anchor input through the
+/// dedicated `multi_anchor_signer` — NOT the tap-tweaked key-path signer — and (b) emit the
+/// BIP-341 script-path witness stack `[signature, leaf_script, control_block]` in exactly
+/// that order. A wrong signer or a reordered stack produces a transaction that fails script
+/// validation at broadcast, on the time-critical contest path, with no local signal.
+///
+/// Sentinels make routing observable: the key-path signer errors if invoked at all, and the
+/// multi-anchor signer returns a recognisable constant signature that is then asserted
+/// byte-for-byte in the captured child.
+#[tokio::test]
+async fn multi_anchor_bump_routes_untweaked_signer_and_orders_witness() {
+    use bitcoin::taproot::TaprootBuilder;
+
+    // Two watchtower-style leaves; ours is leaf 0.
+    let (_, our_key) = test_keypair_and_xonly();
+    let derived_key = |seed: u8| {
+        let sk = bitcoin::secp256k1::SecretKey::from_slice(&[seed; 32]).expect("valid scalar");
+        bitcoin::secp256k1::Keypair::from_secret_key(SECP256K1, &sk)
+            .x_only_public_key()
+            .0
+    };
+    let other_key = derived_key(0x11);
+    let leaf = |key: XOnlyPublicKey| {
+        bitcoin::script::Builder::new()
+            .push_slice(key.serialize())
+            .push_opcode(bitcoin::opcodes::all::OP_CHECKSIG)
+            .into_script()
+    };
+    let our_leaf = leaf(our_key);
+    let spend_info = TaprootBuilder::new()
+        .add_leaf(1, our_leaf.clone())
+        .expect("depth 1 is valid")
+        .add_leaf(1, leaf(other_key))
+        .expect("depth 1 is valid")
+        .finalize(SECP256K1, derived_key(0x22))
+        .expect("tree finalizes");
+    let control_block = spend_info
+        .control_block(&(our_leaf.clone(), bitcoin::taproot::LeafVersion::TapScript))
+        .expect("leaf is in the tree");
+    let anchor_spk = bitcoin::ScriptBuf::new_p2tr_tweaked(spend_info.output_key());
+
+    let parent = Transaction {
+        version: Version(3),
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![TxIn::default()],
+        output: vec![TxOut {
+            value: Amount::from_sat(330),
+            script_pubkey: anchor_spk,
+        }],
+    };
+    // The synthetic child spends parent:0 (the anchor) + one wallet funding input.
+    let psbt = synthetic_child_psbt(&parent, 0);
+    let wallet_funding = vec![OutPoint {
+        txid: parent.compute_txid(),
+        vout: 9,
+    }];
+
+    let mempool = Arc::new(FakeMempool::ok());
+    let ctx = CpfpContext {
+        wallet: Arc::new(FakeWallet::returning(psbt, wallet_funding.clone())),
+        fee_source: Arc::new(FakeFeeSource::returning(
+            FeeRate::from_sat_per_vb(10).unwrap(),
+        )),
+        // Key-path signer must never fire for a script-path anchor: if it does, the bump
+        // errors and the assertions below fail loudly.
+        anchor_input_signer: fake_input_signer_failing(
+            "key-path anchor signer must not be called for a multi-anchor spend",
+        ),
+        multi_anchor_signer: fake_input_signer_const(0xAA),
+        wallet_input_signer: fake_input_signer_const(0xBB),
+        // Neutral fee settings: this test pins signer selection, not pricing.
+        policy: FeeTargetPolicy {
+            premium_percent: 0,
+            min_package_fee_rate: FeeRate::ZERO,
+            max_fee_rate: FeeRate::from_sat_per_vb(20).unwrap(),
+        },
+        mempool: mempool.clone(),
+    };
+    let strategy = CpfpStrategy {
+        spend: ChildSpend::multi_anchor(
+            OutPoint::new(parent.compute_txid(), 0),
+            our_leaf.clone(),
+            control_block.clone(),
+        ),
+        parent_fee: Amount::from_sat(200),
+        deadline: DeadlineClass::NoDeadline,
+        first_bump: FirstBump::AtPublish,
+    };
+    let mut handle = CpfpHandle::default();
+    let submitted = run_bump(&ctx, &parent, &strategy, &mut handle)
+        .await
+        .expect("script-path bump must succeed");
+    assert_eq!(submitted, BumpOutcome::Submitted);
+    assert_eq!(held_by(&handle), wallet_funding);
+
+    let packages = mempool.captured.lock().unwrap();
+    let child = &packages[0][1];
+
+    // Anchor input: exactly the BIP-341 script-path stack, in order, signed by the
+    // multi-anchor sentinel.
+    let anchor_witness: Vec<&[u8]> = child.input[0].witness.iter().collect();
+    assert_eq!(
+        anchor_witness.len(),
+        3,
+        "script-path witness must be [sig, leaf_script, control_block]"
+    );
+    assert_eq!(
+        anchor_witness[0], &[0xAA; 64],
+        "anchor signature must come from multi_anchor_signer, not the key-path signer"
+    );
+    assert_eq!(anchor_witness[1], our_leaf.as_bytes());
+    assert_eq!(anchor_witness[2], control_block.serialize().as_slice());
+
+    // Wallet funding input stays a bare key-path spend via the wallet signer.
+    let wallet_witness: Vec<&[u8]> = child.input[1].witness.iter().collect();
+    assert_eq!(wallet_witness.len(), 1);
+    assert_eq!(wallet_witness[0], &[0xBB; 64]);
 }
 
 /// A replacement rejection of the child proves nothing about the parent: the child also spends
