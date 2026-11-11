@@ -134,7 +134,7 @@ strata-predicate = { git = "https://github.com/alpenlabs/strata-common", tag = "
 ] }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.4.0" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.4.0", features = [
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.5.0", features = [
   "quic",
   "request-response",
   "gossipsub",
@@ -201,7 +201,7 @@ hex = { version = "0.4.3", features = ["serde"] }
 hkdf = "0.12.4"
 indexmap = "2.13.0"
 jsonrpsee = "0.26.0"
-libp2p = { version = "0.56.0", features = [
+libp2p = { version = "0.57.0", features = [
   "noise",
   "gossipsub",
   "tcp",
@@ -213,7 +213,7 @@ libp2p = { version = "0.56.0", features = [
   "yamux",
   "identify",
 ] }
-libp2p-identity = { version = "0.2.12", features = ["ed25519"] }
+libp2p-identity = { version = "0.3.1", features = ["ed25519"] }
 metrics = "0.24"
 miniscript = "13.0.1"
 # NOTE: (@Rajil1213) Using an alpenlabs fork that bumps serdect 0.2 → 0.3 to fix a
