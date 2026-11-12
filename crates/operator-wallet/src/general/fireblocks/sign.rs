@@ -125,7 +125,7 @@ fn p2wpkh_sighash(
 /// public key (hex, compressed), and the `sighash` that was sent for signing. Low-S-normalises
 /// the signature before DER-encoding, checks the pubkey hashes to `expected_script`'s witness
 /// program, and verifies the signature against `sighash` under that pubkey.
-fn assemble_p2wpkh_witness(
+pub(super) fn assemble_p2wpkh_witness(
     full_sig_hex: &str,
     public_key_hex: &str,
     expected_script: &Script,

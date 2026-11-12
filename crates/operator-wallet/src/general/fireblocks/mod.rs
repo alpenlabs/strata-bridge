@@ -56,6 +56,13 @@
 //! a cancel from the console one substatus, `CANCELLED_BY_USER`, so a cancel by a person does not
 //! stop the node.
 //!
+//! ## Startup check
+//!
+//! [`CheckedVault::check`] gives the value that
+//! [`GeneralCustody::Fireblocks`](crate::GeneralCustody::Fireblocks) requires. A wrong
+//! `vault_pubkey` would otherwise send change and payouts to a script that the vault cannot sign
+//! for. See that function for the checks.
+//!
 //! ## Auth
 //!
 //! Every request carries `X-API-Key: <api key>` and `Authorization: Bearer <JWT>`, where the
@@ -71,9 +78,11 @@ mod raw;
 mod sign;
 #[cfg(test)]
 mod test_utils;
+mod vault;
 
 pub use self::{
     client::FireblocksSigner,
     config::FireblocksConfig,
-    errors::{FireblocksError, FireblocksInitError},
+    errors::{FireblocksError, FireblocksInitError, StartupCheckError},
+    vault::CheckedVault,
 };
