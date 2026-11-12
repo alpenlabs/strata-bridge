@@ -507,6 +507,36 @@ pub(crate) async fn publish_signed_transaction_until(
     Ok(())
 }
 
+/// Returns the mempool transaction that spends `outpoints` and pays `recipients` as its first
+/// outputs, or `None` when no mempool transaction spends them.
+///
+/// A duty that funded a transaction from stored inputs reads this on a retry: the transaction an
+/// earlier process broadcast spends those inputs, and only a re-drive of it keeps its bump path.
+/// Only the first stored outpoint is read, because one transaction spends them all. A spender
+/// that does not pay `recipients` is a conflict that the duty cannot resolve, and it reads as
+/// `None` so that the rebuild reports the spent input.
+pub(crate) async fn mempool_spender_paying(
+    bitcoind_rpc_client: &BitcoinClient,
+    outpoints: &[OutPoint],
+    recipients: &[TxOut],
+) -> Result<Option<Transaction>, ClientError> {
+    let Some(first) = outpoints.first() else {
+        return Ok(None);
+    };
+    let Some(spender) = mempool_spender(bitcoind_rpc_client, *first).await? else {
+        return Ok(None);
+    };
+    let tx = bitcoind_rpc_client
+        .get_raw_transaction_verbosity_zero(&spender)
+        .await?
+        .0;
+    let pays_recipients = tx.output.starts_with(recipients);
+    if !pays_recipients {
+        warn!(%spender, "a mempool transaction spends the stored inputs and pays other outputs");
+    }
+    Ok(pays_recipients.then_some(tx))
+}
+
 /// Returns the CPFP strategy of `tx` for `child`, reading the fee that `tx` pays. A failed read
 /// is logged and returns `None`.
 async fn resolve_strategy(
@@ -711,7 +741,8 @@ mod tests {
 
     use super::{
         ParentFee, checked_anchor_spend, ensure_spends_leased_inputs, first_output_paying_script,
-        is_outpoint_unspent, is_txid_onchain, resolve_strategy, tx_confirmations,
+        is_outpoint_unspent, is_txid_onchain, mempool_spender_paying, resolve_strategy,
+        tx_confirmations,
     };
     use crate::errors::ExecutorError;
 
@@ -752,6 +783,78 @@ mod tests {
         assert!(
             resolve_strategy(None, &client, &parent).await.is_none(),
             "a parent with no child reads no fee"
+        );
+    }
+
+    /// The spender of stored inputs is this duty's transaction only when it pays the recipients.
+    /// A reorg that returns a confirmed spender to the mempool makes it readable again.
+    #[tokio::test]
+    async fn mempool_spender_paying_finds_the_transaction_that_a_reorg_returns() {
+        let bitcoind =
+            Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind should start");
+        let client = setup_btc_client(&bitcoind);
+        let miner = bitcoind.client.new_address().unwrap();
+        bitcoind.client.generate_to_address(101, &miner).unwrap();
+
+        let recipient = bitcoind.client.new_address().unwrap();
+        let txid = bitcoind
+            .client
+            .send_to_address(&recipient, Amount::ONE_BTC)
+            .unwrap()
+            .txid()
+            .unwrap();
+        let tx = client
+            .get_raw_transaction_verbosity_zero(&txid)
+            .await
+            .unwrap()
+            .0;
+        let inputs: Vec<OutPoint> = tx.input.iter().map(|input| input.previous_output).collect();
+        let other = vec![TxOut {
+            value: Amount::ONE_SAT,
+            script_pubkey: ScriptBuf::new(),
+        }];
+
+        assert_eq!(
+            mempool_spender_paying(&client, &inputs, &tx.output)
+                .await
+                .unwrap(),
+            Some(tx.clone())
+        );
+        assert_eq!(
+            mempool_spender_paying(&client, &inputs, &other)
+                .await
+                .unwrap(),
+            None,
+            "a spender that pays other outputs is not this transaction"
+        );
+        assert_eq!(
+            mempool_spender_paying(&client, &[], &tx.output)
+                .await
+                .unwrap(),
+            None,
+            "no stored inputs, no spender"
+        );
+
+        bitcoind.client.generate_to_address(1, &miner).unwrap();
+        assert_eq!(
+            mempool_spender_paying(&client, &inputs, &tx.output)
+                .await
+                .unwrap(),
+            None,
+            "a confirmed spend is not in the mempool"
+        );
+
+        let stale: String = bitcoind.client.call("getbestblockhash", &[]).unwrap();
+        let _: serde_json::Value = bitcoind
+            .client
+            .call("invalidateblock", &[serde_json::Value::String(stale)])
+            .unwrap();
+        assert_eq!(
+            mempool_spender_paying(&client, &inputs, &tx.output)
+                .await
+                .unwrap(),
+            Some(tx),
+            "the reorg returns the spend to the mempool"
         );
     }
 

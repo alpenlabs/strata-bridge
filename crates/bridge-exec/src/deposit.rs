@@ -477,6 +477,51 @@ async fn fulfill_withdrawal(
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %deadline, dest=%recipient_desc, "checking withdrawal fulfillment conditions");
 
+    // Calculate the amount to send to user (deposit_amount - operator_fee)
+    let amount = deposit_amount
+        .checked_sub(cfg.operator_fee)
+        .expect("deposit amount must be greater than operator fee");
+
+    // Create unfunded WithdrawalFulfillmentTx with outputs only
+    let wft_data = WithdrawalFulfillmentData {
+        deposit_idx,
+        user_amount: amount,
+        magic_bytes: cfg.magic_bytes,
+    };
+    let wft = WithdrawalFulfillmentTx::new(wft_data, recipient_desc);
+    let unfunded_tx = wft.into_unsigned_tx();
+
+    // A fulfillment that an earlier process broadcast can sit in the mempool with no driver
+    // record. It spends the row's inputs, so a rebuild cannot fund, and only a re-drive of that
+    // transaction keeps its bump path. This runs before the fulfillment window and the fee read:
+    // a re-drive builds and prices nothing, so neither may keep a live fulfillment from its bumps,
+    // least of all near the deadline. A row whose inputs a block
+    // spends builds nothing below either; the state machine ends the duty once it sees that
+    // fulfillment.
+    if let Some(outpoints) = output_handles
+        .db
+        .get_withdrawal_funding_outpoints(deposit_idx)
+        .await?
+        && let Some(live) = chain::mempool_spender_paying(
+            &output_handles.bitcoind_rpc_client,
+            &outpoints,
+            &unfunded_tx.output,
+        )
+        .await?
+    {
+        info!(%deposit_idx, txid = %live.compute_txid(), "driving the fulfillment in the mempool");
+        return publish_signed_transaction(
+            output_handles,
+            &live,
+            "withdrawal fulfillment",
+            CpfpKind::InferGeneralPayout {
+                parent_fee: chain::ParentFee::FromPrevouts,
+                deadline: DeadlineClass::Deadline,
+            },
+        )
+        .await;
+    }
+
     // Check if we're within the fulfillment window
     let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
     let cur_height = output_handles
@@ -496,10 +541,7 @@ async fn fulfill_withdrawal(
         return Ok(());
     }
 
-    // Calculate the amount to send to user (deposit_amount - operator_fee)
-    let amount = deposit_amount
-        .checked_sub(cfg.operator_fee)
-        .expect("deposit amount must be greater than operator fee");
+    info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
 
     // The following approach trades off maximal liveness for maximal safety:
     // It is not safe to broadcast at a lower fee rate when the network fee rate is high as there is
@@ -507,17 +549,6 @@ async fn fulfill_withdrawal(
     // operator to lose funds. The safest approach is to abort.
     let fee_rate = funding_fee_rate(&cfg.fee_quotes, cfg.maximum_fee_rate).await?;
     info!(%fee_rate, "fee rate for withdrawal fulfillment");
-
-    info!(%deposit_idx, "pre-conditions satisfied, attempting to fulfill withdrawal request");
-
-    // Create unfunded WithdrawalFulfillmentTx with outputs only
-    let wft_data = WithdrawalFulfillmentData {
-        deposit_idx,
-        user_amount: amount,
-        magic_bytes: cfg.magic_bytes,
-    };
-    let wft = WithdrawalFulfillmentTx::new(wft_data, recipient_desc);
-    let unfunded_tx = wft.into_unsigned_tx();
 
     // Fund the transaction via wallet (adds inputs and change). The DB funding assignment
     // happens inside the wallet lock and before signing so duplicate duties cannot assign

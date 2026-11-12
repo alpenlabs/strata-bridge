@@ -746,6 +746,50 @@ async fn funding_confirmed(
     }
 }
 
+/// [`funding_confirmed`], and a re-drive of a refill that sits in the mempool.
+///
+/// A refill that an earlier process broadcast has no driver record and no lease on its inputs. This
+/// holds its inputs again and hands it back to the driver with its CPFP path. The claim still waits
+/// for the confirmation, so the answer stands.
+async fn funding_confirmed_or_drive(
+    output_handles: &OutputHandles,
+    claim_funding_outpoint: OutPoint,
+) -> Result<bool, ExecutorError> {
+    let client = &output_handles.bitcoind_rpc_client;
+    let confirmed = funding_confirmed(client, claim_funding_outpoint).await?;
+    if !confirmed {
+        let refill = client
+            .get_raw_transaction_verbosity_zero(&claim_funding_outpoint.txid)
+            .await?
+            .0;
+        info!(txid = %refill.compute_txid(), "driving the unconfirmed claim funding refill");
+        // The refill's general-wallet inputs are held again, so another duty cannot spend them if
+        // the refill leaves the mempool.
+        let inputs = refill
+            .input
+            .iter()
+            .map(|input| input.previous_output)
+            .collect();
+        output_handles
+            .wallet
+            .read()
+            .await
+            .lease_committed(inputs, LeaseOwner::ClaimFundingRefill);
+        chain::publish_signed_transaction_until(
+            output_handles,
+            &refill,
+            "claim funding refill",
+            CpfpKind::InferGeneralPayout {
+                parent_fee: chain::ParentFee::FromPrevouts,
+                deadline: DeadlineClass::NoDeadline,
+            },
+            predicate::eq(TxStatus::Mempool),
+        )
+        .await?;
+    }
+    Ok(confirmed)
+}
+
 /// Publishes the claim transaction to Bitcoin.
 ///
 /// The prevout comes from the reserved wallet, or from the node once a transaction spends the
@@ -765,7 +809,7 @@ pub(super) async fn publish_claim(
 
     let claim_funding_outpoint = unsigned_claim_tx.input[0].previous_output;
     let claim_prevout = claim_prevout(output_handles, claim_funding_outpoint).await?;
-    if !funding_confirmed(&output_handles.bitcoind_rpc_client, claim_funding_outpoint).await? {
+    if !funding_confirmed_or_drive(output_handles, claim_funding_outpoint).await? {
         info!(
             %claim_txid,
             %claim_funding_outpoint,
