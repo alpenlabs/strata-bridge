@@ -7,14 +7,17 @@ use bitcoin::{
 use bitcoincore_rpc::RpcApi;
 use secp256k1::SECP256K1;
 use strata_bridge_common::params::Params;
-use strata_bridge_key_deriv::WalletKeys;
+use strata_bridge_key_deriv::{Musig2Keys, WalletKeys};
 use strata_bridge_primitives::types::GraphIdx;
 use strata_bridge_rpc::traits::{StrataBridgeControlApiClient, StrataBridgeDaApiClient};
 use tracing::info;
 
 use crate::{
     cli,
-    handlers::{derive_keys, graph, rpc},
+    handlers::{
+        cpfp::{publish_with_keyed_anchor_child, Anchor},
+        derive_keys, graph, rpc,
+    },
 };
 
 /// Post a claim transaction for the given graph idx.
@@ -27,6 +30,8 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     let wallet_keys = WalletKeys::derive(operator_keys.base_xpriv())
         .map_err(|e| anyhow::anyhow!("failed to derive wallet keys: {}", e))?;
     let reserved_keypair = wallet_keys.reserved;
+    let musig2_keys = Musig2Keys::derive(operator_keys.base_xpriv())
+        .map_err(|e| anyhow::anyhow!("failed to derive musig2 keys: {}", e))?;
 
     let btc_client =
         rpc::get_btc_client(&args.btc_args.url, args.btc_args.user, args.btc_args.pass)?;
@@ -118,9 +123,13 @@ pub(crate) async fn handle_claim(args: cli::ClaimArgs) -> anyhow::Result<()> {
     let mut signed_claim_tx = unsigned_claim_tx.clone();
     signed_claim_tx.input[0].witness.push(signature.serialize());
 
-    let txid = btc_client
-        .send_raw_transaction(&signed_claim_tx)
-        .map_err(|e| anyhow::anyhow!("failed to broadcast claim transaction: {}", e))?;
+    let txid = publish_with_keyed_anchor_child(
+        &btc_client,
+        &signed_claim_tx,
+        &Anchor::of(&claim_tx),
+        &musig2_keys.keypair,
+    )
+    .map_err(|e| anyhow::anyhow!("failed to broadcast claim transaction: {}", e))?;
     info!(?graph_idx, ?txid, %claim_txid, "broadcast claim transaction");
 
     Ok(())

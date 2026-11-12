@@ -3,7 +3,7 @@ use bitcoin::hashes::{sha256, Hash};
 use bitcoincore_rpc::RpcApi;
 use strata_bridge_common::params::Params;
 use strata_bridge_connectors::prelude::UnstakingIntentWitness;
-use strata_bridge_key_deriv::PreimageIkm;
+use strata_bridge_key_deriv::{Musig2Keys, PreimageIkm};
 use strata_bridge_primitives::covenant::StakeKey;
 use strata_bridge_rpc::traits::{
     StrataBridgeControlApiClient, StrataBridgeDaApiClient, StrataBridgeMonitoringApiClient,
@@ -16,7 +16,10 @@ use tracing::info;
 
 use crate::{
     cli,
-    handlers::{derive_keys, rpc},
+    handlers::{
+        cpfp::{publish_with_keyed_anchor_child, Anchor},
+        derive_keys, rpc,
+    },
 };
 
 const STAKE_TX_INDEX: u32 = 0;
@@ -27,6 +30,8 @@ pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> a
     let operator_keys = derive_keys::derive_operator_keys(&args.seed, params.network)?;
     let preimage_ikm = PreimageIkm::derive(operator_keys.base_xpriv())
         .map_err(|e| anyhow::anyhow!("failed to derive stakechain preimage ikm: {}", e))?;
+    let musig2_keys = Musig2Keys::derive(operator_keys.base_xpriv())
+        .map_err(|e| anyhow::anyhow!("failed to derive musig2 keys: {}", e))?;
 
     let btc_client =
         rpc::get_btc_client(&args.btc_args.url, args.btc_args.user, args.btc_args.pass)?;
@@ -122,12 +127,17 @@ pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> a
         n_of_n_signature: presigned.unstaking_intent[0],
         unstaking_preimage: preimage,
     };
+    let anchor = Anchor::of(&stake_graph.unstaking_intent);
     let unstaking_intent_tx = stake_graph.unstaking_intent.finalize(&witness);
     let expected_txid = unstaking_intent_tx.compute_txid();
 
-    let txid = btc_client
-        .send_raw_transaction(&unstaking_intent_tx)
-        .map_err(|e| anyhow::anyhow!("failed to broadcast unstaking intent transaction: {}", e))?;
+    let txid = publish_with_keyed_anchor_child(
+        &btc_client,
+        &unstaking_intent_tx,
+        &anchor,
+        &musig2_keys.keypair,
+    )
+    .map_err(|e| anyhow::anyhow!("failed to broadcast unstaking intent transaction: {}", e))?;
     info!(
         operator_idx = args.operator_idx,
         %txid,
