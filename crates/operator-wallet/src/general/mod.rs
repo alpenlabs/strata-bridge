@@ -7,6 +7,9 @@
 //! signs. Leases, the reserved wallet, input selection, and transaction construction live on the
 //! composer.
 
+#[cfg(feature = "fireblocks")]
+pub mod fireblocks;
+
 use bdk_wallet::{
     bitcoin::{transaction::InputWeightPrediction, Transaction, TxOut, Witness, XOnlyPublicKey},
     descriptor,
