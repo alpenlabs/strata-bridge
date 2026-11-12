@@ -9,7 +9,10 @@ use tracing::info;
 
 use crate::{
     cli,
-    handlers::{derive_keys, graph, rpc},
+    handlers::{
+        cpfp::{publish_with_multi_anchor_child, Anchor},
+        derive_keys, graph, rpc,
+    },
 };
 
 /// Publish a contest transaction for the given graph idx.
@@ -105,11 +108,17 @@ pub(crate) async fn handle_contest(args: cli::ContestArgs) -> anyhow::Result<()>
 
     let signing_info = contest.signing_info(watchtower_index);
     let watchtower_signature = signing_info.sign(&watchtower_keypair);
+    let anchor = Anchor::of(&contest);
     let contest_tx = contest.finalize(n_of_n_signature, watchtower_index, watchtower_signature);
 
-    let txid = btc_client
-        .send_raw_transaction(&contest_tx)
-        .map_err(|e| anyhow::anyhow!("failed to broadcast contest transaction: {}", e))?;
+    let txid = publish_with_multi_anchor_child(
+        &btc_client,
+        &contest_tx,
+        &anchor,
+        watchtower_index,
+        &watchtower_keypair,
+    )
+    .map_err(|e| anyhow::anyhow!("failed to broadcast contest transaction: {}", e))?;
     info!(?graph_idx, ?txid, "broadcast contest transaction");
 
     Ok(())

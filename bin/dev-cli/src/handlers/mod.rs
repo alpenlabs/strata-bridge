@@ -4,6 +4,7 @@ pub(crate) mod bridge_proof;
 pub(crate) mod checkpoint;
 pub(crate) mod claim;
 pub(crate) mod contest;
+mod cpfp;
 pub(crate) mod derive_keys;
 mod graph;
 mod rpc;
