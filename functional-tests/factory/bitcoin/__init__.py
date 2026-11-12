@@ -136,10 +136,9 @@ class BitcoinFactory(PortProbingFactory):
         zmq_rawtx = self.next_port()
         zmq_sequence = self.next_port()
 
-        # Run bitcoind with mainnet-like fee and dust policies so the bridge node's
-        # transactions must pay at least the minimum relay fee (1 sat/vB) and respect the
-        # dust threshold. This catches regressions where any tx-graph transaction is
-        # broadcast with zero fee or with a dust output.
+        # Run bitcoind at a 1 sat/vB minimum relay fee, ten times the v30 default, with the
+        # standard dust policy. A presigned transaction pays no fee and relays only in a package
+        # whose CPFP child lifts it to this floor; a wallet-funded transaction must pay it alone.
         cmd = [
             "bitcoind",
             "-regtest",
@@ -151,6 +150,7 @@ class BitcoinFactory(PortProbingFactory):
             "-txindex=1",
             "-acceptnonstdtxn=0",
             "-fallbackfee=0.00001",
+            "-minrelaytxfee=0.00001",
             f"-datadir={datadir}",
             f"-rpcport={rpc_port}",
             "-rpcbind=0.0.0.0",
