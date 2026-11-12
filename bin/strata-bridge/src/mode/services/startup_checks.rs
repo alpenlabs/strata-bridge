@@ -1,4 +1,7 @@
-//! Startup consistency checks between the bridge and its external components.
+//! Startup consistency checks.
+//!
+//! The checks over local config ([`verify_timelock_ordering`], [`check_fee_config`]) always run.
+//! The other checks do not run in dev mode.
 use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
@@ -22,17 +25,14 @@ use tracing::warn;
 
 use crate::config::{Config, MosaicConfig};
 
-/// Runs every startup consistency check; a failure aborts node startup.
-pub(in crate::mode) async fn verify(
+/// Runs the consistency checks against ASM and Mosaic; a failure aborts node startup.
+pub(in crate::mode) async fn verify_external_components(
     params: &Params,
     config: &Config,
     asm_rpc_client: &HttpClient,
     mosaic_rpc_client: &HttpClient,
-    bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
 ) -> Result<()> {
-    verify_predicates(params, bridge_proof_host, counterproof_host)?;
-
     let asm_params = fetch_asm_params(asm_rpc_client, &config.asm_rpc)
         .await
         .context("fetching ASM params for startup consistency check")?;
@@ -132,7 +132,7 @@ async fn fetch_mosaic_circuit_defs(
 }
 
 /// Each proof host's loaded guest ELF matches its corresponding verification predicate.
-fn verify_predicates(
+pub(in crate::mode) fn verify_predicates(
     params: &Params,
     bridge_proof_host: &BridgeProofHost,
     counterproof_host: &BridgeCounterproofHost,
