@@ -131,10 +131,6 @@ impl<P: WalletStore> CheckedVault<P> {
 impl<P> CheckedVault<P> {
     /// Splits the value into the watch-only descriptor of the vault script, the signer, and the
     /// store.
-    #[expect(
-        dead_code,
-        reason = "used by the commit that holds the general funds in a Fireblocks vault"
-    )]
     pub(in crate::general) fn into_parts(self) -> (ExtendedDescriptor, FireblocksSigner, P) {
         let vault_key = bdk_wallet::bitcoin::PublicKey::new(self.signer.config.vault_pubkey);
         let (descriptor, ..) = descriptor!(wpkh(vault_key)).expect("valid wpkh() descriptor");

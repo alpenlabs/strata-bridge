@@ -34,13 +34,6 @@ impl FireblocksSigner {
     ///
     /// See [`GeneralSigner::sign_owned_inputs`](crate::general::GeneralSigner::sign_owned_inputs)
     /// for the contract of the arguments.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "used by the commit that holds the general funds in a Fireblocks vault"
-        )
-    )]
     pub(crate) async fn sign_owned_inputs(
         &self,
         tx: &Transaction,
