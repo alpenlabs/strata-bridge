@@ -8,11 +8,10 @@ workspace = true
 
 [dependencies]
 algebra.workspace = true
-bitcoin-bosd.workspace = true
 btc-tracker.workspace = true
 mosaic-rpc-api.workspace = true
 mosaic-rpc-types.workspace = true
-operator-wallet.workspace = true
+operator-wallet = { workspace = true, features = ["fireblocks"] }
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
 strata-bridge-asm-events.workspace = true
@@ -41,6 +40,7 @@ anyhow.workspace = true
 async-trait.workspace = true
 bdk_bitcoind_rpc.workspace = true
 bitcoin.workspace = true
+bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
 chrono.workspace = true
 clap.workspace = true
