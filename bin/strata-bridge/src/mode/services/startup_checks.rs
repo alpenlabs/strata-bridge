@@ -5,12 +5,15 @@
 use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use bitcoin::{Amount, FeeRate};
+use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use jsonrpsee::http_client::HttpClient;
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcCircuitInfoEntry;
+use operator_wallet::REPLACEMENT_INCREMENT_SAT_PER_VB;
 use secp256k1::XOnlyPublicKey;
+use serde::Deserialize;
 use strata_asm_params::AsmParams;
 use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_asm_events::config::AsmRpcConfig;
@@ -24,6 +27,113 @@ use tokio::time;
 use tracing::warn;
 
 use crate::config::{Config, MosaicConfig};
+
+/// Oldest Bitcoin Core the bridge runs against, in `getnetworkinfo.version` form. The RPC client
+/// parses v30 response shapes, and v30 raised the `OP_RETURN` size that the bridge proof needs.
+/// TRUC and package relay, which the CPFP path depends on, date from v28.
+const MIN_CORE_VERSION: u32 = 300_000;
+
+/// The replacement increment of the child fee planner, as sat per kvB. Core rejects a replacement
+/// that pays less than its own `incrementalfee`, so a node above this value refuses small bumps.
+/// Those rejections read as a lost anchor race and log at debug only.
+const ASSUMED_INCREMENTAL_FEE: Amount = Amount::from_sat(REPLACEMENT_INCREMENT_SAT_PER_VB * 1_000);
+
+/// Required `maxdatacarriersize`: Core v30's default. The bridge proof is one OP_RETURN with no
+/// size bound in the protocol, so the check asks for the default and not for a guessed proof size.
+const MIN_DATA_CARRIER_BYTES: u64 = 100_000;
+
+/// The fields of `getnetworkinfo` that the bridge depends on.
+#[derive(Debug, Deserialize)]
+struct NodeNetworkInfo {
+    version: u32,
+    /// Core reports this in BTC per kvB. It is held here as the amount per kvB.
+    #[serde(rename = "incrementalfee", with = "bitcoin::amount::serde::as_btc")]
+    incremental_fee: Amount,
+}
+
+/// The field of `getindexinfo` that the bridge depends on. Core lists an index only if it is on.
+#[derive(Debug, Deserialize)]
+struct NodeIndexInfo {
+    txindex: Option<NodeIndexStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NodeIndexStatus {
+    synced: bool,
+}
+
+/// Checks the connected node against what the bridge's transactions depend on.
+///
+/// A node below Core v30, a data-carrier limit below the v30 default, or a transaction index that
+/// is missing or still building aborts startup. An incremental relay fee above the replacement
+/// increment of the child planner only warns: the node then refuses the smallest bumps, and larger
+/// ones still relay.
+pub(in crate::mode) async fn verify_bitcoin_node(client: &BitcoinClient) -> Result<()> {
+    let network = client
+        .call_raw("getnetworkinfo", &[])
+        .await
+        .map_err(|e| anyhow!("could not read getnetworkinfo from the bitcoin node: {e:?}"))?;
+    check_core_version(&network)?;
+    if let Err(finding) = check_incremental_fee(&network) {
+        warn!(%finding, "bitcoin node policy differs from what the bridge assumes");
+    }
+    let mempool = client
+        .get_mempool_info()
+        .await
+        .map_err(|e| anyhow!("could not read getmempoolinfo from the bitcoin node: {e:?}"))?;
+    check_data_carrier_size(mempool.max_data_carrier_size)?;
+    let indexes = client
+        .call_raw("getindexinfo", &[])
+        .await
+        .map_err(|e| anyhow!("could not read getindexinfo from the bitcoin node: {e:?}"))?;
+    check_index_info(&indexes)
+}
+
+/// Checks the release first, because an older node omits fields that the later reads need.
+fn check_core_version(network: &NodeNetworkInfo) -> Result<()> {
+    ensure!(
+        network.version >= MIN_CORE_VERSION,
+        "bitcoin node version {} is below the required {MIN_CORE_VERSION} (Core v30)",
+        network.version
+    );
+    Ok(())
+}
+
+fn check_incremental_fee(network: &NodeNetworkInfo) -> Result<()> {
+    ensure!(
+        network.incremental_fee <= ASSUMED_INCREMENTAL_FEE,
+        "bitcoin node incrementalfee {} per kvB exceeds the {} per kvB that the CPFP replacement \
+         fee assumes; lower -incrementalrelayfee",
+        network.incremental_fee,
+        ASSUMED_INCREMENTAL_FEE
+    );
+    Ok(())
+}
+
+fn check_data_carrier_size(max_data_carrier_size: Option<u64>) -> Result<()> {
+    let size = max_data_carrier_size
+        .ok_or_else(|| anyhow!("bitcoin node does not report maxdatacarriersize"))?;
+    ensure!(
+        size >= MIN_DATA_CARRIER_BYTES,
+        "bitcoin node maxdatacarriersize {size} is below the {MIN_DATA_CARRIER_BYTES} bytes that \
+         the bridge requires for a proof; raise -datacarriersize",
+    );
+    Ok(())
+}
+
+fn check_index_info(indexes: &NodeIndexInfo) -> Result<()> {
+    match &indexes.txindex {
+        None => bail!(
+            "bitcoin node has no transaction index, which CPFP parent fee lookups need; set \
+             txindex=1"
+        ),
+        Some(status) if status.synced => Ok(()),
+        Some(_) => bail!(
+            "bitcoin node's transaction index is still building, and CPFP parent fee lookups \
+             fail until it syncs; restart once it has synced"
+        ),
+    }
+}
 
 /// Runs the consistency checks against ASM and Mosaic; a failure aborts node startup.
 pub(in crate::mode) async fn verify_external_components(
@@ -271,6 +381,95 @@ mod tests {
     use crate::{config::test_config, mode::services::test_fixtures::test_params};
 
     const ASSIGNMENT_DURATION: u16 = 144;
+
+    fn node_network(version: u32, incremental_sat_per_kvb: u64) -> NodeNetworkInfo {
+        NodeNetworkInfo {
+            version,
+            incremental_fee: Amount::from_sat(incremental_sat_per_kvb),
+        }
+    }
+
+    fn node_indexes(synced: Option<bool>) -> NodeIndexInfo {
+        NodeIndexInfo {
+            txindex: synced.map(|synced| NodeIndexStatus { synced }),
+        }
+    }
+
+    #[test]
+    fn a_default_core_v30_node_passes() {
+        let network = node_network(300_200, 100);
+        check_core_version(&network).expect("v30");
+        check_incremental_fee(&network).expect("the v30 default increment");
+        check_data_carrier_size(Some(100_000)).expect("the v30 default");
+        check_index_info(&node_indexes(Some(true))).expect("a synced txindex");
+    }
+
+    #[test]
+    fn a_node_below_core_v30_is_rejected() {
+        let err = check_core_version(&node_network(299_999, 100)).expect_err("below v30");
+        assert!(err.to_string().contains("Core v30"), "got: {err}");
+    }
+
+    #[test]
+    fn an_incremental_fee_above_the_planner_increment_is_reported() {
+        check_incremental_fee(&node_network(300_000, 1_000))
+            .expect("the increment itself is valid");
+        let err = check_incremental_fee(&node_network(300_000, 1_001))
+            .expect_err("a higher increment refuses small bumps");
+        assert!(err.to_string().contains("incrementalfee"), "got: {err}");
+    }
+
+    #[test]
+    fn a_data_carrier_limit_below_the_v30_default_is_rejected() {
+        let err = check_data_carrier_size(Some(83))
+            .expect_err("a v30 node at -datacarriersize=83 refuses a bridge proof");
+        assert!(err.to_string().contains("datacarriersize"), "got: {err}");
+    }
+
+    #[test]
+    fn a_node_without_txindex_is_rejected() {
+        let err = check_index_info(&node_indexes(None)).expect_err("fee lookups need txindex");
+        assert!(err.to_string().contains("txindex=1"), "got: {err}");
+    }
+
+    #[test]
+    fn a_transaction_index_still_building_is_rejected() {
+        let err = check_index_info(&node_indexes(Some(false)))
+            .expect_err("fee lookups fail until the index syncs");
+        assert!(err.to_string().contains("still building"), "got: {err}");
+    }
+
+    #[test]
+    fn node_rpc_answers_parse_into_the_checked_fields() {
+        let network: NodeNetworkInfo = serde_json::from_value(serde_json::json!({
+            "version": 300200,
+            "subversion": "/Satoshi:30.2.0/",
+            "incrementalfee": 0.00000100,
+            "relayfee": 0.00000100,
+        }))
+        .unwrap();
+        assert_eq!(network.version, 300_200, "the version parses as reported");
+        assert_eq!(
+            network.incremental_fee,
+            Amount::from_sat(100),
+            "the BTC per kvB amount parses into sats per kvB"
+        );
+
+        let indexed: NodeIndexInfo = serde_json::from_value(serde_json::json!({
+            "txindex": { "synced": true, "best_block_height": 7 },
+        }))
+        .unwrap();
+        assert!(
+            indexed.txindex.is_some_and(|status| status.synced),
+            "a listed txindex parses with its sync state"
+        );
+
+        let unindexed: NodeIndexInfo = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(
+            unindexed.txindex.is_none(),
+            "Core lists no txindex when the index is off"
+        );
+    }
 
     #[test]
     fn a_fixed_fee_rate_above_the_cap_is_accepted() {
