@@ -236,10 +236,26 @@ pub(in crate::mode) fn verify_timelock_ordering(params: &Params, config: &Config
         .context("unsafe params timelocks")
 }
 
-/// Checks the fee config and returns the maximum fee rate. A fixed source rate above the cap warns
-/// here once, and the duties refuse that rate. A bad fee source config otherwise surfaces only
-/// after every service has started.
-pub(in crate::mode) fn check_fee_config(config: &Config) -> Result<FeeRate> {
+/// The fee limits of this node, checked against each other.
+#[derive(Debug)]
+pub(in crate::mode) struct FeeLimits {
+    /// The true maximum rate of every transaction.
+    pub(in crate::mode) max_fee_rate: FeeRate,
+    /// The lowest package rate that the CPFP ladder targets.
+    pub(in crate::mode) min_package_fee_rate: FeeRate,
+}
+
+/// Checks the fee config and returns the fee limits. A package floor above the cap, or a fixed
+/// source rate above the cap, warns here once: the cap wins over both, and a node with such a
+/// config starts and bumps at the cap. The duties refuse a fixed rate above the cap.
+///
+/// A zero bump interval panics `tokio::time::interval` inside the tx driver's task, and a bad
+/// fee source config otherwise surfaces only after every service has started.
+pub(in crate::mode) fn check_fee_config(config: &Config) -> Result<FeeLimits> {
+    ensure!(
+        !config.cpfp_bump_check_interval.is_zero(),
+        "cpfp_bump_check_interval must not be zero"
+    );
     config
         .fee_source
         .validate()
@@ -250,6 +266,20 @@ pub(in crate::mode) fn check_fee_config(config: &Config) -> Result<FeeRate> {
             config.max_fee_rate
         )
     })?;
+    let min_package_fee_rate = FeeRate::from_sat_per_vb(config.cpfp_min_package_fee_rate)
+        .ok_or_else(|| {
+            anyhow!(
+                "cpfp_min_package_fee_rate = {} sat/vB is not a valid fee rate",
+                config.cpfp_min_package_fee_rate
+            )
+        })?;
+    if min_package_fee_rate > max_fee_rate {
+        warn!(
+            cpfp_min_package_fee_rate = config.cpfp_min_package_fee_rate,
+            max_fee_rate = config.max_fee_rate,
+            "cpfp_min_package_fee_rate exceeds max_fee_rate; every CPFP bump prices at the cap"
+        );
+    }
     let fixed_above_cap = match config.fee_source {
         FeeSourceConfig::Fixed { fee_rate } if fee_rate > config.max_fee_rate => Some(fee_rate),
         _ => None,
@@ -261,7 +291,10 @@ pub(in crate::mode) fn check_fee_config(config: &Config) -> Result<FeeRate> {
             "fee_source fixed rate exceeds max_fee_rate; every wallet-funded duty refuses"
         );
     }
-    Ok(max_fee_rate)
+    Ok(FeeLimits {
+        max_fee_rate,
+        min_package_fee_rate,
+    })
 }
 
 async fn fetch_asm_params(client: &HttpClient, config: &AsmRpcConfig) -> Result<AsmParams> {
@@ -608,6 +641,24 @@ mod tests {
         let mut config = test_config();
         config.fee_source = FeeSourceConfig::Fixed { fee_rate: u64::MAX };
         assert!(check_fee_config(&config).is_err());
+    }
+
+    #[test]
+    fn a_zero_bump_interval_is_rejected() {
+        let mut config = test_config();
+        config.cpfp_bump_check_interval = std::time::Duration::ZERO;
+        assert!(
+            check_fee_config(&config).is_err(),
+            "a zero interval would panic the driver's timer"
+        );
+    }
+
+    #[test]
+    fn a_package_floor_above_the_fee_cap_is_accepted() {
+        let mut config = test_config();
+        config.max_fee_rate = 10;
+        config.cpfp_min_package_fee_rate = 11;
+        check_fee_config(&config).expect("the floor is a warning, and the cap wins");
     }
 
     /// Arbitrary [`AsmParams`] with every *compared* field overwritten from `params`; the
