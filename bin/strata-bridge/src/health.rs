@@ -378,7 +378,7 @@ pub(crate) struct ComponentHealthSnapshot {
     /// Current component health status.
     pub(crate) status: HealthStatus,
 
-    /// Stable, operator-readable reason.
+    /// Operator-readable reason. It can carry live values, such as a height or an age.
     pub(crate) reason: String,
 
     /// RFC 3339 timestamp of the last successful component update, if known.
