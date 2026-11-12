@@ -30,6 +30,16 @@ pub(super) fn config(base_url: &str) -> FireblocksConfig {
     }
 }
 
+/// A signer whose API host refuses the connection at once, so a call that reaches the network
+/// fails without a resolver round trip.
+pub(super) fn offline_signer() -> FireblocksSigner {
+    FireblocksSigner::build(
+        config("http://127.0.0.1:9/"),
+        TEST_RSA_PRIVATE_PEM.as_bytes(),
+    )
+    .expect("valid config")
+}
+
 /// A signer on a mock server, which speaks plain HTTP.
 pub(super) fn mock_signer(server: &MockServer) -> FireblocksSigner {
     FireblocksSigner::build(config(&server.uri()), TEST_RSA_PRIVATE_PEM.as_bytes())
