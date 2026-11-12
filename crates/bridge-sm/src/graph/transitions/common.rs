@@ -136,7 +136,13 @@ impl GraphSM {
 
                 // `proof_timelock` is smaller than the `payout_timelock` so check this second for
                 // narrowing.
-                if new_block_event.block_height > *contest_block_height + proof_timelock {
+                //
+                // The owner never publishes its own timeout: it conflicts with the owner's bridge
+                // proof, which can still confirm after the timelock.
+                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
+                if !is_own_graph
+                    && new_block_event.block_height > *contest_block_height + proof_timelock
+                {
                     let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_timeout_tx = game_graph
                         .bridge_proof_timeout
