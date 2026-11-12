@@ -20,6 +20,8 @@ pub struct FireblocksConfig {
     pub asset_id: String,
     /// Public key of the default address of the vault account. It defines the P2WPKH script that
     /// the node tracks, and that script is the operator's receive and change address.
+    /// [`CheckedVault::check`](super::CheckedVault::check) rejects a key that the vault does not
+    /// hold.
     pub vault_pubkey: PublicKey,
 }
 

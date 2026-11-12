@@ -137,7 +137,7 @@ impl FireblocksSigner {
 
     /// Creates a RAW transaction over `messages`. A request with no `external_tx_id` is a new
     /// request on each call.
-    async fn create_raw_tx(
+    pub(super) async fn create_raw_tx(
         &self,
         messages: &[String],
         note: &str,
@@ -175,7 +175,7 @@ impl FireblocksSigner {
     /// Polls transaction `tx_id` until every message in `expected` has a signature. A wait that
     /// gives up cancels the transaction: the next attempt may sign other digests, and then
     /// nothing collects this result.
-    async fn await_signatures(
+    pub(super) async fn await_signatures(
         &self,
         tx_id: &str,
         expected: &[String],

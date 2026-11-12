@@ -1,5 +1,6 @@
-//! The errors of building a Fireblocks signer and of a signing request.
+//! The errors of building a Fireblocks signer, of a signing request, and of the startup check.
 
+use bdk_wallet::bitcoin::secp256k1::PublicKey;
 use thiserror::Error;
 
 use super::raw::MAX_RAW_MESSAGES;
@@ -71,4 +72,37 @@ pub enum FireblocksError {
         /// The number of inputs that the transaction spends from the vault.
         count: usize,
     },
+}
+
+impl FireblocksError {
+    /// Whether this failure says that the API is unavailable, and not that a request was wrong.
+    pub(super) const fn is_outage(&self) -> bool {
+        match self {
+            Self::Http(_) => true,
+            Self::Api { status, .. } => *status == 429 || *status >= 500,
+            _ => false,
+        }
+    }
+}
+
+/// The startup check of a [`FireblocksSigner`](super::FireblocksSigner) did not pass.
+#[derive(Debug, Error)]
+pub enum StartupCheckError {
+    /// Fireblocks reports a public key for the vault address that differs from the configured
+    /// `vault_pubkey`.
+    #[error("vault_pubkey is not the key of the vault address, which is {reported}")]
+    VaultKeyMismatch {
+        /// The key that Fireblocks reports.
+        reported: PublicKey,
+    },
+    /// The public key of the vault address could not be read.
+    #[error("reading the vault key: {0}")]
+    KeyLookup(FireblocksError),
+    /// The vault could not sign the test digest.
+    #[error("signing the test digest: {0}")]
+    Signing(FireblocksError),
+    /// The vault store could not be read. This read decides which checks run, so it comes before
+    /// the read in [`OperatorWallet::load_or_create`](crate::OperatorWallet::load_or_create).
+    #[error("reading the vault store: {0}")]
+    Store(Box<dyn std::error::Error + Send + Sync>),
 }

@@ -111,3 +111,11 @@ pub(super) struct SignatureData {
 pub(super) struct CancelTransactionResponse {
     pub success: bool,
 }
+
+/// A `GET /v1/vault/accounts/{id}/{asset}/{change}/{index}/public_key_info` response (subset).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PublicKeyInformation {
+    /// The public key of the vault address, as hex.
+    pub public_key: String,
+}
