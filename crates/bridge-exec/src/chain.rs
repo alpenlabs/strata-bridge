@@ -278,13 +278,26 @@ pub(crate) async fn tx_confirmations(
     }
 }
 
-/// Returns whether the provided transaction ID already exists on chain (confirmed or in the
-/// mempool).
+/// Returns whether `txid` is in the mempool or in a block of the active chain.
+///
+/// `txindex` keeps a transaction of a block that a reorg removed. The node then reports it with a
+/// block hash and zero confirmations, and such a transaction is not on chain.
 pub(crate) async fn is_txid_onchain(
     bitcoind_rpc_client: &BitcoinClient,
     txid: &Txid,
 ) -> Result<bool, ClientError> {
-    Ok(tx_confirmations(bitcoind_rpc_client, txid).await?.is_some())
+    debug!(%txid, "reading whether the transaction is on chain");
+    match bitcoind_rpc_client
+        .get_raw_transaction_verbosity_one(txid)
+        .await
+    {
+        Ok(tx) => Ok(tx.block_hash.is_none() || tx.confirmations.unwrap_or(0) > 0),
+        Err(e) if e.is_tx_not_found() => Ok(false),
+        Err(e) => {
+            warn!(%txid, ?e, "could not read the transaction");
+            Err(e)
+        }
+    }
 }
 
 /// Returns the mempool transaction that spends `outpoint`, if any. A spend that confirmed is
@@ -1113,6 +1126,69 @@ mod tests {
                 .await
                 .expect("duplicate lookups should remain stable"),
             "a repeated lookup gives the same answer"
+        );
+    }
+
+    /// `txindex` keeps a transaction of a block that a reorg removed. A fee bump replaces it in
+    /// the mempool, so the stale block is the only place that holds it, and it is not on chain.
+    #[tokio::test]
+    async fn is_txid_onchain_ignores_a_transaction_in_a_stale_block() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind should start");
+        let mining_address = bitcoind.client.new_address().expect("mining address");
+        bitcoind
+            .client
+            .generate_to_address(101, &mining_address)
+            .expect("coinbase outputs should mature");
+        let recipient = bitcoind.client.new_address().expect("recipient address");
+        let original = bitcoind
+            .client
+            .send_to_address(&recipient, Amount::ONE_BTC)
+            .expect("transaction should be sent")
+            .txid()
+            .expect("txid");
+        bitcoind
+            .client
+            .generate_to_address(1, &mining_address)
+            .expect("mine the original");
+
+        let stale: String = bitcoind
+            .client
+            .call("getbestblockhash", &[])
+            .expect("best block hash");
+        let _: serde_json::Value = bitcoind
+            .client
+            .call("invalidateblock", &[serde_json::Value::String(stale)])
+            .expect("invalidate the block");
+        let bumped: serde_json::Value = bitcoind
+            .client
+            .call(
+                "bumpfee",
+                &[serde_json::Value::String(original.to_string())],
+            )
+            .expect("the original is back in the mempool and bumps");
+        let replacement: Txid = bumped["txid"]
+            .as_str()
+            .expect("bumpfee reports the new txid")
+            .parse()
+            .expect("valid txid");
+        bitcoind
+            .client
+            .generate_to_address(1, &mining_address)
+            .expect("mine the replacement");
+
+        let rpc_client = setup_btc_client(&bitcoind);
+        assert!(
+            !is_txid_onchain(&rpc_client, &original)
+                .await
+                .expect("a stale entry reads"),
+            "a transaction that only a stale block holds is not on chain"
+        );
+        assert!(
+            is_txid_onchain(&rpc_client, &replacement)
+                .await
+                .expect("the replacement reads")
         );
     }
 
