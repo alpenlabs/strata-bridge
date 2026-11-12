@@ -121,17 +121,17 @@ impl GraphSM {
                 ..
             } => {
                 *last_block_height = new_block_event.block_height;
-                let payout_timelock =
-                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
                 let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
 
-                if new_block_event.block_height > *contest_block_height + payout_timelock {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
-                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
-
-                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
-                        signed_slash_tx,
-                    }]));
+                if let Some(slash_duty) = check_slash_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    graph_data.clone(),
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![slash_duty]));
                 }
 
                 // `proof_timelock` is smaller than the `payout_timelock` so check this second for
@@ -198,16 +198,16 @@ impl GraphSM {
                 ..
             } => {
                 *last_block_height = new_block_event.block_height;
-                let payout_timelock =
-                    u64::from(cfg.game_graph_params.contested_payout_timelock.value());
 
-                if new_block_event.block_height > *contest_block_height + payout_timelock {
-                    let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
-                    let signed_slash_tx = game_graph.slash.finalize(sigs.slash);
-
-                    return Ok(GSMOutput::with_duties(vec![GraphDuty::PublishSlash {
-                        signed_slash_tx,
-                    }]));
+                if let Some(slash_duty) = check_slash_timeout(
+                    &cfg,
+                    &graph_ctx,
+                    new_block_event.block_height,
+                    *contest_block_height,
+                    graph_data.clone(),
+                    signatures,
+                ) {
+                    return Ok(GSMOutput::with_duties(vec![slash_duty]));
                 }
 
                 Ok(GSMOutput::new())

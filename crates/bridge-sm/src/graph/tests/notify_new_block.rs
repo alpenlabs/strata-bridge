@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn contested_payout_timeout() {
+    fn contested_nonpov_slash() {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let contest_height = LATER_BLOCK_HEIGHT;
@@ -318,7 +318,7 @@ mod tests {
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
-            create_sm,
+            create_nonpov_sm,
             get_state,
             cfg,
             GraphTransition {
@@ -328,6 +328,33 @@ mod tests {
                 }),
                 expected_state: contested_state_with(new_height, signatures),
                 expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn contested_pov_no_slash() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: contested_state_with(contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: contested_state_with(new_height, signatures),
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );
@@ -352,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn bridge_proof_timedout_payout_timeout() {
+    fn bridge_proof_timedout_nonpov_slash() {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let contest_height = LATER_BLOCK_HEIGHT;
@@ -367,7 +394,7 @@ mod tests {
         let signed_slash_tx = game_graph.slash.finalize(slash_sigs);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
-            create_sm,
+            create_nonpov_sm,
             get_state,
             cfg,
             GraphTransition {
@@ -377,6 +404,33 @@ mod tests {
                 }),
                 expected_state: bridge_proof_timedout_state_with(new_height, signatures),
                 expected_duties: vec![GraphDuty::PublishSlash { signed_slash_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn bridge_proof_timedout_pov_no_slash() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let payout_timelock = u64::from(cfg.game_graph_params.contested_payout_timelock.value());
+        let new_height = contest_height + payout_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: bridge_proof_timedout_state_with(contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: bridge_proof_timedout_state_with(new_height, signatures),
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );
