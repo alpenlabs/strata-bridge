@@ -2,6 +2,7 @@
 
 use std::{fmt, sync::Arc};
 
+use bitcoin::{Network, ScriptBuf, XOnlyPublicKey};
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::tx_driver::TxDriver;
 use jsonrpsee::http_client::HttpClient;
@@ -69,6 +70,15 @@ pub struct OutputHandles {
 
     /// Host used to generate bridge counterproofs.
     pub counterproof_host: BridgeCounterproofHost,
+
+    /// X-only key of this operator's musig2 signer: its btc key in the operator table.
+    pub operator_musig2_pubkey: XOnlyPublicKey,
+
+    /// Bitcoin network that the node runs on.
+    pub network: Network,
+
+    /// Receive script of the general wallet.
+    pub general_script_pubkey: ScriptBuf,
 }
 
 impl fmt::Debug for OutputHandles {

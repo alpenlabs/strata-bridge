@@ -1,13 +1,20 @@
-use bitcoin::Transaction;
-use btc_tracker::event::TxStatus;
+use bitcoin::{Transaction, XOnlyPublicKey};
+use btc_tracker::cpfp::DeadlineClass;
 use musig2::secp256k1::schnorr::Signature;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
+use strata_bridge_connectors::ParentTx;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph::transactions::prelude::ContestTx;
+use strata_bridge_sm::graph::duties::MultiAnchorSpend;
+use strata_bridge_tx_graph::transactions::{
+    contested_payout::ContestedPayoutTx, counterproof_ack::CounterproofAckTx, prelude::ContestTx,
+};
 use tracing::{info, warn};
 
 use crate::{
-    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
+    chain::{self, CpfpKind, publish_signed_transaction},
+    cpfp::adapters::multi_anchor_spend_material,
+    errors::ExecutorError,
+    output_handles::OutputHandles,
 };
 
 /// Signs and publishes the contest transaction to challenge a faulty claim.
@@ -34,27 +41,55 @@ pub(super) async fn publish_contest(
             ExecutorError::SecretServiceErr(e)
         })?;
 
+    // Resolve the CPFP data before finalization. The contest tx carries a `MultiAnchor`,
+    // and the child spends the leaf keyed to this operator's watchtower slot — the same
+    // slot that signed the contest input. A key-path anchor kind cannot describe a
+    // script-path spend, so the caller supplies the leaf and control block here.
+    let cpfp =
+        match multi_anchor_spend_material(contest_tx.cpfp_connector(), watchtower_index as usize) {
+            Some((leaf_script, control_block)) => CpfpKind::MultiAnchor {
+                anchor_vout: contest_tx.cpfp_outpoint().vout,
+                leaf_script,
+                control_block,
+                parent_fee: chain::ParentFee::FromPrevouts,
+                deadline: DeadlineClass::Deadline,
+            },
+            None => {
+                warn!(
+                    watchtower_index,
+                    "no MultiAnchor leaf for this operator; publishing contest without CPFP"
+                );
+                CpfpKind::None
+            }
+        };
+
     let signed_tx = contest_tx.finalize(*n_of_n_signature, watchtower_index, watchtower_signature);
 
-    publish_signed_transaction(
-        &output_handles.tx_driver,
-        &signed_tx,
-        "contest",
-        TxStatus::is_buried,
-    )
-    .await
+    publish_signed_transaction(output_handles, &signed_tx, "contest", cpfp).await
 }
 
 /// Publishes the bridge proof timeout transaction to the Bitcoin network.
 pub(super) async fn publish_bridge_proof_timeout(
     output_handles: &OutputHandles,
     signed_timeout_tx: &Transaction,
+    cpfp_anchor: &MultiAnchorSpend,
 ) -> Result<(), ExecutorError> {
+    // The timeout carries a `MultiAnchor`, so bumping it is a script-path spend of the leaf keyed
+    // to this operator's watchtower slot. The state machine resolves that slot: it depends on which
+    // operator owns the graph, which the transaction bytes do not reveal.
+    let cpfp = CpfpKind::MultiAnchor {
+        anchor_vout: cpfp_anchor.anchor_vout,
+        leaf_script: cpfp_anchor.leaf_script.clone(),
+        control_block: cpfp_anchor.control_block.clone(),
+        parent_fee: chain::ParentFee::FromPrevouts,
+        deadline: DeadlineClass::Deadline,
+    };
+
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         signed_timeout_tx,
         "bridge proof timeout",
-        TxStatus::is_buried,
+        cpfp,
     )
     .await
 }
@@ -64,11 +99,17 @@ pub(super) async fn publish_contested_payout(
     output_handles: &OutputHandles,
     signed_contested_payout_tx: &Transaction,
 ) -> Result<(), ExecutorError> {
+    // This tx has no keyed anchor, so the child spends the contesting operator's payout. The
+    // slash path opens after `contested_payout_timelock`, so the payout races it.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         signed_contested_payout_tx,
         "contested payout",
-        TxStatus::is_buried,
+        CpfpKind::PayoutCombined {
+            payout_vout: ContestedPayoutTx::CPFP_VOUT,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::Deadline,
+        },
     )
     .await
 }
@@ -77,12 +118,23 @@ pub(super) async fn publish_contested_payout(
 pub(super) async fn publish_counterproof_ack(
     output_handles: &OutputHandles,
     signed_counter_proof_ack_tx: &Transaction,
+    anchor_key: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
+    // The counterproof-ack carries a keyed anchor at `CounterproofAckTx::CPFP_VOUT`, keyed to
+    // the watchtower that the ACK is for. The state machine builds that anchor and reports
+    // its key with the duty. This anchor is not at the dust floor: `CounterproofAckTx` folds
+    // the residual of its input connectors into it (2 × dust). The publish-time check
+    // therefore accepts each value at or above dust.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         signed_counter_proof_ack_tx,
         "counterproof ack",
-        TxStatus::is_buried,
+        CpfpKind::AnchorAt {
+            anchor_vout: CounterproofAckTx::CPFP_VOUT,
+            anchor_key,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::Deadline,
+        },
     )
     .await
 }
@@ -92,11 +144,18 @@ pub(super) async fn publish_slash(
     output_handles: &OutputHandles,
     signed_slash_tx: &Transaction,
 ) -> Result<(), ExecutorError> {
+    // Slash pays each watchtower at `vout = 1 + their_index_in_watchtowers`, at their
+    // `payout_descriptor`. `InferGeneralPayout` finds this watchtower's output by script. If the
+    // descriptor does not pay the general-wallet script, no output matches and the publish path
+    // falls back to no-CPFP.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         signed_slash_tx,
         "slash",
-        TxStatus::is_buried,
+        CpfpKind::InferGeneralPayout {
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::Deadline,
+        },
     )
     .await
 }

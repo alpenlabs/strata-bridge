@@ -9,7 +9,7 @@ use bitcoin::{
     secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
 };
-use btc_tracker::event::TxStatus;
+use btc_tracker::cpfp::DeadlineClass;
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PubNonce};
 use operator_wallet::{GeneralUtxoPolicy, LeaseOwner, LeasedPsbt, OperatorWallet, SqliteStore};
@@ -28,7 +28,7 @@ use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::pre
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::{self, publish_signed_transaction},
+    chain::{self, CpfpKind, ParentFee, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     fees::funding_fee_rate,
@@ -44,7 +44,8 @@ pub(crate) async fn publish_stake_data(
     let operator_idx = stake_key.operator;
     info!(%stake_key, "executing duty to publish stake data");
 
-    let reservation = read_or_create_stake_funding(cfg, output_handles, stake_key).await?;
+    let (reservation, parent_fee) =
+        read_or_create_stake_funding(cfg, output_handles, stake_key).await?;
 
     let stake_funding_txid = reservation.unsigned_tx.compute_txid();
     let stake_funds = OutPoint {
@@ -60,11 +61,16 @@ pub(crate) async fn publish_stake_data(
         &reservation.prevouts,
     )
     .await?;
+    // The child spends the general-wallet change output, because the reserved-wallet output at
+    // vout 0 belongs to the stake transaction. `InferGeneralPayout` finds that change output.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "stake funding tx",
-        TxStatus::is_buried,
+        CpfpKind::InferGeneralPayout {
+            parent_fee,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
 
@@ -100,11 +106,16 @@ pub(crate) async fn publish_stake_data(
     Ok(())
 }
 
+/// Returns the stake funding reservation of `stake_key`, creating one if none is stored, and the
+/// fee that its publish states.
+///
+/// A reservation that this call creates pays the next-block rate, so its fee is exact. A stored
+/// one was priced by an earlier duty, and its publish reads the fee from the prevouts.
 async fn read_or_create_stake_funding(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     stake_key: StakeKey,
-) -> Result<StakeFundingReservation, ExecutorError> {
+) -> Result<(StakeFundingReservation, ParentFee), ExecutorError> {
     let operator_idx = stake_key.operator;
     let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
     // Read before the wallet guard, because this can wait for the source for up to
@@ -143,7 +154,7 @@ async fn read_or_create_stake_funding(
         // value to drop. Startup rehydration holds the same outpoints. This call covers the case
         // where the row was written after startup read the funds.
         wallet.lease_committed(inputs, LeaseOwner::StakeFunding);
-        return Ok(reservation);
+        return Ok((reservation, ParentFee::FromPrevouts));
     }
 
     info!(%operator_idx, "no persisted stake funding reservation; creating a new funding tx");
@@ -165,7 +176,8 @@ async fn read_or_create_stake_funding(
     match assignment {
         Ok(FundingAssignment::Created(reservation)) => {
             candidate_lease.commit();
-            Ok(reservation)
+            let parent_fee = created_reservation_fee(&reservation);
+            Ok((reservation, parent_fee))
         }
         Ok(FundingAssignment::Existing(reservation)) => {
             info!(%operator_idx, "using existing stake funding reservation saved by another duty");
@@ -183,10 +195,16 @@ async fn read_or_create_stake_funding(
                 .map(|txin| txin.previous_output)
                 .collect();
             wallet.lease_committed(assigned_inputs, LeaseOwner::StakeFunding);
-            Ok(reservation)
+            Ok((reservation, ParentFee::FromPrevouts))
         }
         Err(err) => Err(err.into()),
     }
+}
+
+/// The fee of a reservation that was funded at the next-block rate just now.
+fn created_reservation_fee(reservation: &StakeFundingReservation) -> ParentFee {
+    chain::exact_fee_from_prevouts(&reservation.prevouts, &reservation.unsigned_tx)
+        .map_or(ParentFee::FromPrevouts, ParentFee::Exact)
 }
 
 /// Funds one reserved-wallet output of `funding_amount` from confirmed general-wallet outputs.
@@ -361,6 +379,7 @@ pub(crate) async fn publish_stake(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     tx: &Transaction,
+    anchor_key: XOnlyPublicKey,
 ) -> Result<(), ExecutorError> {
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
@@ -400,10 +419,15 @@ pub(crate) async fn publish_stake(
 
     info!(%stake_txid, "publishing signed stake transaction");
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "stake tx",
-        TxStatus::is_buried,
+        CpfpKind::AnchorAt {
+            anchor_vout: StakeTx::CPFP_VOUT,
+            anchor_key,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
     info!(%stake_txid, "stake transaction confirmed on-chain");
@@ -438,16 +462,46 @@ mod tests {
 
     use bdk_bitcoind_rpc::bitcoincore_rpc::{Auth, Client as CoreRpcClient};
     use bitcoin::{
-        Address, Amount, FeeRate, Network,
+        Address, Amount, FeeRate, Network, ScriptBuf, Transaction, TxIn, TxOut, absolute,
         secp256k1::{Keypair, SECP256K1},
+        transaction::Version,
     };
     use corepc_node::{Conf, Node};
     use operator_wallet::{
         GeneralCustody, OperatorWallet, OperatorWalletConfig, SqliteStore, WalletKind,
         sync::Backend,
     };
+    use strata_bridge_db::types::StakeFundingReservation;
 
-    use super::select_stake_funding;
+    use super::{created_reservation_fee, select_stake_funding};
+    use crate::chain::ParentFee;
+
+    /// A reservation funded just now states its exact fee, so its first bump waits for a trigger.
+    #[test]
+    fn a_created_reservation_states_its_exact_fee() {
+        let output = |sats| TxOut {
+            value: Amount::from_sat(sats),
+            script_pubkey: ScriptBuf::new(),
+        };
+        let reservation = StakeFundingReservation {
+            unsigned_tx: Transaction {
+                version: Version(3),
+                lock_time: absolute::LockTime::ZERO,
+                input: vec![TxIn::default()],
+                output: vec![output(9_000)],
+            },
+            prevouts: vec![output(10_000)],
+            stake_output_vout: 0,
+        };
+
+        assert!(
+            matches!(
+                created_reservation_fee(&reservation),
+                ParentFee::Exact(fee) if fee == Amount::from_sat(1_000)
+            ),
+            "the fee is the prevouts minus the outputs"
+        );
+    }
 
     /// Stake funding is v3, so a zero-confirmation general output must not fund it.
     #[tokio::test]

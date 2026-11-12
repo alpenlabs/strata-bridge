@@ -4,7 +4,11 @@
 //! positions of the graph's other members in operator-index order. Indices can have gaps once
 //! members leave, so slots are resolved through the graph's own operator table.
 
+use bitcoin::taproot::LeafVersion;
+use strata_bridge_connectors::{Connector, ParentTx, prelude::MultiAnchor};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
+
+use crate::graph::duties::MultiAnchorSpend;
 
 /// Maps a zero-based watchtower slot to the member of `operator_table` that occupies it,
 /// excluding the graph owner. Returns `None` for slots beyond the graph's watchtowers.
@@ -41,13 +45,46 @@ fn watchtower_idxs<Pov>(
         .filter(move |&idx| idx != graph_owner_idx)
 }
 
+/// Resolves the [`MultiAnchorSpend`] this operator may use to bump `tx`.
+///
+/// Returns `None` when the point-of-view operator owns the graph or sits outside its
+/// `operator_table`: an operator is never a watchtower of its own graph, so it holds no leaf.
+pub(crate) fn multi_anchor_spend_for_pov<T, Pov>(
+    tx: &T,
+    operator_table: &OperatorTable<Pov>,
+    graph_owner_idx: OperatorIdx,
+    pov_idx: OperatorIdx,
+) -> Option<MultiAnchorSpend>
+where
+    T: ParentTx<CpfpConnector = MultiAnchor>,
+{
+    let leaf_index = watchtower_slot_for_operator(operator_table, graph_owner_idx, pov_idx)?;
+    let anchor = tx.cpfp_connector();
+    let leaf_script = anchor.leaf_scripts().into_iter().nth(leaf_index)?;
+    let control_block = anchor
+        .spend_info()
+        .control_block(&(leaf_script.clone(), LeafVersion::TapScript))?;
+
+    Some(MultiAnchorSpend {
+        anchor_vout: tx.cpfp_outpoint().vout,
+        leaf_script,
+        control_block,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use bitcoin::secp256k1::{PublicKey, SECP256K1, SecretKey};
+    use bitcoin::{
+        Address, Amount, FeeRate, Network, OutPoint, XOnlyPublicKey,
+        secp256k1::{PublicKey, SECP256K1, SecretKey},
+    };
+    use bitcoin_bosd::Descriptor;
     use proptest::{prelude::*, proptest};
+    use strata_bridge_connectors::prelude::NOfNConnector;
     use strata_bridge_primitives::{operator_table::PublicOperatorTable, types::P2POperatorPubKey};
+    use strata_bridge_tx_graph::transactions::prelude::{SweepData, SweepTx};
 
     use super::*;
     use crate::graph::tests::test_graph_sm_ctx;
@@ -137,6 +174,64 @@ mod tests {
                 "slot {slot} must address the watchtower key at the same position"
             );
         }
+    }
+
+    /// Operator indices can have gaps, so a leaf is addressed by the slot and never by the index.
+    #[test]
+    fn a_gapped_table_resolves_the_leaf_of_the_watchtower_slot() {
+        let owner = 5;
+        let mut ctx = test_graph_sm_ctx();
+        ctx.operator_table = table_with_idxs(&BTreeSet::from([0, 2, 5, 9]))
+            .with_pov(2)
+            .expect("local operator is a member");
+        ctx.graph_idx.operator = owner;
+        let watchtower_keys = ctx.watchtower_pubkeys();
+        let parent = parent_with_anchor_keys(watchtower_keys.clone());
+
+        for (slot, operator) in [0, 2, 9].into_iter().enumerate() {
+            let spend = multi_anchor_spend_for_pov(&parent, ctx.operator_table(), owner, operator)
+                .expect("a watchtower holds a leaf");
+
+            assert_eq!(
+                spend.leaf_script,
+                parent.cpfp_connector().leaf_scripts()[slot],
+                "operator {operator} must resolve the leaf at slot {slot}"
+            );
+            assert!(
+                spend
+                    .leaf_script
+                    .as_bytes()
+                    .windows(32)
+                    .any(|window| window == watchtower_keys[slot].serialize()),
+                "the leaf at slot {slot} must name the key of operator {operator}"
+            );
+        }
+
+        assert!(
+            multi_anchor_spend_for_pov(&parent, ctx.operator_table(), owner, 1).is_none(),
+            "a gap in the table holds no leaf"
+        );
+        assert!(
+            multi_anchor_spend_for_pov(&parent, ctx.operator_table(), owner, owner).is_none(),
+            "the owner holds no leaf"
+        );
+    }
+
+    /// A transaction whose `MultiAnchor` holds one leaf per key of `anchor_keys`, in order. Any
+    /// `ParentTx<CpfpConnector = MultiAnchor>` serves; the sweep is the one with the fewest inputs
+    /// to construct, and nothing here depends on what it sweeps.
+    fn parent_with_anchor_keys(anchor_keys: Vec<XOnlyPublicKey>) -> SweepTx {
+        let n_of_n_key = anchor_keys[0];
+        let safe_harbour = Address::p2tr(SECP256K1, n_of_n_key, None, Network::Regtest);
+        SweepTx::new(
+            SweepData {
+                deposit_outpoint: OutPoint::null(),
+            },
+            NOfNConnector::new(Network::Regtest, n_of_n_key, Amount::from_sat(10_000_000)),
+            Descriptor::try_from(safe_harbour).expect("standard address"),
+            anchor_keys,
+            FeeRate::from_sat_per_vb(2).expect("valid rate"),
+        )
     }
 
     fn table_and_owner() -> impl Strategy<Value = (BTreeSet<OperatorIdx>, OperatorIdx)> {
