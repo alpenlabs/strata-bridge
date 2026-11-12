@@ -10,7 +10,9 @@ use btc_tracker::event::{BlockEvent, BlockStatus};
 use futures::{FutureExt, Stream, StreamExt, future::ready};
 use operator_wallet::{
     BlockId, DEFAULT_PERSIST_EVERY_BLOCKS, GeneralCustody, OperatorWallet, OperatorWalletConfig,
-    SqliteStore, WalletKind, sync::Backend,
+    SqliteStore, WalletKind,
+    general::fireblocks::{CheckedVault, FireblocksConfig, FireblocksSigner},
+    sync::Backend,
 };
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
@@ -71,11 +73,41 @@ pub(in crate::mode) async fn init_operator_wallet(
     };
     let reserved_store = open_store(WalletKind::Reserved)?;
 
-    let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    info!(%general_key, "operator wallet general key");
-    let custody = GeneralCustody::SecretService {
-        general_key,
-        store: open_store(WalletKind::General)?,
+    let custody = match &config.operator_wallet.fireblocks {
+        None => {
+            let general_key = s2_client.general_wallet_signer().pubkey().await?;
+            info!(%general_key, "operator wallet general key (secret-service custody)");
+            GeneralCustody::SecretService {
+                general_key,
+                store: open_store(WalletKind::General)?,
+            }
+        }
+        Some(fb) => {
+            info!(
+                vault = %fb.vault_account_id,
+                asset = %fb.asset_id,
+                "operator wallet general custody: fireblocks"
+            );
+            let api_secret = std::fs::read(&fb.api_secret_path).map_err(|e| {
+                anyhow!(
+                    "failed to read Fireblocks API secret at {:?}: {e}",
+                    fb.api_secret_path
+                )
+            })?;
+            let fb_config = FireblocksConfig {
+                base_url: fb.base_url.clone(),
+                api_key: fb.api_key.clone(),
+                vault_account_id: fb.vault_account_id.clone(),
+                asset_id: fb.asset_id.clone(),
+                vault_pubkey: fb.vault_pubkey,
+            };
+            let signer = FireblocksSigner::new(fb_config, &api_secret)
+                .map_err(|e| anyhow!("failed to initialize Fireblocks signer: {e}"))?;
+            let vault = CheckedVault::check(signer, open_store(WalletKind::Vault)?)
+                .await
+                .map_err(|e| anyhow!("Fireblocks startup check failed: {e}"))?;
+            GeneralCustody::Fireblocks(vault)
+        }
     };
 
     let wallet = OperatorWallet::load_or_create(
