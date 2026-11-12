@@ -179,6 +179,36 @@ mod tests {
     }
 
     #[test]
+    fn test_new_block_claimed_timeout_nonpov_no_payout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let fulfillment_txid = generate_txid();
+        let new_height = CLAIM_BLOCK_HEIGHT + CONTEST_TIMELOCK_BLOCKS + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_nonpov_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: claimed_state(
+                    INITIAL_BLOCK_HEIGHT,
+                    fulfillment_txid,
+                    signatures.clone(),
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: claimed_state(new_height, fulfillment_txid, signatures),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
     fn test_new_block_claimed_already_processed() {
         let fulfillment_txid = generate_txid();
 

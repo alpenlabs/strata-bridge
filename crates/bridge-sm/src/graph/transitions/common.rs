@@ -96,8 +96,9 @@ impl GraphSM {
                 *last_block_height = new_block_event.block_height;
 
                 let contest_timeout = u64::from(cfg.game_graph_params.contest_timelock.value());
+                let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
 
-                if new_block_event.block_height > claim_height + contest_timeout {
+                if is_own_graph && new_block_event.block_height > claim_height + contest_timeout {
                     let (game_graph, sigs) = unpack_game(&cfg, &graph_ctx, graph_data, signatures);
                     let signed_uncontested_payout_tx = game_graph
                         .uncontested_payout
