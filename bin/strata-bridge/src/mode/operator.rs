@@ -85,6 +85,9 @@ pub(crate) async fn bootstrap(
     debug!("initializing bitcoin client");
     let btc_rpc_client = init_btc_rpc_client(&config)?;
     verify_btc_network(&btc_rpc_client, params.network).await?;
+    if !config.dev {
+        startup_checks::verify_bitcoin_node(&btc_rpc_client).await?;
+    }
     let cur_height = btc_rpc_client.get_block_count().await?;
     info!(%cur_height, network = %params.network, "bitcoin client initialized and synced");
     health_registry.mark_ok(COMPONENT_BITCOIN_RPC, "network_and_block_count_verified");
