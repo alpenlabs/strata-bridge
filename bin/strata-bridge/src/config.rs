@@ -16,10 +16,27 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 pub(crate) use strata_bridge_counterproof::ProofBackendConfig as CounterproofBackendConfig;
 use strata_bridge_db::fdb::cfg::Config as FdbConfig;
-use strata_bridge_exec::fees::FeeSourceConfig;
+use strata_bridge_exec::fees::{FeeSourceConfig, QUOTE_TTL};
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 use strata_bridge_primitives::types::OperatorIdx;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
+
+/// Default cadence for the CPFP bump-check timer — see [`Config::cpfp_bump_check_interval`]. The
+/// default must exceed [`QUOTE_TTL`], so that each tick of an idle node reads a new quote.
+const fn default_cpfp_bump_check_interval() -> Duration {
+    Duration::from_secs(30)
+}
+const _: () = assert!(default_cpfp_bump_check_interval().as_secs() > QUOTE_TTL.as_secs());
+
+/// Default CPFP fee premium (percent) — see [`Config::cpfp_fee_premium_percent`].
+const fn default_cpfp_fee_premium_percent() -> u32 {
+    5
+}
+
+/// Default CPFP package fee floor (sats/vbyte) — see [`Config::cpfp_min_package_fee_rate`].
+const fn default_cpfp_min_package_fee_rate() -> u64 {
+    10
+}
 
 /// Configuration values that dictate the behavior of the bridge node.
 ///
@@ -67,7 +84,8 @@ pub(crate) struct Config {
     pub cooperative_payout_timeout: u16,
 
     /// The maximum fee rate for any transaction (in sats/vb). A wallet-funded duty refuses a
-    /// market rate above it. The startup checks warn on a cap below a fixed `fee_source` rate.
+    /// market rate above it, and a CPFP bump clamps its target to it. The startup checks warn
+    /// on a cap below a fixed `fee_source` rate.
     pub max_fee_rate: u64,
 
     /// Upper bound on the deposits this node takes part in at once: every deposit holding funds
@@ -81,6 +99,26 @@ pub(crate) struct Config {
     /// request skipped here and admitted elsewhere never completes, and it holds one of the
     /// admitting operators' slots until the depositor reclaims it.
     pub max_active_deposits: Option<u32>,
+
+    /// Premium applied on top of the next-block fee estimate when pricing a CPFP bump target,
+    /// as a percentage of the estimate (e.g. `5` = +5%). Rounded up, so the premium raises
+    /// the target and never lowers it. `0` prices the child at the raw estimate. Default 5.
+    #[serde(default = "default_cpfp_fee_premium_percent")]
+    pub cpfp_fee_premium_percent: u32,
+
+    /// Floor (in sats/vb) on the package fee rate the CPFP ladder targets. The child pays
+    /// the package shortfall, so the package always lands at or above this value.
+    /// Default 10. The cap wins over a floor above it; the startup checks warn on that.
+    #[serde(default = "default_cpfp_min_package_fee_rate")]
+    pub cpfp_min_package_fee_rate: u64,
+
+    /// Cadence at which the CPFP bump loop reads the fee rate and attempts an RBF bump of any
+    /// active CPFP parent whose current package rate is below the new target. Defaults to 30
+    /// seconds. Set higher to reduce wallet-lock contention. A configured value below
+    /// [`QUOTE_TTL`] gains nothing, because a tick inside the TTL sees the same rate. Must not be
+    /// zero: the startup checks reject it.
+    #[serde(default = "default_cpfp_bump_check_interval")]
+    pub cpfp_bump_check_interval: Duration,
 
     /// Source of fee-rate estimates for bridge transactions. Defaults to Bitcoin Core, whose
     /// `estimatesmartfee(1)` is a lagging two-block economical estimate. Operators on networks
@@ -369,7 +407,7 @@ pub(crate) struct RpcConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OperatorWalletConfig {
     /// The size of the claim funding pool, i.e., the number of UTXOs to generate for funding claim
-    /// transactions when they run out.
+    /// transactions when they run out. One v3 refill transaction creates the whole pool.
     pub claim_funding_pool_size: usize,
 
     /// Directory holding the persisted chain state of the general and reserved wallets, one SQLite
