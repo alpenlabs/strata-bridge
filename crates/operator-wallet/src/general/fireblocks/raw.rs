@@ -35,14 +35,7 @@ impl FireblocksSigner {
     /// distinct, because the response binds a signature to its message by content alone.
     ///
     /// `note` goes to the vendor audit log, which otherwise sees only digests.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "used by the commit that signs vault inputs through Fireblocks"
-        )
-    )]
-    async fn raw_sign(
+    pub(super) async fn raw_sign(
         &self,
         sighashes: &[[u8; 32]],
         note: &str,
@@ -59,6 +52,17 @@ impl FireblocksSigner {
             .find_or_create(&external_tx_digest(sighashes), &expected, note, deadline)
             .await?;
         self.await_signatures(&tx_id, &expected, deadline).await
+    }
+
+    /// Moves the request of `sighashes` to its next generation, so that the next attempt creates a
+    /// fresh request instead of finding this one again.
+    pub(super) fn retire_request(&self, sighashes: &[[u8; 32]]) {
+        let digest = external_tx_digest(sighashes);
+        let mut generations = self
+            .generations
+            .lock()
+            .expect("no panic holds the generation map");
+        *generations.entry(digest).or_insert(0) += 1;
     }
 
     /// Returns the id of the live request of this sighash set, and creates one if none exists.

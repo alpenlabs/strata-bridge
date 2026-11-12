@@ -68,6 +68,7 @@ mod config;
 mod dto;
 mod errors;
 mod raw;
+mod sign;
 #[cfg(test)]
 mod test_utils;
 

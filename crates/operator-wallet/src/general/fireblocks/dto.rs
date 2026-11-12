@@ -86,13 +86,24 @@ pub(super) struct TransactionDetails {
     pub signed_messages: Vec<SignedMessage>,
 }
 
-/// One signed message, identified by its echoed content.
+/// One signed message: the echoed content, the signing public key, and the signature.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct SignedMessage {
     /// The signed message echoed back — the hex sighash we submitted. Used to match each
     /// signature to the input that requested it (rather than trusting positional order).
     pub content: String,
+    /// Compressed public key (hex) the message was signed with.
+    pub public_key: String,
+    pub signature: SignatureData,
+}
+
+/// The ECDSA signature returned for a signed message.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SignatureData {
+    /// `r || s`, 64 bytes hex.
+    pub full_sig: String,
 }
 
 /// Response of `POST /v1/transactions/{id}/cancel`.
