@@ -106,9 +106,12 @@ pub(crate) async fn bootstrap(
     health_registry.mark_ok(COMPONENT_S2, "operator_table_loaded");
 
     debug!("initializing operator wallet");
-    let operator_wallet = Arc::new(RwLock::new(
-        init_operator_wallet(&config, &params, &s2_client, &db, &btc_rpc_client).await?,
-    ));
+    let operator_wallet =
+        init_operator_wallet(&config, &params, &s2_client, &db, &btc_rpc_client).await?;
+    if !config.dev {
+        startup_checks::verify_wallet(&params, &s2_client, pov_idx, &operator_wallet).await?;
+    }
+    let operator_wallet = Arc::new(RwLock::new(operator_wallet));
     info!("operator wallet initialized");
     health_registry.mark_ok(COMPONENT_WALLET, "wallet_initialized");
 
@@ -116,7 +119,7 @@ pub(crate) async fn bootstrap(
     let sync_wallet = operator_wallet.clone();
     // Sync the wallet on a best-effort basis in the background.
     // This is just to speed up syncing when we actually need to use the funds.
-    tokio::spawn(async move { spawn_initial_operator_wallet_sync(sync_wallet).await });
+    tokio::spawn(spawn_initial_operator_wallet_sync(sync_wallet));
     info!("initial operator wallet sync task spawned");
 
     debug!("initializing p2p client");

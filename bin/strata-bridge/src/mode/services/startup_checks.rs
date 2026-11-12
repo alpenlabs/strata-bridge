@@ -6,13 +6,16 @@ use std::fmt::Debug;
 
 use algebra::retry::{Strategy, retry_with};
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use bitcoin::{Amount, FeeRate};
+use bitcoin::{Address, Amount, FeeRate, Script, secp256k1::SECP256K1};
+use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
 use jsonrpsee::http_client::HttpClient;
 use mosaic_rpc_api::MosaicRpcClient;
 use mosaic_rpc_types::RpcCircuitInfoEntry;
-use operator_wallet::REPLACEMENT_INCREMENT_SAT_PER_VB;
+use operator_wallet::{OperatorWallet, REPLACEMENT_INCREMENT_SAT_PER_VB, SqliteStore};
 use secp256k1::XOnlyPublicKey;
+use secret_service_client::SecretServiceClient;
+use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use serde::Deserialize;
 use strata_asm_params::AsmParams;
 use strata_asm_rpc::traits::AsmControlApiClient;
@@ -60,6 +63,69 @@ struct NodeIndexInfo {
 #[derive(Debug, Deserialize)]
 struct NodeIndexStatus {
     synced: bool,
+}
+
+/// Returns the recovery note of a covenant payout descriptor that pays another script than the
+/// wallet's own, or `None` when both pay the same script. The note names the secret-service general
+/// key only when the covenant descriptor is the tap-tweaked P2TR of that key.
+fn check_payout_descriptor(
+    covenant: &Descriptor,
+    wallet: &Descriptor,
+    general_key_script: &Script,
+) -> Option<&'static str> {
+    let covenant_script = covenant.to_script();
+    if covenant_script == wallet.to_script() {
+        return None;
+    }
+    Some(if covenant_script == *general_key_script {
+        "those outputs stay recoverable through the secret-service general key"
+    } else {
+        "those outputs are spendable only with the key behind the params descriptor"
+    })
+}
+
+/// Checks the loaded wallet against params.
+///
+/// A covenant payout descriptor that differs from the wallet's own only warns. An operator may
+/// register any descriptor it controls; this node then neither tracks nor bumps the presigned-graph
+/// payouts to it, and the operator bumps them out of band.
+pub(in crate::mode) async fn verify_wallet(
+    params: &Params,
+    s2_client: &SecretServiceClient,
+    pov_idx: OperatorIdx,
+    wallet: &OperatorWallet<SqliteStore>,
+) -> Result<()> {
+    let general_pubkey = s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await
+        .map_err(|e| anyhow!("failed to fetch operator general wallet pubkey from s2: {e:?}"))?;
+    let own_covenant = params
+        .keys
+        .operators
+        .get(pov_idx)
+        .ok_or_else(|| anyhow!("operator {pov_idx:?} is not in the operator table"))?;
+
+    let wallet_descriptor = wallet
+        .descriptor()
+        .map_err(|e| anyhow!("the general wallet script is not a payout descriptor: {e}"))?;
+    let general_key_script =
+        Address::p2tr(SECP256K1, general_pubkey, None, params.network).script_pubkey();
+    let recovery = check_payout_descriptor(
+        own_covenant.payout_descriptor(),
+        &wallet_descriptor,
+        &general_key_script,
+    );
+    if let Some(recovery) = recovery {
+        warn!(
+            covenant_descriptor = %own_covenant.payout_descriptor(),
+            %wallet_descriptor,
+            "the covenant payout descriptor pays another script than the general wallet; this node \
+             cannot bump presigned-graph payouts, nor broadcast one that needs a child to relay; \
+             {recovery}"
+        );
+    }
+    Ok(())
 }
 
 /// Checks the connected node against what the bridge's transactions depend on.
@@ -370,6 +436,7 @@ fn ensure_eq<T: PartialEq + Debug>(label: &str, bridge_value: T, peer_value: T) 
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::ScriptBuf;
     use mosaic_rpc_types::{RpcByte32, RpcCircuitInfo};
     use strata_asm_params::{BridgeInitConfig, SubprotocolInstance};
     use strata_bridge_common::params::TimelockOrderingError;
@@ -468,6 +535,63 @@ mod tests {
         assert!(
             unindexed.txindex.is_none(),
             "Core lists no txindex when the index is off"
+        );
+    }
+
+    fn p2tr_descriptor(byte: u8) -> Descriptor {
+        Descriptor::new_p2tr(&[byte; 32]).expect("valid x-only payload")
+    }
+
+    fn p2wpkh_descriptor(byte: u8) -> Descriptor {
+        Descriptor::new_p2wpkh(&[byte; 20])
+    }
+
+    #[test]
+    fn a_matching_payout_descriptor_passes() {
+        let descriptor = p2tr_descriptor(1);
+        assert_eq!(
+            check_payout_descriptor(&descriptor, &descriptor, &ScriptBuf::new()),
+            None,
+            "a wallet that pays the covenant descriptor needs no note"
+        );
+    }
+
+    #[test]
+    fn a_payout_descriptor_mismatch_warns_and_does_not_abort() {
+        let same_type =
+            check_payout_descriptor(&p2tr_descriptor(1), &p2tr_descriptor(2), &ScriptBuf::new());
+        assert!(
+            same_type.is_some(),
+            "a covenant descriptor of another key of the same type is the operator's choice"
+        );
+
+        let cross_type = check_payout_descriptor(
+            &p2tr_descriptor(1),
+            &p2wpkh_descriptor(2),
+            &ScriptBuf::new(),
+        );
+        assert!(
+            cross_type.is_some(),
+            "a covenant descriptor of another type is the operator's choice"
+        );
+    }
+
+    #[test]
+    fn a_mismatch_names_the_general_key_only_when_it_can_recover() {
+        let covenant = p2tr_descriptor(1);
+        let wallet = p2wpkh_descriptor(2);
+        let recoverable = check_payout_descriptor(&covenant, &wallet, &covenant.to_script())
+            .expect("a mismatch carries a note");
+        assert!(
+            recoverable.contains("secret-service general key"),
+            "the general key recovers a covenant descriptor that is its tap-tweaked P2TR: {recoverable}"
+        );
+
+        let other_key = check_payout_descriptor(&covenant, &wallet, &ScriptBuf::new())
+            .expect("a mismatch carries a note");
+        assert!(
+            !other_key.contains("secret-service general key"),
+            "another key recovers any other covenant descriptor: {other_key}"
         );
     }
 
