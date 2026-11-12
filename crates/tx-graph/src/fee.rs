@@ -1,12 +1,12 @@
 //! Hardcoded fees for presigned transactions.
 //!
-//! Until CPFP is implemented, every presigned transaction must pay its own fee.
-//! Setting [`FEE_RATE_SAT_PER_VB`] to `0` disables fees entirely (matches the original
-//! zero-fee behaviour) without removing any code.
+//! A presigned transaction with a CPFP path pays [`FEE_RATE_SAT_PER_VB`], which may not meet the
+//! market fee rate; a CPFP child lifts its package to the market. The deposit has no CPFP path and
+//! pays [`DEPOSIT_FEE_RATE_SAT_PER_VB`] from the deposit request.
 //!
 //! Vsizes are closed-form functions of the two graph parameters (`n_watchtowers` and
 //! `n_data`). Numbers are pinned by `tests::pin_*` unit tests that build the actual finalized
-//! transactions and assert that `vsize × FEE_RATE_SAT_PER_VB == fee`.
+//! transactions and assert that `vsize × rate == fee`.
 //!
 //! Each fee corresponds to a specific presigned transaction; see the comments below for
 //! which transaction each constant belongs to.
@@ -33,15 +33,11 @@ use strata_bridge_connectors::{
     Connector,
 };
 
-/// Fee rate (sat/vb) that every presigned transaction pays.
-///
-/// Set to `0` to disable fees entirely — every helper in this module then returns
-/// `Amount::ZERO`, every connector surcharge collapses to zero, and every per-tx
-/// `value_in - value_out` becomes zero again, matching the original behaviour.
-///
-/// Set back to `2` (or any positive value) to re-enable fees once CPFP needs them
-/// disabled again.
-pub(crate) const FEE_RATE_SAT_PER_VB: u64 = 2;
+/// Fee rate (sat/vb) that every presigned transaction with a CPFP path pays.
+pub(crate) const FEE_RATE_SAT_PER_VB: u64 = 0;
+
+/// Fee rate (sat/vb) of the deposit transaction, which has no CPFP path.
+pub(crate) const DEPOSIT_FEE_RATE_SAT_PER_VB: u64 = 2;
 
 /// [`FEE_RATE_SAT_PER_VB`] as a [`FeeRate`].
 pub const FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(FEE_RATE_SAT_PER_VB);
@@ -63,9 +59,8 @@ static PLACEHOLDER_P2TR_SCRIPT_PUBKEY: LazyLock<ScriptBuf> = LazyLock::new(|| {
 
 /// Value to put on every cpfp anchor output (`KeyedAnchor`/`MultiAnchor`).
 ///
-/// When [`FEE_RATE_SAT_PER_VB`] is `0`, returns `Amount::ZERO` — anchors stay at zero, matching
-/// the original zero-fee TRUC behaviour where bitcoin core's relay policy permits dust outputs
-/// only when the parent pays no fee.
+/// When [`FEE_RATE_SAT_PER_VB`] is `0`, returns `Amount::ZERO`: bitcoin core's relay policy
+/// permits a dust output only on a parent that pays no fee and whose child spends it.
 ///
 /// When [`FEE_RATE_SAT_PER_VB`] is non-zero, returns rust-bitcoin's `Script::minimal_non_dust`
 /// for a P2TR script_pubkey, the smallest amount bitcoin core's relay policy accepts on a tx
@@ -356,7 +351,7 @@ pub(crate) const fn unstaking_fee() -> Amount {
 
 /// Fee for [`crate::transactions::deposit::DepositTx`].
 pub(crate) const fn deposit_fee() -> Amount {
-    fee_for_vsize(DEPOSIT_VSIZE)
+    Amount::from_sat(DEPOSIT_VSIZE.saturating_mul(DEPOSIT_FEE_RATE_SAT_PER_VB))
 }
 
 /// Fee for [`crate::transactions::cooperative_payout::CooperativePayoutTx`].
