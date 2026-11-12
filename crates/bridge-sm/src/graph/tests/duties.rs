@@ -19,6 +19,7 @@ mod tests {
             dummy_proof_receipt, test_completed_signatures, test_deposit_outpoint, test_graph_data,
             test_graph_sm_cfg, test_graph_sm_ctx, test_operator_table, test_stake_outpoint,
         },
+        watchtower::multi_anchor_spend_for_pov,
     };
 
     /// Pins the safe-harbour suppression classification of every graph duty.
@@ -132,6 +133,13 @@ mod tests {
             (
                 GraphDuty::PublishBridgeProofTimeout {
                     signed_timeout_tx: TestGraphTxKind::BridgeProofTimeout.into(),
+                    cpfp_anchor: multi_anchor_spend_for_pov(
+                        &game_graph.bridge_proof_timeout,
+                        ctx.operator_table(),
+                        ctx.operator_idx(),
+                        TEST_NONPOV_IDX,
+                    )
+                    .expect("a watchtower holds a leaf on the timeout's anchor"),
                 },
                 false,
             ),
@@ -151,6 +159,7 @@ mod tests {
             (
                 GraphDuty::PublishCounterProofAck {
                     signed_counter_proof_ack_tx: TestGraphTxKind::CounterproofAck.into(),
+                    anchor_key: strata_bridge_test_utils::bitcoin::generate_xonly_pubkey(),
                 },
                 false,
             ),

@@ -4,7 +4,6 @@ use std::num::NonZero;
 
 use bitcoin::XOnlyPublicKey;
 use bitcoind_async_client::traits::Reader;
-use btc_tracker::event::TxStatus;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use ssz::Decode;
 use strata_asm_proto_bridge::OperatorClaimUnlockV1;
@@ -23,7 +22,9 @@ use tracing::{info, warn};
 use zkaleido::ZkVmError;
 
 use crate::{
-    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
+    chain::{CpfpKind, publish_signed_transaction},
+    errors::ExecutorError,
+    output_handles::OutputHandles,
 };
 
 /// Generates the bridge proof anchored at the given block height and publishes
@@ -90,13 +91,7 @@ pub(super) async fn generate_and_publish_bridge_proof(
 
     let signed_tx = bridge_proof_tx.finalize_partial(signature);
 
-    publish_signed_transaction(
-        &output_handles.tx_driver,
-        &signed_tx,
-        "bridge proof",
-        TxStatus::is_buried,
-    )
-    .await
+    publish_signed_transaction(output_handles, &signed_tx, "bridge proof", CpfpKind::None).await
 }
 
 /// Fetches the prover inputs anchored at the given Bitcoin block height and

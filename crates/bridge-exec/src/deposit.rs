@@ -11,11 +11,11 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
-use btc_tracker::event::TxStatus;
+use btc_tracker::cpfp::DeadlineClass;
 use musig2::{AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures};
 use operator_wallet::{GeneralUtxoPolicy, LeaseOwner};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SecretService};
-use strata_bridge_connectors::SigningInfo;
+use strata_bridge_connectors::{ParentTx, SigningInfo};
 use strata_bridge_db::{traits::BridgeDb, types::FundingAssignment};
 use strata_bridge_p2p_types::{NagRequest, NagRequestPayload, PayoutDescriptor};
 use strata_bridge_primitives::{
@@ -30,8 +30,9 @@ use strata_bridge_tx_graph::transactions::prelude::{
 use tracing::{error, info, warn};
 
 use crate::{
-    chain::{self, is_txid_onchain, publish_signed_transaction},
+    chain::{self, CpfpKind, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
+    cpfp::adapters::multi_anchor_spend_material,
     errors::ExecutorError,
     fees::funding_fee_rate,
     output_handles::OutputHandles,
@@ -450,11 +451,15 @@ async fn publish_deposit(
     let drt_txid = signed_deposit_transaction.input[0].previous_output.txid;
     info!(%txid, %drt_txid, "publishing deposit transaction");
 
+    // The deposit tx has no operator-owned output: the SPS-50 header output is value-zero
+    // OP_RETURN and the deposit connector is n_of_n. It also has no keyed anchor — fee is
+    // baked into the DRT surcharge (`DepositTx::drt_required`). CPFP isn't possible here;
+    // if it gets evicted, the eviction arm re-broadcasts the bare tx at its baked-in rate.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_deposit_transaction,
         "deposit",
-        TxStatus::is_buried,
+        CpfpKind::None,
     )
     .await
 }
@@ -640,11 +645,26 @@ async fn fulfill_withdrawal(
     };
 
     info!(%deposit_idx, %txid, "submitting withdrawal fulfillment transaction");
+    // wft is wallet-funded: the caller chose the rate, not the protocol floor. `Psbt::fee()` gives
+    // the exact value (`witness_utxo` is populated on every input, so the difference
+    // sum_inputs − sum_outputs resolves cleanly).
+    let wft_fee = wft_psbt
+        .fee()
+        .map_err(|e| ExecutorError::WalletErr(format!("wft psbt fee: {e:?}")))?;
+    // The wallet adds a change output to the operator's general wallet at
+    // `WithdrawalFulfillmentTx::OPTIONAL_CHANGE_VOUT = 2`. A fresh selection always leaves one. A
+    // replayed row at a higher rate can leave none when the stored inputs no longer exceed
+    // (user_amount + fee) by dust. `InferGeneralPayout` scans for that change output and uses it
+    // as the CPFP payout; without change, the publish path finds no output and we broadcast
+    // without CPFP. The fulfillment races the assignment deadline.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_tx,
         "withdrawal fulfillment",
-        TxStatus::is_buried,
+        CpfpKind::InferGeneralPayout {
+            parent_fee: chain::ParentFee::Exact(wft_fee),
+            deadline: DeadlineClass::Deadline,
+        },
     )
     .await?;
 
@@ -860,11 +880,17 @@ async fn publish_payout(
 
     info!(%txid, "broadcasting payout transaction");
 
+    // This tx has no keyed anchor, so the child spends the operator's payout and adds wallet
+    // funding.
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &finalized_tx,
         "cooperative payout",
-        TxStatus::is_buried,
+        CpfpKind::PayoutCombined {
+            payout_vout: CooperativePayoutTx::PAYOUT_VOUT,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await?;
 
@@ -1002,19 +1028,143 @@ async fn publish_sweep(
     )
     .map_err(|e| ExecutorError::SignatureAggregationFailed(format!("{e}")))?;
 
+    let cpfp = sweep_cpfp(
+        &sweep_tx,
+        ordered_pubkeys,
+        output_handles.operator_musig2_pubkey,
+    );
+
     // Finalize the transaction using SweepTx.finalize()
     let finalized_tx = (*sweep_tx).finalize(agg_signature);
 
     info!(%txid, "broadcasting sweep transaction");
 
-    publish_signed_transaction(
-        &output_handles.tx_driver,
-        &finalized_tx,
-        "sweep",
-        TxStatus::is_buried,
-    )
-    .await?;
+    publish_signed_transaction(output_handles, &finalized_tx, "sweep", cpfp).await?;
 
     info!(%txid, "sweep transaction confirmed");
     Ok(())
+}
+
+/// Resolves the CPFP path of a sweep for the operator that holds `own_key`.
+///
+/// The sweep anchor has one leaf per operator, in the order of `ordered_pubkeys`, because the state
+/// machine builds [`SweepTx`] from the same list. The leaf at the position of `own_key` is the one
+/// that this operator can satisfy. A key outside the list holds no leaf, so the sweep publishes
+/// without CPFP.
+fn sweep_cpfp(
+    sweep_tx: &SweepTx,
+    ordered_pubkeys: &[XOnlyPublicKey],
+    own_key: XOnlyPublicKey,
+) -> CpfpKind {
+    let spend_material = ordered_pubkeys
+        .iter()
+        .position(|key| *key == own_key)
+        .and_then(|leaf_index| multi_anchor_spend_material(sweep_tx.cpfp_connector(), leaf_index));
+    match spend_material {
+        Some((leaf_script, control_block)) => CpfpKind::MultiAnchor {
+            anchor_vout: sweep_tx.cpfp_outpoint().vout,
+            leaf_script,
+            control_block,
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
+        None => {
+            warn!(%own_key, "no sweep anchor leaf for this operator; publishing without CPFP");
+            CpfpKind::None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{Address, Amount, FeeRate, Network, hashes::Hash};
+    use strata_bridge_connectors::{Connector, prelude::NOfNConnector};
+    use strata_bridge_tx_graph::transactions::prelude::SweepData;
+
+    use super::*;
+
+    fn outpoint(seed: u8) -> OutPoint {
+        OutPoint {
+            txid: Txid::from_byte_array([seed; 32]),
+            vout: 0,
+        }
+    }
+
+    fn xonly(seed: u8) -> XOnlyPublicKey {
+        bitcoin::secp256k1::Keypair::from_seckey_slice(bitcoin::secp256k1::SECP256K1, &[seed; 32])
+            .expect("valid secret key")
+            .x_only_public_key()
+            .0
+    }
+
+    fn sweep(ordered_pubkeys: Vec<XOnlyPublicKey>) -> SweepTx {
+        let deposit_connector =
+            NOfNConnector::new(Network::Regtest, xonly(9), Amount::from_sat(10_000_000));
+        let safe_harbour = Address::p2tr(
+            bitcoin::secp256k1::SECP256K1,
+            xonly(8),
+            None,
+            Network::Regtest,
+        );
+        SweepTx::new(
+            SweepData {
+                deposit_outpoint: outpoint(7),
+            },
+            deposit_connector,
+            Descriptor::try_from(safe_harbour).expect("standard address"),
+            ordered_pubkeys,
+            FeeRate::from_sat_per_vb(2).expect("valid rate"),
+        )
+    }
+
+    #[test]
+    fn a_sweep_child_spends_the_leaf_at_the_position_of_the_operator_key() {
+        let ordered_pubkeys = vec![xonly(1), xonly(2), xonly(3)];
+        let sweep_tx = sweep(ordered_pubkeys.clone());
+
+        for (position, key) in ordered_pubkeys.iter().enumerate() {
+            let cpfp = sweep_cpfp(&sweep_tx, &ordered_pubkeys, *key);
+            let CpfpKind::MultiAnchor {
+                anchor_vout,
+                leaf_script,
+                control_block,
+                parent_fee,
+                deadline,
+            } = cpfp
+            else {
+                panic!("expected a MultiAnchor child, got {cpfp:?}");
+            };
+
+            assert_eq!(anchor_vout, SweepTx::CPFP_VOUT);
+            assert_eq!(
+                leaf_script,
+                sweep_tx.cpfp_connector().leaf_scripts()[position]
+            );
+            assert!(
+                control_block.verify_taproot_commitment(
+                    bitcoin::secp256k1::SECP256K1,
+                    sweep_tx
+                        .cpfp_connector()
+                        .spend_info()
+                        .output_key()
+                        .to_x_only_public_key(),
+                    &leaf_script,
+                ),
+                "the control block must prove the leaf of operator {position}"
+            );
+            assert!(matches!(parent_fee, chain::ParentFee::FromPrevouts));
+            assert_eq!(deadline, DeadlineClass::NoDeadline);
+        }
+    }
+
+    #[test]
+    fn a_key_outside_the_list_publishes_the_sweep_without_a_child() {
+        let ordered_pubkeys = vec![xonly(1), xonly(2)];
+        let sweep_tx = sweep(ordered_pubkeys.clone());
+
+        assert!(matches!(
+            sweep_cpfp(&sweep_tx, &ordered_pubkeys, xonly(3)),
+            CpfpKind::None
+        ));
+    }
 }

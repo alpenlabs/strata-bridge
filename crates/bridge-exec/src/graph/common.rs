@@ -6,11 +6,12 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
 };
 use bitcoind_async_client::{Client as BitcoinClient, traits::Reader};
-use btc_tracker::event::TxStatus;
+use btc_tracker::{cpfp::DeadlineClass, event::TxStatus};
 use futures::{FutureExt, future::try_join_all};
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::Message};
 use operator_wallet::{GeneralUtxoPolicy, Lease, LeaseOwner, OperatorWallet, WalletStore};
 use secret_service_proto::v2::traits::{Musig2Params, Musig2Signer, SchnorrSigner, SecretService};
+use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_db::{
     traits::BridgeDb,
     types::{ClaimFundingReservation, FundingAssignment},
@@ -33,7 +34,7 @@ use strata_mosaic_client_api::{
 use tracing::{info, warn};
 
 use crate::{
-    chain::{self, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
+    chain::{self, CpfpKind, is_outpoint_unspent, is_txid_onchain, publish_signed_transaction},
     config::ExecutionConfig,
     errors::ExecutorError,
     fees::funding_fee_rate,
@@ -305,11 +306,23 @@ async fn refill_claim_funding(
     )
     .await?;
     let txid = tx.compute_txid();
+    let refill_fee = refill_psbt
+        .fee()
+        .map_err(|e| ExecutorError::WalletErr(format!("refill psbt fee: {e:?}")))?;
     info!(%txid, "submitting claim funding tx to the tx driver");
-    if let Err(err) = output_handles
-        .tx_driver
-        .drive(tx, predicate::eq(TxStatus::Mempool))
-        .await
+    // The duty continues once the refill is in the mempool. A child of the change output, which
+    // the planner always leaves, bumps the refill until its burial.
+    if let Err(err) = chain::publish_signed_transaction_until(
+        output_handles,
+        &tx,
+        "claim funding refill",
+        CpfpKind::InferGeneralPayout {
+            parent_fee: chain::ParentFee::Exact(refill_fee),
+            deadline: DeadlineClass::NoDeadline,
+        },
+        predicate::eq(TxStatus::Mempool),
+    )
+    .await
     {
         let mut wallet = output_handles.wallet.write().await;
         if let Err(sync_err) = chain::release_after_sync(&mut wallet, refill_lease).await {
@@ -318,7 +331,7 @@ async fn refill_claim_funding(
                 "wallet sync failed after a refill driver failure"
             );
         }
-        return Err(err.into());
+        return Err(err);
     }
     info!(%txid, "claim funding tx detected in mempool");
     // The lease on the refill's inputs commits. The refill spends them, so the lease costs nothing
@@ -807,10 +820,15 @@ pub(super) async fn publish_claim(
     }
 
     publish_signed_transaction(
-        &output_handles.tx_driver,
+        output_handles,
         &signed_claim_tx,
         "claim",
-        TxStatus::is_buried,
+        CpfpKind::AnchorAt {
+            anchor_vout: ClaimTx::CPFP_VOUT,
+            anchor_key: claim_tx.cpfp_connector().internal_key(),
+            parent_fee: chain::ParentFee::FromPrevouts,
+            deadline: DeadlineClass::NoDeadline,
+        },
     )
     .await
 }
@@ -1308,6 +1326,7 @@ mod tests {
             funding.input.txout.value >= exact,
             "the selected input covers the exact fee"
         );
+        assert_eq!(funding.fee, fee, "the funding records the fee it pays");
         assert!(funding.change.value >= dust, "the change stays above dust");
         assert_eq!(
             funding.change.value,

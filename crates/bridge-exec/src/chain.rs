@@ -1,18 +1,78 @@
 //! Shared Bitcoin chain helpers for executors.
 
 use bitcoin::{
-    Amount, FeeRate, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
+    Address, Amount, FeeRate, OutPoint, Psbt, Script, ScriptBuf, TapSighashType, Transaction,
+    TxOut, Txid,
+    secp256k1::SECP256K1,
     sighash::{Prevouts, SighashCache},
+    taproot::ControlBlock,
     transaction::InputWeightPrediction,
 };
 use bitcoind_async_client::{Client as BitcoinClient, error::ClientError, traits::Reader};
-use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
+use btc_tracker::{
+    cpfp::{CpfpStrategy, DeadlineClass, FirstBump},
+    event::TxStatus,
+};
 use operator_wallet::{FundingInput, Lease, LeaseOwner, OperatorWallet, WalletStore};
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
-use strata_bridge_primitives::scripts::taproot::create_key_spend_hash;
+use strata_bridge_primitives::{cpfp::ChildSpend, scripts::taproot::create_key_spend_hash};
+use strata_bridge_tx_graph::fee;
 use tracing::{debug, error, info, warn};
 
 use crate::{errors::ExecutorError, output_handles::OutputHandles};
+
+/// How the publish path learns the exact fee that a parent pays.
+///
+/// The CPFP child pays the difference between what the parent already paid and what the
+/// package target asks for, so a wrong value here makes the child overpay or underpay.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ParentFee {
+    /// The fee is the value of the prevouts of the published transaction minus its outputs. The
+    /// transaction itself cannot be wrong about that.
+    ///
+    /// The lookup needs the node to know each prevout transaction, which takes `txindex=1` for
+    /// a confirmed one.
+    ///
+    /// A presigned parent, or one that an earlier process funded, states this. Its fee was fixed
+    /// before the market was known, so its first bump runs at the publish.
+    FromPrevouts,
+    /// The caller knows the fee that the parent pays, because it funded the parent at the market
+    /// rate just now. The first bump of such a parent waits for a trigger, because a child at the
+    /// publish would pay the premium of the ladder for nothing.
+    Exact(Amount),
+}
+
+impl ParentFee {
+    /// When the first bump of a parent with this fee runs. See the variants.
+    const fn first_bump(self) -> FirstBump {
+        match self {
+            Self::FromPrevouts => FirstBump::AtPublish,
+            Self::Exact(_) => FirstBump::AtTrigger,
+        }
+    }
+}
+
+impl ParentFee {
+    /// Resolves to the fee that `tx` pays.
+    async fn resolve(
+        self,
+        bitcoind_rpc_client: &BitcoinClient,
+        tx: &Transaction,
+    ) -> Result<Amount, ClientError> {
+        match self {
+            Self::FromPrevouts => {
+                let prevouts = fetch_prevouts(bitcoind_rpc_client, tx).await?;
+                exact_fee_from_prevouts(&prevouts, tx).ok_or_else(|| {
+                    ClientError::MalformedResponse(format!(
+                        "the prevouts of {} do not cover its outputs",
+                        tx.compute_txid()
+                    ))
+                })
+            }
+            Self::Exact(fee) => Ok(fee),
+        }
+    }
+}
 
 /// Reads the outputs that `tx` spends, in input order.
 pub(crate) async fn fetch_prevouts(
@@ -34,11 +94,99 @@ pub(crate) async fn fetch_prevouts(
     Ok(prevouts)
 }
 
-/// The fee of `tx` once one wallet input of `wallet_input` size is added, at `fee_rate`. `None`
-/// when the fee does not fit an [`Amount`].
+/// Returns the child spend of the keyed anchor of `tx` at `anchor_vout`.
 ///
-/// A caller that hand-builds a transaction with one connector input uses this to size the wallet
-/// funding it needs before the planner sees the transaction.
+/// The output must pay the key-path P2TR of `anchor_key` with at least the anchor dust value, and
+/// `anchor_key` must equal `signing_key`, the key that signs the child. Otherwise this logs the
+/// mismatch at error level and returns `None`.
+fn checked_anchor_spend(
+    tx: &Transaction,
+    anchor_vout: u32,
+    anchor_key: bitcoin::XOnlyPublicKey,
+    signing_key: bitcoin::XOnlyPublicKey,
+    network: bitcoin::Network,
+    label: &str,
+) -> Option<ChildSpend> {
+    let txid = tx.compute_txid();
+    if anchor_key != signing_key {
+        error!(
+            %txid,
+            %label,
+            anchor_vout,
+            %anchor_key,
+            %signing_key,
+            "anchor is keyed to a key this operator cannot sign with"
+        );
+        return None;
+    }
+    let expected_script = Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey();
+    let expected_value = fee::anchor_dust_value();
+    let Some(output) = tx.output.get(anchor_vout as usize) else {
+        error!(
+            %txid,
+            %label,
+            anchor_vout,
+            n_outputs = tx.output.len(),
+            "anchor vout is out of range"
+        );
+        return None;
+    };
+    // An anchor can hold more than the dust value: `CounterproofAckTx` folds the residue of its
+    // input connectors into its anchor.
+    if output.script_pubkey != expected_script || output.value < expected_value {
+        error!(
+            %txid,
+            %label,
+            anchor_vout,
+            output_value = %output.value,
+            expected_min_value = %expected_value,
+            script_matches = output.script_pubkey == expected_script,
+            "output at the anchor vout is not the expected anchor"
+        );
+        return None;
+    }
+    Some(ChildSpend::keyed_anchor(OutPoint {
+        txid,
+        vout: anchor_vout,
+    }))
+}
+
+/// Returns the first output of `tx` that pays `expected_script`.
+///
+/// [`CpfpKind::InferGeneralPayout`] reads the general-wallet receive script here: the BIP86-tweaked
+/// P2TR of secret-service custody, or the vault P2WPKH of Fireblocks. Both pay change to this
+/// script.
+fn first_output_paying_script(tx: &Transaction, expected_script: &Script) -> Option<OutPoint> {
+    let txid = tx.compute_txid();
+    tx.output.iter().enumerate().find_map(|(vout, o)| {
+        if o.script_pubkey != *expected_script {
+            return None;
+        }
+        u32::try_from(vout).ok().map(|vout| OutPoint { txid, vout })
+    })
+}
+
+/// Computes the exact fee paid by `tx` from its input `prevouts` (in input order). Returns
+/// `None` if the input or output sum overflows `Amount` or if outputs exceed inputs (an
+/// invariant violation in a real tx, but explicitly fallible here so callers can surface
+/// the error instead of panicking on an unexpected state).
+pub(crate) fn exact_fee_from_prevouts(prevouts: &[TxOut], tx: &Transaction) -> Option<Amount> {
+    let inputs_sum = prevouts
+        .iter()
+        .try_fold(Amount::ZERO, |acc, o| acc.checked_add(o.value))?;
+    let outputs_sum = tx
+        .output
+        .iter()
+        .try_fold(Amount::ZERO, |acc, o| acc.checked_add(o.value))?;
+    inputs_sum.checked_sub(outputs_sum)
+}
+
+/// Returns the fee of `tx` at `fee_rate`, where one input is empty and takes a witness that
+/// `wallet_input` predicts. Every other input must carry its final witness.
+///
+/// The prediction counts the empty input's script length and witness count, which `tx` already
+/// holds, and it takes the largest witness of its kind. So the fee lands at most that slack above
+/// the exact value, and never below it.
 pub(crate) fn funded_tx_fee(
     tx: &Transaction,
     wallet_input: InputWeightPrediction,
@@ -47,8 +195,7 @@ pub(crate) fn funded_tx_fee(
     fee_rate.fee_wu(tx.weight() + wallet_input.weight())
 }
 
-/// The prevouts of a wallet-funded PSBT, in input order. The planner sets `witness_utxo` on every
-/// input, which is what a signer reads.
+/// The output that each input of `psbt` spends, in input order.
 pub(crate) fn psbt_prevouts(psbt: &Psbt) -> Vec<TxOut> {
     psbt.inputs
         .iter()
@@ -61,10 +208,14 @@ pub(crate) fn psbt_prevouts(psbt: &Psbt) -> Vec<TxOut> {
         .collect()
 }
 
-/// Signs the general-wallet inputs at `input_indices` of `tx`.
+/// Signs the general-wallet inputs of `tx` at `input_indices` and leaves every other input as it
+/// is. `prevouts[i]` is the output spent by `tx.input[i]`.
 ///
-/// The custody signs the inputs it holds the key for first. Every input it leaves unsigned is a
-/// `tr(general_key)` input that the secret-service general signer signs with the default sighash.
+/// The wallet's signer signs the inputs that it holds keys for. Secret-service signs the rest as
+/// Taproot key-path spends. A sighash commits to no witness, so the other inputs can be signed or
+/// not. The caller holds no wallet guard here, and this function holds one only to take the
+/// signer, so a wait on an external signer stalls no other duty. A caller that keeps a lease on the
+/// inputs drops it when this fails, which returns them.
 pub(crate) async fn sign_general_inputs(
     output_handles: &OutputHandles,
     tx: &Transaction,
@@ -162,26 +313,197 @@ pub(crate) async fn is_outpoint_unspent(
     }
 }
 
-/// Publishes a signed transaction and waits until its status meets `wait_condition`.
+/// How [`publish_signed_transaction`] attaches a CPFP child to the transaction it publishes.
+#[derive(Debug, Clone)]
+pub(crate) enum CpfpKind {
+    /// The parent carries a keyed Taproot anchor at this vout.
+    AnchorAt {
+        /// Index of the anchor output on the parent. Callers pass the tx type's own
+        /// constant (for example `StakeTx::CPFP_VOUT`), not a discovered value.
+        anchor_vout: u32,
+        /// Internal key of that anchor. Callers read it from the anchor connector of the
+        /// transaction, through
+        /// [`ParentTx::cpfp_connector`](strata_bridge_connectors::ParentTx::cpfp_connector).
+        /// The key that reaches the bump is therefore the key that built the output. A duty
+        /// whose transaction the state machine builds carries the key with it.
+        anchor_key: bitcoin::XOnlyPublicKey,
+        /// How to learn the fee of the parent.
+        parent_fee: ParentFee,
+        /// Whether a protocol timelock races this parent.
+        deadline: DeadlineClass,
+    },
+    /// Build the child by spending the operator-owned output of the parent at this vout.
+    PayoutCombined {
+        /// Index of the output that the child spends.
+        payout_vout: u32,
+        /// How to learn the fee of the parent.
+        parent_fee: ParentFee,
+        /// Whether a protocol timelock races this parent.
+        deadline: DeadlineClass,
+    },
+    /// Look for the first output paying the operator's general-wallet script and use it as
+    /// the CPFP payout. Falls back to no-CPFP if no such output exists (e.g. the planner added
+    /// no change output).
+    InferGeneralPayout {
+        /// How to learn the fee of the parent.
+        parent_fee: ParentFee,
+        /// Whether a protocol timelock races this parent.
+        deadline: DeadlineClass,
+    },
+    /// Bump a multi-leaf (`MultiAnchor`) anchor script-path, satisfying the leaf that this
+    /// operator holds. The leaf depends on the key list that built the anchor and on the position
+    /// of this operator in it, so the caller supplies the full spend data.
+    MultiAnchor {
+        /// Index of the anchor output on the parent.
+        anchor_vout: u32,
+        /// The leaf script this operator may satisfy.
+        leaf_script: ScriptBuf,
+        /// Control block proving the leaf's membership in the anchor's tree.
+        control_block: ControlBlock,
+        /// How to learn the fee of the parent.
+        parent_fee: ParentFee,
+        /// Whether a protocol timelock races this parent.
+        deadline: DeadlineClass,
+    },
+    /// No CPFP — broadcast as-is.
+    None,
+}
+
+/// Publishes a signed transaction and waits for its burial. See
+/// [`publish_signed_transaction_until`].
 pub(crate) async fn publish_signed_transaction(
-    tx_driver: &TxDriver,
+    output_handles: &OutputHandles,
     signed_tx: &Transaction,
     label: &str,
-    wait_condition: fn(&TxStatus) -> bool,
+    cpfp: CpfpKind,
+) -> Result<(), ExecutorError> {
+    publish_signed_transaction_until(output_handles, signed_tx, label, cpfp, TxStatus::is_buried)
+        .await
+}
+
+/// Publishes a signed transaction and waits until its status meets `condition`. The `cpfp`
+/// parameter drives strategy selection — see [`CpfpKind`]. A parent with a CPFP path keeps its
+/// bumps after `condition` holds, until its burial.
+///
+/// A caller that knows the fee states [`ParentFee::Exact`], for example with `Psbt::fee()`, which
+/// resolves because the funding planner sets `witness_utxo` on every input. Any other caller
+/// states [`ParentFee::FromPrevouts`].
+///
+/// A failed fee lookup does not block the publish: the transaction goes out without a CPFP path,
+/// and the next trigger of the duty reads the fee again.
+pub(crate) async fn publish_signed_transaction_until(
+    output_handles: &OutputHandles,
+    signed_tx: &Transaction,
+    label: &str,
+    cpfp: CpfpKind,
+    condition: impl Fn(&TxStatus) -> bool + Send + 'static,
 ) -> Result<(), ExecutorError> {
     let txid = signed_tx.compute_txid();
-    info!(%txid, %label, "publishing transaction");
+    let child = match cpfp {
+        CpfpKind::AnchorAt {
+            anchor_vout,
+            anchor_key,
+            parent_fee,
+            deadline,
+        } => checked_anchor_spend(
+            signed_tx,
+            anchor_vout,
+            anchor_key,
+            output_handles.operator_musig2_pubkey,
+            output_handles.network,
+            label,
+        )
+        .map(|spend| (spend, parent_fee, deadline)),
+        CpfpKind::PayoutCombined {
+            payout_vout,
+            parent_fee,
+            deadline,
+        } => Some((
+            ChildSpend::owned_output(OutPoint {
+                txid,
+                vout: payout_vout,
+            }),
+            parent_fee,
+            deadline,
+        )),
+        CpfpKind::InferGeneralPayout {
+            parent_fee,
+            deadline,
+        } => {
+            let payout =
+                first_output_paying_script(signed_tx, &output_handles.general_script_pubkey);
+            if payout.is_none() {
+                warn!(
+                    %txid,
+                    %label,
+                    "no output pays the operator's general-wallet script; publishing without CPFP"
+                );
+            }
+            payout.map(|outpoint| (ChildSpend::owned_output(outpoint), parent_fee, deadline))
+        }
+        CpfpKind::MultiAnchor {
+            anchor_vout,
+            leaf_script,
+            control_block,
+            parent_fee,
+            deadline,
+        } => Some((
+            ChildSpend::multi_anchor(
+                OutPoint {
+                    txid,
+                    vout: anchor_vout,
+                },
+                leaf_script,
+                control_block,
+            ),
+            parent_fee,
+            deadline,
+        )),
+        CpfpKind::None => None,
+    };
+    let strategy = resolve_strategy(child, &output_handles.bitcoind_rpc_client, signed_tx).await;
 
-    tx_driver
-        .drive(signed_tx.clone(), wait_condition)
-        .await
-        .map_err(|e| {
-            warn!(%txid, %label, ?e, "failed to publish transaction");
-            ExecutorError::TxDriverErr(e)
-        })?;
+    let cpfp_enabled = strategy.is_some();
+    info!(%txid, %label, cpfp_enabled, "publishing transaction");
+    let tx_driver = &output_handles.tx_driver;
+    let drive_result = match strategy {
+        Some(strategy) => {
+            tx_driver
+                .drive_with_cpfp(signed_tx.clone(), strategy, condition)
+                .await
+        }
+        None => tx_driver.drive(signed_tx.clone(), condition).await,
+    };
+    drive_result.map_err(|e| {
+        warn!(%txid, %label, ?e, "failed to publish transaction");
+        ExecutorError::TxDriverErr(e)
+    })?;
 
     info!(%txid, %label, "transaction reached target status");
     Ok(())
+}
+
+/// Returns the CPFP strategy of `tx` for `child`, reading the fee that `tx` pays. A failed read
+/// is logged and returns `None`.
+async fn resolve_strategy(
+    child: Option<(ChildSpend, ParentFee, DeadlineClass)>,
+    bitcoind_rpc_client: &BitcoinClient,
+    tx: &Transaction,
+) -> Option<CpfpStrategy> {
+    let (spend, parent_fee, deadline) = child?;
+    let first_bump = parent_fee.first_bump();
+    match parent_fee.resolve(bitcoind_rpc_client, tx).await {
+        Ok(parent_fee) => Some(CpfpStrategy {
+            spend,
+            parent_fee,
+            deadline,
+            first_bump,
+        }),
+        Err(err) => {
+            warn!(txid = %tx.compute_txid(), %err, "could not read the parent fee");
+            None
+        }
+    }
 }
 
 /// Publishes a transaction whose wallet inputs `lease` holds.
@@ -191,21 +513,20 @@ pub(crate) async fn publish_signed_transaction(
 ///
 /// Success commits the lease: the transaction spends the inputs, and the lease stays in place
 /// until a sync shows that spend buried. A failure releases the lease through
-/// [`release_after_sync`]: a failed publish can still have reached a mempool, so the inputs return
-/// to the pool only against a fresh view, and they stay held when that view cannot be read.
+/// [`release_after_sync`]: a failed publish can still have reached a mempool (a package whose
+/// submission timed out), so the inputs return to the pool only against a fresh view, and they stay
+/// held when that view cannot be read.
 pub(crate) async fn publish_leased_transaction(
     output_handles: &OutputHandles,
     signed_tx: &Transaction,
     label: &str,
-    wait_condition: fn(&TxStatus) -> bool,
+    cpfp: CpfpKind,
     lease: Lease,
 ) -> Result<(), ExecutorError> {
     ensure_spends_leased_inputs(signed_tx, &lease).inspect_err(|e| {
         error!(%label, ?e, "refusing to publish a transaction that its lease does not match");
     })?;
-    let result =
-        publish_signed_transaction(&output_handles.tx_driver, signed_tx, label, wait_condition)
-            .await;
+    let result = publish_signed_transaction(output_handles, signed_tx, label, cpfp).await;
     match result {
         Ok(()) => lease.commit(),
         Err(_) => {
@@ -275,6 +596,8 @@ pub(crate) struct ConnectorFunding {
     pub(crate) lease: Lease,
     /// The change output, always above dust.
     pub(crate) change: TxOut,
+    /// The fee that the funded transaction pays.
+    pub(crate) fee: Amount,
 }
 
 /// Selects and leases a confirmed general-wallet UTXO that, with `connector_value`, pays the fee
@@ -341,26 +664,152 @@ pub(crate) fn select_connector_funding<P: WalletStore>(
             value: change_value,
             script_pubkey: change_script,
         },
+        fee,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        Amount, OutPoint, Transaction, TxIn, Txid, absolute::LockTime,
-        consensus::encode::deserialize_hex, hashes::Hash, transaction::Version,
+        Address, Amount, Network, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Txid, absolute,
+        consensus::encode::deserialize_hex,
+        hashes::Hash,
+        key::Secp256k1,
+        secp256k1::{SECP256K1, SecretKey},
+        transaction::Version,
     };
     use bitcoind_async_client::{Auth, Client as BitcoinClient, traits::Reader};
+    use btc_tracker::cpfp::DeadlineClass;
     use corepc_node::{Conf, Input, Node, Output};
     use operator_wallet::test_utils::lease_on;
+    use strata_bridge_primitives::cpfp::ChildSpend;
+    use strata_bridge_tx_graph::fee;
 
     use super::{
-        ensure_spends_leased_inputs, is_outpoint_unspent, is_txid_onchain, tx_confirmations,
+        ParentFee, checked_anchor_spend, ensure_spends_leased_inputs, first_output_paying_script,
+        is_outpoint_unspent, is_txid_onchain, resolve_strategy, tx_confirmations,
     };
     use crate::errors::ExecutorError;
 
     /// Per-coinbase reward on regtest before any halving.
     const REGTEST_COINBASE_AMOUNT: Amount = Amount::from_sat(50 * 100_000_000);
+
+    fn xonly_from_seed(seed: u8) -> bitcoin::XOnlyPublicKey {
+        let sk = SecretKey::from_slice(&[seed; 32]).unwrap();
+        let kp = bitcoin::key::Keypair::from_secret_key(&Secp256k1::new(), &sk);
+        kp.x_only_public_key().0
+    }
+
+    fn dummy_v3_tx(outputs: Vec<TxOut>) -> Transaction {
+        Transaction {
+            version: Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![],
+            output: outputs,
+        }
+    }
+
+    /// A parent whose prevout the node cannot find has no known fee, so the publish path gets no
+    /// strategy and publishes without CPFP.
+    #[tokio::test]
+    async fn an_unknown_prevout_publishes_without_cpfp() {
+        let bitcoind =
+            Node::with_conf("bitcoind", &Conf::default()).expect("bitcoind should start");
+        let client = setup_btc_client(&bitcoind);
+        let mut parent = dummy_v3_tx(vec![]);
+        parent.input.push(TxIn {
+            previous_output: OutPoint::new(Txid::from_byte_array([9; 32]), 0),
+            ..Default::default()
+        });
+        let spend = ChildSpend::owned_output(OutPoint::new(parent.compute_txid(), 0));
+        let child = Some((spend, ParentFee::FromPrevouts, DeadlineClass::NoDeadline));
+
+        assert!(resolve_strategy(child, &client, &parent).await.is_none());
+        assert!(
+            resolve_strategy(None, &client, &parent).await.is_none(),
+            "a parent with no child reads no fee"
+        );
+    }
+
+    /// The caller names the anchor vout from its tx type's constant. The check accepts a
+    /// correct anchor, accepts an anchor above the dust value (the counterproof-ACK shape,
+    /// which carries two times dust), and rejects a wrong vout, a wrong script, and a value
+    /// below dust.
+    #[test]
+    fn checked_anchor_accepts_named_anchor_and_rejects_mismatches() {
+        let anchor_key = xonly_from_seed(1);
+        let other_key = xonly_from_seed(2);
+        let network = Network::Regtest;
+        let anchor_script = Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey();
+        let other_script = Address::p2tr(SECP256K1, other_key, None, network).script_pubkey();
+        let dust = fee::anchor_dust_value();
+
+        let tx = dummy_v3_tx(vec![
+            TxOut {
+                value: Amount::from_sat(10_000),
+                script_pubkey: other_script,
+            },
+            TxOut {
+                value: dust,
+                script_pubkey: anchor_script.clone(),
+            },
+        ]);
+
+        // Correct vout resolves to the spend.
+        let spend = checked_anchor_spend(&tx, 1, anchor_key, anchor_key, network, "t")
+            .expect("the named anchor must resolve");
+        assert_eq!(spend.outpoint().vout, 1);
+
+        // An anchor above the dust value (counterproof-ACK shape) also resolves.
+        let ack_tx = dummy_v3_tx(vec![TxOut {
+            value: dust * 2,
+            script_pubkey: anchor_script,
+        }]);
+        assert!(checked_anchor_spend(&ack_tx, 0, anchor_key, anchor_key, network, "t").is_some());
+
+        // A vout that names a non-anchor output is rejected.
+        assert!(checked_anchor_spend(&tx, 0, anchor_key, anchor_key, network, "t").is_none());
+        // A vout past the outputs is rejected.
+        assert!(checked_anchor_spend(&tx, 9, anchor_key, anchor_key, network, "t").is_none());
+        // A value below dust is rejected even on the right script.
+        let low = dummy_v3_tx(vec![TxOut {
+            value: dust - Amount::from_sat(1),
+            script_pubkey: Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey(),
+        }]);
+        assert!(checked_anchor_spend(&low, 0, anchor_key, anchor_key, network, "t").is_none());
+
+        // An anchor keyed to a key this operator cannot sign with disables the bump. A child
+        // of that anchor carries a signature that no mempool accepts.
+        assert!(
+            checked_anchor_spend(&tx, 1, anchor_key, other_key, network, "t").is_none(),
+            "an anchor key that this operator cannot sign with must disable the bump"
+        );
+    }
+
+    #[test]
+    fn first_output_paying_script_finds_the_match() {
+        let our_key = xonly_from_seed(1);
+        let other_key = xonly_from_seed(2);
+        let our_script = Address::p2tr(SECP256K1, our_key, None, Network::Regtest).script_pubkey();
+        let other_script =
+            Address::p2tr(SECP256K1, other_key, None, Network::Regtest).script_pubkey();
+        let tx = dummy_v3_tx(vec![
+            TxOut {
+                value: Amount::ZERO,
+                script_pubkey: ScriptBuf::new(),
+            }, // vout 0: OP_RETURN-style placeholder
+            TxOut {
+                value: Amount::from_sat(100_000),
+                script_pubkey: other_script,
+            }, // vout 1: other key
+            TxOut {
+                value: Amount::from_sat(50_000),
+                script_pubkey: our_script.clone(),
+            }, // vout 2: our key
+        ]);
+        let found = first_output_paying_script(&tx, &our_script).expect("should find our output");
+        assert_eq!(found.vout, 2);
+    }
 
     fn setup_btc_client(bitcoind: &Node) -> BitcoinClient {
         let cookie = bitcoind
@@ -388,7 +837,7 @@ mod tests {
     fn spending(outpoints: &[OutPoint]) -> Transaction {
         Transaction {
             version: Version(3),
-            lock_time: LockTime::ZERO,
+            lock_time: absolute::LockTime::ZERO,
             input: outpoints
                 .iter()
                 .map(|&previous_output| TxIn {
@@ -537,6 +986,83 @@ mod tests {
                 .await
                 .expect("duplicate lookups should remain stable"),
             "a repeated lookup gives the same answer"
+        );
+    }
+
+    /// The fee of a parent that the caller did not fund comes from the outputs it spends. The
+    /// lookup keeps working once the parent spends them, because a retried publish reads a
+    /// parent that is already in the mempool or in a block.
+    #[tokio::test]
+    async fn parent_fee_resolves_from_prevouts_before_and_after_the_spend() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind should start");
+        let mining_address = bitcoind
+            .client
+            .new_address()
+            .expect("wallet address should be generated");
+        bitcoind
+            .client
+            .generate_to_address(101, &mining_address)
+            .expect("coinbase outputs should mature");
+        let rpc_client = setup_btc_client(&bitcoind);
+
+        let coinbase_tx = rpc_client
+            .get_block_at(1)
+            .await
+            .expect("first mined block should be retrievable")
+            .coinbase()
+            .expect("first mined block should contain a coinbase transaction")
+            .clone();
+        let recipient = bitcoind
+            .client
+            .new_address()
+            .expect("recipient address should be generated");
+        let fee = Amount::from_sat(2_000);
+        let unsigned_tx = bitcoind
+            .client
+            .create_raw_transaction(
+                &[Input {
+                    txid: coinbase_tx.compute_txid(),
+                    vout: 0,
+                    sequence: None,
+                }],
+                &[Output::new(recipient, REGTEST_COINBASE_AMOUNT - fee)],
+            )
+            .expect("create raw tx")
+            .transaction()
+            .expect("decode unsigned tx");
+        let signed = bitcoind
+            .client
+            .sign_raw_transaction_with_wallet(&unsigned_tx)
+            .expect("wallet should sign the spending tx");
+        let parent: Transaction =
+            deserialize_hex(&signed.hex).expect("signed tx hex should deserialize");
+
+        assert_eq!(
+            ParentFee::FromPrevouts
+                .resolve(&rpc_client, &parent)
+                .await
+                .expect("the prevout is confirmed"),
+            fee
+        );
+
+        bitcoind
+            .client
+            .send_raw_transaction(&parent)
+            .expect("broadcast the parent");
+        bitcoind
+            .client
+            .generate_to_address(1, &mining_address)
+            .expect("mine the parent");
+
+        assert_eq!(
+            ParentFee::FromPrevouts
+                .resolve(&rpc_client, &parent)
+                .await
+                .expect("the prevout stays retrievable after the spend"),
+            fee
         );
     }
 
