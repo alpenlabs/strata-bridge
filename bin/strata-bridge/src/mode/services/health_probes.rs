@@ -187,12 +187,51 @@ pub(in crate::mode) fn spawn_s2_probe(
     });
 }
 
+/// The reason string of the wallet verdict: the tip height, the outcome and age of the last sync,
+/// and the count of confirmed general-wallet UTXOs that a CPFP child can draw on. `None` means no
+/// sync has run yet, which is the state briefly after startup.
+///
+/// The tip comes from the reserved wallet and keeps advancing while the general wallet fails its
+/// syncs (each wallet has its own store). A sync does not reach the signer, so nothing here covers
+/// a Fireblocks outage.
+fn wallet_reason(height: u32, last_sync: Option<(bool, Duration)>, fee_utxos: usize) -> String {
+    match last_sync {
+        None => format!("awaiting_first_sync_at_height_{height}"),
+        Some((true, age)) => format!(
+            "wallet_view_age_{}s_fee_utxos_{fee_utxos}_at_height_{height}",
+            age.as_secs()
+        ),
+        Some((false, age)) => format!(
+            "wallet_sync_failed_{}s_ago_fee_utxos_{fee_utxos}_at_height_{height}",
+            age.as_secs()
+        ),
+    }
+}
+
+/// Records the wallet verdict at `height`: unhealthy when the last sync attempt failed, and ok
+/// otherwise. The height alone cannot tell: it comes from the reserved wallet, which keeps syncing
+/// while the general wallet fails.
+fn report_wallet(
+    health_registry: &HealthRegistry,
+    height: u32,
+    last_sync: Option<LastSync>,
+    fee_utxos: usize,
+) {
+    let outcome = last_sync.map(|sync| (sync.succeeded, sync.at.elapsed()));
+    let reason = wallet_reason(height, outcome, fee_utxos);
+    if last_sync.is_some_and(|sync| !sync.succeeded) {
+        health_registry.mark_unhealthy(COMPONENT_WALLET, reason);
+    } else {
+        health_registry.mark_ok(COMPONENT_WALLET, reason);
+    }
+}
+
 /// Starts a periodic operator-wallet liveness probe.
 ///
-/// Reads the wallet's local chain tip through a shared read lock — a non-mutating, in-memory
+/// Reads the wallet's local state through a shared read lock — a non-mutating, in-memory
 /// check. It deliberately does not call `sync()`: syncing takes the exclusive write lock and
-/// drives backend I/O, which would let a slow or stuck backend serialize wallet-dependent
-/// duties. The read-lock acquisition is bounded so a stuck writer cannot leave the component
+/// drives node I/O, which would let a slow or stuck node serialize wallet-dependent duties.
+/// The read-lock acquisition is bounded so a stuck writer cannot leave the component
 /// reporting a stale `ok` state.
 pub(in crate::mode) fn spawn_wallet_probe(
     wallet: Arc<RwLock<OperatorWallet<SqliteStore>>>,
@@ -208,8 +247,9 @@ pub(in crate::mode) fn spawn_wallet_probe(
                 Ok(guard) => {
                     let height = guard.local_chain_tip_height();
                     let last_sync = guard.last_sync();
+                    let fee_utxos = guard.free_confirmed_general_utxo_count();
                     drop(guard);
-                    report_wallet(&health_registry, height, last_sync);
+                    report_wallet(&health_registry, height, last_sync, fee_utxos);
                 }
                 Err(_) => {
                     health_registry.mark_unhealthy(COMPONENT_WALLET, "probe_timed_out");
@@ -218,17 +258,6 @@ pub(in crate::mode) fn spawn_wallet_probe(
             }
         }
     });
-}
-
-/// Records the wallet verdict at `height`: unhealthy when the last sync attempt failed, and ok
-/// otherwise. The height alone cannot tell: it comes from the reserved wallet, which keeps syncing
-/// while the general wallet fails.
-fn report_wallet(health_registry: &HealthRegistry, height: u32, last_sync: Option<LastSync>) {
-    if last_sync.is_some_and(|sync| !sync.succeeded) {
-        health_registry.mark_unhealthy(COMPONENT_WALLET, format!("sync_failed_at_height_{height}"));
-    } else {
-        health_registry.mark_ok(COMPONENT_WALLET, format!("synced_to_height_{height}"));
-    }
 }
 
 /// Starts a periodic transaction-driver liveness probe.
@@ -315,14 +344,16 @@ mod tests {
     use super::*;
     use crate::health::HealthStatus;
 
-    fn wallet_health(health_registry: &HealthRegistry) -> (HealthStatus, String) {
-        let wallet = health_registry
+    const FRESH: Duration = Duration::from_secs(60);
+
+    fn wallet_status(health_registry: &HealthRegistry) -> HealthStatus {
+        health_registry
             .snapshot()
             .components
             .into_iter()
             .find(|component| component.component == COMPONENT_WALLET)
-            .expect("the registry tracks the wallet");
-        (wallet.status, wallet.reason)
+            .expect("the registry tracks the wallet")
+            .status
     }
 
     fn sync(succeeded: bool) -> Option<LastSync> {
@@ -338,14 +369,11 @@ mod tests {
     fn a_failed_last_sync_marks_the_wallet_unhealthy() {
         let health_registry = HealthRegistry::new();
 
-        report_wallet(&health_registry, 7, sync(false));
+        report_wallet(&health_registry, 7, sync(false), 3);
 
         assert_eq!(
-            wallet_health(&health_registry),
-            (
-                HealthStatus::Unhealthy,
-                "sync_failed_at_height_7".to_string()
-            ),
+            wallet_status(&health_registry),
+            HealthStatus::Unhealthy,
             "a failed sync attempt must not read as healthy"
         );
     }
@@ -355,13 +383,21 @@ mod tests {
         for last_sync in [sync(true), None] {
             let health_registry = HealthRegistry::new();
 
-            report_wallet(&health_registry, 7, last_sync);
+            report_wallet(&health_registry, 7, last_sync, 3);
 
             assert_eq!(
-                wallet_health(&health_registry),
-                (HealthStatus::Ok, "synced_to_height_7".to_string()),
+                wallet_status(&health_registry),
+                HealthStatus::Ok,
                 "last sync {last_sync:?} must read as healthy"
             );
         }
+    }
+
+    #[test]
+    fn a_synced_wallet_reports_its_view_age_and_fee_utxos() {
+        assert_eq!(
+            wallet_reason(7, Some((true, FRESH)), 3),
+            "wallet_view_age_60s_fee_utxos_3_at_height_7"
+        );
     }
 }
