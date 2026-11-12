@@ -305,20 +305,20 @@ impl BitcoinNode {
             .expect("should be able to extract the txid")
     }
 
-    /// Broadcasts the parent transaction, asserting it is accepted by the mempool.
+    /// Submits the `[parent, child]` package, asserting that the mempool accepts it.
     ///
     /// # Panics
     ///
-    /// This method panics if the parent is not accepted by the mempool.
+    /// This method panics if the package is not accepted by the mempool.
     pub fn submit_package(&self, transactions: &[Transaction; 2]) {
-        let [parent, _child] = transactions;
-
-        // NOTE: (@Rajil1213) Broadcast both the parent and the child as a package once CPFP is
-        // properly implemented downstream and intrinsic fees are removed from the presigned parent
-        // transactions.
-        if let Err(parent_err) = self.client().send_raw_transaction(parent) {
-            panic!("Expected parent to be accepted by the mempool, but it was rejected: {parent_err:?}");
-        }
+        let package_result = self
+            .client()
+            .submit_package(transactions, None, None)
+            .expect("should be able to submit package");
+        assert_eq!(
+            package_result.package_msg, "success",
+            "the mempool must accept the package: {package_result:?}"
+        );
     }
 
     /// Asserts that neither the parent broadcast on its own nor the `[parent, child]`

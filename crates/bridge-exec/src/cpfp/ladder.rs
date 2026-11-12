@@ -1,11 +1,11 @@
 //! One CPFP bump attempt: read the mempool, decide, build the child, sign it, submit it.
 //!
-//! Bridge presigned transactions pay a protocol-floor fee rate (`fee::FEE_RATE = 2 sat/vB`).
-//! On any non-trivial network load they get evicted from the mempool before confirming. To drive
-//! them to confirmation the bump builds a CPFP child that lifts the **package** (parent + child)
-//! fee rate to whatever the fee source reports as the current target, and replaces the child
-//! while it is below the target. Package fee accounting only: the child's per-vB rate can far
-//! exceed the operator's `max_fee_rate` as long as the package average does not.
+//! Bridge presigned transactions pay the protocol fee rate (`fee::FEE_RATE`), which may not meet
+//! the market fee rate, and a wallet-funded parent can fall below the market while it waits. To
+//! drive them to confirmation the bump builds a CPFP child that lifts the **package**
+//! (parent + child) fee rate to whatever the fee source reports as the current target, and replaces
+//! the child while it is below the target. Package fee accounting only: the child's per-vB rate can
+//! far exceed the operator's `max_fee_rate` as long as the package average does not.
 //!
 //! - `decide` is the policy: a pure function from what an attempt read to what it does.
 //! - [`perform_bump`] is one attempt: all the I/O around one `decide`.

@@ -1058,11 +1058,13 @@ mod tests {
                 })
                 .sum();
             let slash_fee = total_input_amount - total_output_amount;
-            let slash_fee_rate = slash_fee.to_sat().div_ceil(slash.vsize() as u64);
+            let protocol_fee = crate::fee::FEE_RATE
+                .fee_vb(slash.vsize() as u64)
+                .expect("the protocol fee of the slash fits in an amount");
 
-            assert!(
-                slash_fee_rate >= crate::fee::FEE_RATE_SAT_PER_VB,
-                "slash fee must be greater than or equal to the minimum fee rate"
+            assert_eq!(
+                slash_fee, protocol_fee,
+                "the slash pays the protocol fee rate on its size"
             );
 
             return;

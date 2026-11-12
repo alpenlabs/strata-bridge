@@ -872,8 +872,8 @@ mod tests {
     }
 
     /// The caller names the anchor vout from its tx type's constant. The check accepts a
-    /// correct anchor, accepts an anchor above the dust value (the counterproof-ACK shape,
-    /// which carries two times dust), and rejects a wrong vout, a wrong script, and a value
+    /// correct anchor, accepts an anchor above the dust value (the counterproof-ACK shape),
+    /// and rejects a wrong vout, a wrong script, and a value
     /// below dust.
     #[test]
     fn checked_anchor_accepts_named_anchor_and_rejects_mismatches() {
@@ -902,21 +902,30 @@ mod tests {
 
         // An anchor above the dust value (counterproof-ACK shape) also resolves.
         let ack_tx = dummy_v3_tx(vec![TxOut {
-            value: dust * 2,
+            value: dust + Amount::from_sat(1_000),
             script_pubkey: anchor_script,
         }]);
-        assert!(checked_anchor_spend(&ack_tx, 0, anchor_key, anchor_key, network, "t").is_some());
+        assert!(
+            checked_anchor_spend(&ack_tx, 0, anchor_key, anchor_key, network, "t").is_some(),
+            "an anchor above the dust value must resolve"
+        );
 
         // A vout that names a non-anchor output is rejected.
         assert!(checked_anchor_spend(&tx, 0, anchor_key, anchor_key, network, "t").is_none());
         // A vout past the outputs is rejected.
         assert!(checked_anchor_spend(&tx, 9, anchor_key, anchor_key, network, "t").is_none());
-        // A value below dust is rejected even on the right script.
-        let low = dummy_v3_tx(vec![TxOut {
-            value: dust - Amount::from_sat(1),
-            script_pubkey: Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey(),
-        }]);
-        assert!(checked_anchor_spend(&low, 0, anchor_key, anchor_key, network, "t").is_none());
+        // A value below dust is rejected even on the right script. A zero dust value has no value
+        // below it.
+        if let Some(below_dust) = dust.checked_sub(Amount::ONE_SAT) {
+            let low = dummy_v3_tx(vec![TxOut {
+                value: below_dust,
+                script_pubkey: Address::p2tr(SECP256K1, anchor_key, None, network).script_pubkey(),
+            }]);
+            assert!(
+                checked_anchor_spend(&low, 0, anchor_key, anchor_key, network, "t").is_none(),
+                "an anchor below the dust value must be rejected"
+            );
+        }
 
         // An anchor keyed to a key this operator cannot sign with disables the bump. A child
         // of that anchor carries a signature that no mempool accepts.
