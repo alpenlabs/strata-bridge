@@ -163,6 +163,7 @@ pub async fn execute_graph_duty(
             operator_pubkey,
         } => {
             generate_and_publish_bridge_proof(
+                &cfg,
                 &output_handles,
                 graph_idx.deposit,
                 graph_idx.operator,

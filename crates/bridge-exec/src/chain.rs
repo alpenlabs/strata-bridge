@@ -287,6 +287,30 @@ pub(crate) async fn is_txid_onchain(
     Ok(tx_confirmations(bitcoind_rpc_client, txid).await?.is_some())
 }
 
+/// Returns the mempool transaction that spends `outpoint`, if any. A spend that confirmed is
+/// not in the mempool and reads as `None`.
+pub(crate) async fn mempool_spender(
+    bitcoind_rpc_client: &BitcoinClient,
+    outpoint: OutPoint,
+) -> Result<Option<Txid>, ClientError> {
+    /// One entry of a `gettxspendingprevout` response.
+    #[derive(Debug, serde::Deserialize)]
+    struct PrevoutSpend {
+        /// Absent when nothing spends the outpoint.
+        #[serde(rename = "spendingtxid")]
+        spending_txid: Option<Txid>,
+    }
+
+    // The typed surface of the client does not cover `gettxspendingprevout`, so call it raw.
+    let query = serde_json::json!([{ "txid": outpoint.txid.to_string(), "vout": outpoint.vout }]);
+    let spends: Vec<PrevoutSpend> = bitcoind_rpc_client
+        .call_raw("gettxspendingprevout", &[query])
+        .await?;
+    Ok(spends.into_iter().find_map(|spend| spend.spending_txid))
+}
+
+/// Returns the unspent output at `outpoint`, on chain or in the mempool.
+///
 /// Returns whether `outpoint` is currently unspent on chain or in the mempool.
 ///
 /// Wraps Bitcoin Core's `gettxout`. A `null` result (spent or non-existent UTXO) maps to
