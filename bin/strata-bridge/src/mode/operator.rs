@@ -71,12 +71,12 @@ pub(crate) async fn bootstrap(
     if config.dev {
         warn!("dev mode: skipping bridge startup consistency checks");
     } else {
-        startup_checks::verify(
+        startup_checks::verify_predicates(&params, &bridge_proof_host, &counterproof_host)?;
+        startup_checks::verify_external_components(
             &params,
             &config,
             &asm_rpc_client,
             &mosaic_rpc_client,
-            &bridge_proof_host,
             &counterproof_host,
         )
         .await?;
