@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn contested_proof_timelock() {
+    fn contested_nonpov_proof_timeout() {
         let cfg = test_graph_sm_cfg();
         let ctx = test_graph_sm_ctx();
         let contest_height = LATER_BLOCK_HEIGHT;
@@ -258,7 +258,7 @@ mod tests {
             .finalize(bridge_proof_timeout_sigs);
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
-            create_sm,
+            create_nonpov_sm,
             get_state,
             cfg,
             GraphTransition {
@@ -268,6 +268,35 @@ mod tests {
                 }),
                 expected_state: contested_state_with(new_height, signatures),
                 expected_duties: vec![GraphDuty::PublishBridgeProofTimeout { signed_timeout_tx }],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    /// The owner's own proof spends the same connector as the timeout and still wins if it
+    /// confirms first, so the owner never publishes the timeout of its own graph.
+    #[test]
+    fn contested_pov_no_proof_timeout() {
+        let cfg = test_graph_sm_cfg();
+        let ctx = test_graph_sm_ctx();
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
+        let new_height = contest_height + proof_timelock + 1;
+
+        let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
+        let signatures = mock_game_signatures(&game_graph);
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            cfg,
+            GraphTransition {
+                from_state: contested_state_with(contest_height, signatures.clone()),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: contested_state_with(new_height, signatures),
+                expected_duties: vec![],
                 expected_signals: vec![],
             },
         );
