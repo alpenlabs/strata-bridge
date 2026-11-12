@@ -38,7 +38,6 @@ from utils.utils import (
 from utils.withdrawal import (
     wait_until_active_valid_claim,
     wait_until_bridge_proof_posted,
-    wait_until_counter_proof_posted,
     wait_until_counterproof_ack,
 )
 
@@ -53,23 +52,25 @@ class HeavierChainCounterproofTest(StrataTestBase):
 
     The operator fulfills the withdrawal and generates a real bridge proof on fork A;
     the chain is then reverted to a strictly heavier fork B that replays every
-    transaction except the fulfillment. Fork B's ASM export MMR therefore has no
+    transaction except the checkpoint that assigned the withdrawal. The ASM unlocks a
+    claim only for a fulfillment of an assignment, so fork B's ASM export MMR has no
     `OperatorClaimUnlock`, contradicting the proof's commitment. The watchtowers are
     stopped for the whole life of fork A and restarted on fork B, so from their view
     there is one consistent chain and the bridge proof is simply inconsistent with it.
 
     1. Complete a deposit (all nodes up), then stop both watchtowers.
     2. Mock checkpoint assigns the withdrawal to op-0, which fulfills and claims on
-       fork A. The fulfillment's block is the fork point.
+       fork A. The checkpoint's block is the fork point.
     3. dev-cli contests on behalf of a watchtower; op-0 posts a real (valid) bridge
        proof anchored in fork A, then op-0 is stopped (cannot NACK, never sees fork B).
     4. Stop the miner and rebuild the chain from the fork point without the
-       fulfillment, 3 blocks longer than fork A; keep mining with the fulfillment
-       excluded.
+       checkpoint, 3 blocks longer than fork A; keep mining with the checkpoint
+       excluded. Every other fork-A transaction confirms again on fork B, the wallet-funded
+       ones included, because none of them spends the checkpoint.
     5. Restart the watchtowers: the proof verifies but the claim unlock is absent from
        their (heavier) canonical chain, so both publish heavier-chain counterproofs.
     6. After the NACK timelock, a counterprover auto-publishes the ACK; verify the
-       ACK's shape and that op-0 is slashed, with the fulfillment never re-confirmed.
+       ACK's shape and that op-0 is slashed, with the checkpoint never re-confirmed.
     """
 
     def __init__(self, ctx: flexitest.InitContext):
@@ -77,7 +78,9 @@ class HeavierChainCounterproofTest(StrataTestBase):
             contest_timelock=5,
             proof_timelock=100,  # ensure no proof timeout fires during fork surgery
             nack_timelock=5,
-            contested_payout_timelock=120,
+            # The ACK confirms 30 to 40 blocks after the contest, and a slash before it would
+            # end the game first, so this leaves about twice that for slow runners.
+            contested_payout_timelock=80,
             # NOTE: (@MdTeach) the default (native Schnorr) bridge proof predicate is
             # required — the proof must VERIFY so the counterproof can only come from
             # the heavier-chain path.
@@ -141,6 +144,9 @@ class HeavierChainCounterproofTest(StrataTestBase):
             num_ol_slots=1,
         )
         ckp_block_hash = wait_for_tx_confirmation(bitcoin_rpc, ckp_l1_txn)
+        self.logger.info(
+            f"Checkpoint tx {ckp_l1_txn} confirmed in fork point block {ckp_block_hash}"
+        )
         wait_until(
             lambda: len(asm_rpc.strata_asm_getAssignments(ckp_block_hash)) > 0,
             timeout=300,
@@ -161,10 +167,8 @@ class HeavierChainCounterproofTest(StrataTestBase):
             f"withdrawal not fulfilled: {withdrawal_status}"
         )
         fulfillment_txid = withdrawal_status["fulfillment_txid"]
-        fork_block_hash = wait_for_tx_confirmation(bitcoin_rpc, fulfillment_txid)
-        self.logger.info(
-            f"Fulfillment tx {fulfillment_txid} confirmed in fork point block {fork_block_hash}"
-        )
+        wait_for_tx_confirmation(bitcoin_rpc, fulfillment_txid)
+        self.logger.info(f"Fulfillment tx {fulfillment_txid} confirmed")
 
         # 3. Contest on behalf of a watchtower (they are down; graph data comes from the
         # assigned node), then op-0 defends with a real bridge proof anchored in fork A.
@@ -188,8 +192,8 @@ class HeavierChainCounterproofTest(StrataTestBase):
         bridge_nodes[assigned_idx].stop()
         self.logger.info(f"Stopped op-{assigned_idx}; it cannot NACK and never sees fork B")
 
-        # 4. Rebuild the chain without the fulfillment: fork B replays every fork-A tx at
-        # its original height except the fulfillment (and anything spending it), then
+        # 4. Rebuild the chain without the checkpoint: fork B replays every fork-A tx at
+        # its original height except the checkpoint (and anything spending it), then
         # extends 3 blocks past fork A's tip so it is strictly heavier than the proof's
         # committed PoW.
         watchtower_log_offsets = {
@@ -201,8 +205,8 @@ class HeavierChainCounterproofTest(StrataTestBase):
         reorg = reorg_excluding(
             bitcoin_rpc,
             mining_addr,
-            fork_block_hash,
-            {fulfillment_txid},
+            ckp_block_hash,
+            {ckp_l1_txn},
             extra_blocks=3,
         )
         self.logger.info(
@@ -216,8 +220,7 @@ class HeavierChainCounterproofTest(StrataTestBase):
             ("bridge proof", bridge_proof_txid),
         ]:
             assert txid not in reorg.excluded, (
-                f"{name} tx {txid} descends from the fulfillment and was excluded from "
-                f"fork B; the game txs must not spend fulfillment change"
+                f"{name} tx {txid} descends from the checkpoint and was excluded from fork B"
             )
             # With -txindex an orphaned tx still resolves to its stale fork-A block, so require
             # positive confirmations: 0 means off the active chain, absent means mempool-only.
@@ -229,9 +232,12 @@ class HeavierChainCounterproofTest(StrataTestBase):
             )
         self.logger.info("Claim, contest, and bridge proof all re-confirmed on fork B")
 
-        # Keep mining (fulfillment always excluded) to bury fork-B txs and mature the
-        # NACK timelock.
-        miner = generate_blocks_excluding(bitcoin_rpc, 2, mining_addr, {fulfillment_txid})
+        # Keep mining (checkpoint always excluded) to bury fork-B txs and mature the
+        # NACK timelock. The miner thread gets its own RPC client: one client holds one HTTP
+        # connection, which two threads cannot share.
+        miner = generate_blocks_excluding(
+            bitcoind_service.create_rpc(), 2, mining_addr, {ckp_l1_txn}
+        )
         try:
             # 5. Watchtowers wake up on fork B: the proof verifies, but its claim unlock
             # is absent from their heavier canonical chain -> heavier-chain counterproof.
@@ -258,8 +264,9 @@ class HeavierChainCounterproofTest(StrataTestBase):
                     f"(contest:{watchtower_vout} spent)"
                 )
 
+            # The withdrawal RPCs read the assignment, which fork B does not have, so the
+            # counterproof and ACK are observed on chain.
             monitor_rpc = bridge_rpcs[contester_idx]
-            wait_until_counter_proof_posted(monitor_rpc, deposit_idx)
 
             # 6. The ACK auto-publishes after the NACK timelock.
             ack_txid = wait_until_counterproof_ack(bitcoin_rpc, contest_txid)
@@ -276,17 +283,16 @@ class HeavierChainCounterproofTest(StrataTestBase):
                 STAKE_VOUT,
             )
 
-            # The fulfillment must never have re-confirmed on the active chain. With
+            # The checkpoint must never have re-confirmed on the active chain. With
             # -txindex, getrawtransaction still reports the stale fork-A blockhash, so
             # check that any containing block is NOT in the active chain (confirmations
             # is -1 for stale blocks).
-            fulfillment_tx = bitcoin_rpc.proxy.getrawtransaction(fulfillment_txid, True)
-            fulfillment_block = fulfillment_tx.get("blockhash")
-            if fulfillment_block is not None:
-                confirmations = bitcoin_rpc.proxy.getblockheader(fulfillment_block)["confirmations"]
+            ckp_tx = bitcoin_rpc.proxy.getrawtransaction(ckp_l1_txn, True)
+            ckp_block = ckp_tx.get("blockhash")
+            if ckp_block is not None:
+                confirmations = bitcoin_rpc.proxy.getblockheader(ckp_block)["confirmations"]
                 assert confirmations < 0, (
-                    f"fulfillment {fulfillment_txid} re-confirmed on the active chain in "
-                    f"{fulfillment_block}"
+                    f"checkpoint {ckp_l1_txn} re-confirmed on the active chain in {ckp_block}"
                 )
         finally:
             miner.stop()
