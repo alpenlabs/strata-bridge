@@ -28,7 +28,7 @@ pub struct FireblocksSigner {
     signing_key: Arc<jsonwebtoken::EncodingKey>,
     /// The P2WPKH script of [`FireblocksConfig::vault_pubkey`]. This signer signs only inputs
     /// that spend it.
-    script_pubkey: ScriptBuf,
+    pub(super) script_pubkey: ScriptBuf,
     /// The first generation that a request for a sighash set (by digest) can still take, as this
     /// process last saw it. Every attempt would otherwise walk the ended generations from zero,
     /// two calls each, against the signing deadline. The map lives for the process; a restart
