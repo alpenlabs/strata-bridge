@@ -1,6 +1,8 @@
 //! Unit tests for signals received from the Deposit SM.
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bitcoin::Txid;
     use strata_bridge_primitives::types::{DepositIdx, GraphIdx};
     use strata_bridge_test_utils::bitcoin::generate_txid;
@@ -225,6 +227,8 @@ mod tests {
                     stake_spent: None,
                 },
                 expected_duties: vec![GraphDuty::PublishClaim {
+                    graph_idx: ctx.graph_idx(),
+                    watchtowers: BTreeSet::from([1, 2, 3, 4]),
                     claim_tx: game_graph.claim,
                 }],
                 expected_signals: vec![],

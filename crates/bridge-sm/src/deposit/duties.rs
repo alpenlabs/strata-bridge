@@ -1,7 +1,7 @@
 //! The duties that need to be performed in the Deposit State Machine in response to the state
 //! transitions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bitcoin::{Amount, OutPoint, Transaction, Txid, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
@@ -191,6 +191,8 @@ pub enum DepositDuty {
     FulfillWithdrawalRequest {
         /// The index of the deposit.
         deposit_idx: DepositIdx,
+        /// The operators that can contest the assignee's claim for this deposit.
+        watchtowers: BTreeSet<OperatorIdx>,
         /// Block height deadline for fulfillment.
         deadline: BitcoinBlockHeight,
         /// The user's descriptor where funds are to be sent by the operator.

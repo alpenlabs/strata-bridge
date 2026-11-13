@@ -13,6 +13,7 @@ from factory.bridge_operator.params_cfg import (
     ScheduledOperator,
 )
 from rpc.asm_types import CheckpointTip
+from rpc.types import RpcCovenantId
 from utils.utils import OperatorKeyInfo
 
 BINARY_PATH = "dev-cli"
@@ -378,7 +379,13 @@ class DevCli:
         operator_idx: int,
         bridge_node_url: str,
         seed: str,
+        covenant: RpcCovenantId | None = None,
     ):
+        """Post `operator_idx`'s unstaking intent for its stake in `covenant`, by default the
+        bridge node's current covenant.
+
+        Returns the unstaking intent txid.
+        """
         rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
         wallet = self.bitcoind_props.get("walletname", "testwallet")
 
@@ -399,6 +406,13 @@ class DevCli:
             "--seed",
             seed,
         ]
+        if covenant is not None:
+            args += [
+                "--covenant-aggregate-pubkey",
+                covenant.aggregate_pubkey,
+                "--covenant-activation-height",
+                str(covenant.activation_height),
+            ]
 
         res = self._run_command(args)
         # HACK: (@Rajil1213) parse raw stdout to extract txid

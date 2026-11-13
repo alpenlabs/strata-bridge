@@ -1,7 +1,7 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use std::num::NonZero;
+use std::{collections::BTreeSet, num::NonZero};
 
 use bitcoin::{OutPoint, Transaction, Txid, XOnlyPublicKey, hashes::sha256};
 use musig2::{
@@ -185,6 +185,10 @@ pub enum GraphDuty {
 
     /// Sign and Publish the claim transaction on-chain.
     PublishClaim {
+        /// The graph whose claim this is.
+        graph_idx: GraphIdx,
+        /// The operators that can contest the claim.
+        watchtowers: BTreeSet<OperatorIdx>,
         /// The unsigned claim transaction to publish.
         claim_tx: ClaimTx,
     },

@@ -1,9 +1,13 @@
 //! Context for the Deposit State Machine.
 
+use std::collections::BTreeSet;
+
 use bitcoin::OutPoint;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
-    covenant::CovenantId, operator_table::OperatorTable, types::DepositIdx,
+    covenant::CovenantId,
+    operator_table::OperatorTable,
+    types::{DepositIdx, OperatorIdx},
 };
 
 /// Execution context for a single instance of the Deposit State Machine.
@@ -46,5 +50,14 @@ impl DepositSMCtx {
     /// Returns the operator table.
     pub const fn operator_table(&self) -> &OperatorTable {
         &self.operator_table
+    }
+
+    /// Returns the operators that watch `owner`'s graph for this deposit: every member but `owner`.
+    pub fn watchtower_idxs(&self, owner: OperatorIdx) -> BTreeSet<OperatorIdx> {
+        self.operator_table
+            .operator_idxs()
+            .into_iter()
+            .filter(|idx| *idx != owner)
+            .collect()
     }
 }

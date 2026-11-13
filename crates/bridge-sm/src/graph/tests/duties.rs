@@ -1,6 +1,8 @@
 //! Unit tests for the GraphDuty safe-harbour suppression taxonomy.
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bitcoin::hashes::{Hash, sha256};
     use strata_bridge_primitives::covenant::CovenantId;
     use strata_bridge_test_utils::{bitcoin::generate_txid, prelude::generate_signature};
@@ -87,6 +89,8 @@ mod tests {
             ),
             (
                 GraphDuty::PublishClaim {
+                    graph_idx,
+                    watchtowers: BTreeSet::new(),
                     claim_tx: game_graph.claim,
                 },
                 true,

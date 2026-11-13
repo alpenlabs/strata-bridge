@@ -39,7 +39,7 @@ pub trait MosaicClientApi: Send + Sync + 'static {
     ///
     /// This is a long-running call that blocks until setup is done.
     /// If setup is aborted due to a protocol violation, returns an error.
-    /// Bridge should not proceed ahead until all setups are completed successfully.
+    /// Deposit operations that need this tableset fail until its setup completes.
     async fn ensure_mosaic_setup(
         &self,
         operator_idx: OperatorIdx,
@@ -126,6 +126,19 @@ pub trait MosaicClientApi: Send + Sync + 'static {
         operator_idx: OperatorIdx,
         role: Role,
         game_index: GameIndex,
+    ) -> Result<bool, MosaicError>;
+
+    /// Returns whether the tableset for the given operator and role has completed setup.
+    ///
+    /// `operator_idx`: the remote operator in this setup.
+    /// `role`: own role in the setup (garbler or evaluator).
+    ///
+    /// A tableset that a contest has since used or consumed still counts as set up. Returns
+    /// `false` while setup is incomplete, and an error if setup is missing or aborted.
+    async fn is_setup_complete(
+        &self,
+        operator_idx: OperatorIdx,
+        role: Role,
     ) -> Result<bool, MosaicError>;
 
     /// Garbler side: completes adaptor signatures for a contested withdrawal.

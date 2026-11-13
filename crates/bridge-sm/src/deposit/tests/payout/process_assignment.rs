@@ -1,7 +1,7 @@
 //! Unit Tests for process_assignment
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use bitcoin::{Txid, hashes::Hash};
 
@@ -38,6 +38,7 @@ mod tests {
             },
             expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
+                watchtowers: BTreeSet::from([1, 2]),
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc,
                 deposit_amount: TEST_DEPOSIT_AMOUNT,
@@ -102,6 +103,7 @@ mod tests {
             },
             expected_duties: vec![DepositDuty::FulfillWithdrawalRequest {
                 deposit_idx: TEST_DEPOSIT_IDX,
+                watchtowers: BTreeSet::from([1, 2]),
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: desc,
                 deposit_amount: TEST_DEPOSIT_AMOUNT,

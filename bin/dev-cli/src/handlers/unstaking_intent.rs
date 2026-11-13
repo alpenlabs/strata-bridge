@@ -24,6 +24,7 @@ const STAKE_TX_INDEX: u32 = 0;
 /// Post an unstaking intent transaction for the given operator stake graph.
 pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> anyhow::Result<()> {
     let params = Params::from_path(&args.params)?;
+    let selected_covenant = args.covenant();
     let operator_keys = derive_keys::derive_operator_keys(&args.seed, params.network)?;
     let preimage_ikm = PreimageIkm::derive(operator_keys.base_xpriv())
         .map_err(|e| anyhow::anyhow!("failed to derive stakechain preimage ikm: {}", e))?;
@@ -48,13 +49,19 @@ pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> a
         );
     }
 
-    let current = bridge_rpc_client
-        .get_current_covenant()
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to fetch the current covenant: {}", e))?
-        .ok_or_else(|| anyhow::anyhow!("bridge node has no current covenant"))?;
+    let covenant = match selected_covenant {
+        Some(covenant) => covenant,
+        None => {
+            bridge_rpc_client
+                .get_current_covenant()
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to fetch the current covenant: {}", e))?
+                .ok_or_else(|| anyhow::anyhow!("bridge node has no current covenant"))?
+                .covenant
+        }
+    };
     let stake_key = StakeKey {
-        covenant: current.covenant,
+        covenant,
         operator: args.operator_idx,
     };
 

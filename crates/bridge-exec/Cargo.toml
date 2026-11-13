@@ -53,6 +53,7 @@ tracing.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-crypto.workspace = true
 
+async-trait.workspace = true
 bdk_bitcoind_rpc.workspace = true
 corepc-node.workspace = true
 operator-wallet = { workspace = true, features = ["test-utils"] }
