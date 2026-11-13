@@ -873,6 +873,71 @@ mod conflicts {
         );
     }
 
+    /// A reorg that removes the spend of a conflicted parent's input sends the parent again on
+    /// that block. Its bumps send nothing for a parent that meets the target alone.
+    #[tokio::test]
+    async fn a_reorg_that_removes_a_conflict_sends_the_parent_again() {
+        let harness = harness(BumpOutcome::NoPackage);
+        let tx = parent(1);
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+        harness
+            .chain
+            .set_status(tx.compute_txid(), TxStatus::Unknown);
+        harness.chain.spend(input_of(1));
+        harness.connect_block_at(100).await;
+        let sends = harness.chain.broadcasts();
+
+        harness
+            .chain
+            .spent
+            .lock()
+            .expect("not poisoned")
+            .remove(&input_of(1));
+        harness.chain.set_tip(99);
+        harness.send_block(BlockStatus::Uncled);
+        harness.settle().await;
+
+        assert_eq!(
+            harness.chain.broadcasts(),
+            sends + 1,
+            "the parent goes out again once its conflict leaves the chain"
+        );
+        assert!(
+            !drive.is_finished(),
+            "the caller still waits for the burial"
+        );
+    }
+
+    /// A parent whose send was rejected goes out again on the next block. Its bumps send nothing
+    /// for a parent that meets the target alone, so the send is what lets it in once the cause
+    /// of the rejection is gone.
+    #[tokio::test]
+    async fn a_rejected_parent_is_sent_again_on_the_next_block() {
+        let harness = harness(BumpOutcome::NoPackage);
+        harness.chain.reject_broadcast.store(true, Ordering::SeqCst);
+        let tx = parent(1);
+        let drive = harness.drive_with_cpfp(&tx, DeadlineClass::Deadline, TxStatus::is_buried);
+        harness.wait_for_bumps(1).await;
+        let sends = harness.chain.broadcasts();
+
+        harness
+            .chain
+            .reject_broadcast
+            .store(false, Ordering::SeqCst);
+        harness.connect_block().await;
+
+        assert_eq!(
+            harness.chain.broadcasts(),
+            sends + 1,
+            "the rejected parent goes out again on the next block"
+        );
+        assert!(
+            !drive.is_finished(),
+            "the caller still waits for the burial"
+        );
+    }
+
     /// A read that fails on a disconnected block must not lose the restart of the burial.
     #[tokio::test]
     async fn a_failed_read_on_a_disconnected_block_still_restarts_the_burial() {
