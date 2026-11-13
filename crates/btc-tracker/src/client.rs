@@ -89,6 +89,7 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 #[derive(Debug, Clone)]
 pub struct BtcNotifyClient<State = Disconnected> {
     bury_depth: usize,
+    backfill_batch_size: usize,
     start_height: Option<u64>,
     sockets: Vec<String>,
     block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
@@ -122,11 +123,18 @@ pub trait BlockFetcher {
     async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error>;
 }
 
-/// Handles a `rawblock` ZMQ message and returns transaction events produced by it.
+/// Handles a `rawblock` ZMQ message, delivering any transaction events it produces to `tx_subs`.
 ///
 /// The handler enforces the configured start height, backfills any height gap before the received
 /// block, and then processes the resulting contiguous block list in order. `cursor` is advanced by
-/// the lower-level block processor for each block that is accepted.
+/// the lower-level block processor for each block that is accepted. Backfilled blocks are fetched
+/// and processed in batches of at most `backfill_batch_size` blocks (clamped to at least one),
+/// rather than all at once, so that a long backlog bounds memory use instead of holding every
+/// fetched block and every derived transaction event for the whole gap until the end.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "splitting these into a struct would obscure the per-call lifetimes of the shared state it borrows"
+)]
 async fn process_block_message<F>(
     block: Block,
     cursor: &mut u64,
@@ -134,8 +142,9 @@ async fn process_block_message<F>(
     sm: &mut BtcNotifySM,
     fetcher: &Arc<F>,
     block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
-) -> Vec<TxEvent>
-where
+    tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
+    backfill_batch_size: usize,
+) where
     F: BlockFetcher + Send + Sync + 'static,
     <F as BlockFetcher>::Error: std::fmt::Debug + Send,
 {
@@ -144,13 +153,13 @@ where
         Err(e) => {
             error!(?e, block_hash = %block.block_hash(),
                 "could not determine block height, skipping block");
-            return Vec::new();
+            return;
         }
     };
 
     if start_height > received_height {
         warn!(%received_height, %start_height, "start height is in the future, skipping block");
-        return Vec::new();
+        return;
     }
 
     if let Some(next_expected_height) = sm.next_expected_block_height() {
@@ -169,58 +178,69 @@ where
 
     if received_height < *cursor {
         warn!(%received_height, cursor = %*cursor, "received block is behind cursor, skipping block");
-        return Vec::new();
+        return;
     }
 
     debug!("received block at height {received_height}, expected {cursor}");
 
-    // Backfill any skipped blocks in the range:
-    // [cursor, received_height).
-    // FIXME: <https://alpenlabs.atlassian.net/browse/STR-2680>
-    // Process massive backlogs in bounded batches instead of all
-    // at once to avoid excessive memory use after prolonged
-    // downtime.
-    let mut blocks = match join_all((*cursor..received_height).map(|height| {
-        debug!(%height, "fetching lagged block");
-        let fetcher = fetcher.clone();
-        async move { fetcher.fetch_block(height).await }
-    }))
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(skipped_blocks) => skipped_blocks,
-        Err(e) => {
-            error!(?e, "failed to backfill lagged blocks");
-            // if we can't fetch any of the skipped blocks,
-            // then we wait for the next ZMQ event and try
-            // again since returning intermediate/broken stream
-            // of blocks may introduce unpredictable weirdness.
-            return Vec::new();
+    // A batch size of zero would never advance `batch_start` below, spinning forever on empty
+    // batches while holding the state machine lock; clamp it to make progress regardless.
+    let backfill_batch_size = backfill_batch_size.max(1) as u64;
+
+    // Backfill any skipped blocks in the range [cursor, received_height), a batch of
+    // `backfill_batch_size` blocks at a time. Each batch is fetched, processed and delivered to
+    // subscribers before the next batch is fetched, so a long backlog never holds more than one
+    // batch's worth of blocks and their derived events in memory at once.
+    let mut batch_start = *cursor;
+    while batch_start < received_height {
+        let batch_end = batch_start
+            .saturating_add(backfill_batch_size)
+            .min(received_height);
+
+        let batch_blocks = match join_all((batch_start..batch_end).map(|height| {
+            debug!(%height, "fetching lagged block");
+            let fetcher = fetcher.clone();
+            async move { fetcher.fetch_block(height).await }
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(batch_blocks) => batch_blocks,
+            Err(e) => {
+                error!(?e, "failed to backfill lagged blocks");
+                // if we can't fetch any of the skipped blocks,
+                // then we wait for the next ZMQ event and try
+                // again since returning intermediate/broken stream
+                // of blocks may introduce unpredictable weirdness. Batches already processed
+                // above are kept; only this batch and beyond are retried next time.
+                return;
+            }
+        };
+
+        for batch_block in batch_blocks {
+            process_connected_block(batch_block, cursor, sm, block_subs, tx_subs).await;
         }
-    };
 
-    blocks.push(block); // add the one from ZMQ
-
-    let mut all_tx_events = Vec::new();
-    for block in blocks {
-        all_tx_events.extend(process_connected_block(block, cursor, sm, block_subs).await);
+        batch_start = batch_end;
     }
 
-    all_tx_events
+    process_connected_block(block, cursor, sm, block_subs, tx_subs).await; // the one from ZMQ
 }
 
 /// Applies one block to subscribers and the state machine.
 ///
 /// The block is announced as mined, processed for transaction state transitions, and any resulting
 /// block event is forwarded to block subscribers. On success the cursor is moved past the processed
-/// block and the transaction diff is returned to the caller.
+/// block and the transaction diff is delivered to `tx_subs` before returning, so the block and its
+/// events can be dropped immediately rather than accumulating for the caller.
 async fn process_connected_block(
     block: Block,
     cursor: &mut u64,
     sm: &mut BtcNotifySM,
     block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
-) -> Vec<TxEvent> {
+    tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
+) {
     let height = block.bip34_block_height().unwrap_or(0);
     let block_hash = block.block_hash();
 
@@ -231,7 +251,7 @@ async fn process_connected_block(
             cursor = %*cursor,
             "block does not connect to state machine tip, leaving cursor unchanged"
         );
-        return Vec::new();
+        return;
     }
 
     // First send the block to the block subscribers.
@@ -263,7 +283,7 @@ async fn process_connected_block(
 
     *cursor = height.saturating_add(1);
 
-    tx_events
+    deliver_tx_events(&mut *tx_subs.lock().await, sm, &tx_events);
 }
 
 /// Sends `diff` to the matching subscribers, and removes each closed subscriber with its filter.
@@ -319,6 +339,7 @@ impl BtcNotifyClient<Disconnected> {
 
         Self {
             bury_depth: cfg.bury_depth,
+            backfill_batch_size: cfg.backfill_batch_size,
             sockets,
             block_subs,
             tx_subs,
@@ -402,6 +423,7 @@ impl BtcNotifyClient<Disconnected> {
         let state_machine_thread = self.state_machine.clone();
         let fetcher = Arc::new(fetcher);
         let health_observer = self.health_observer.clone();
+        let backfill_batch_size = self.backfill_batch_size;
 
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
@@ -429,6 +451,8 @@ impl BtcNotifyClient<Disconnected> {
                             Message::Block(block, _) => {
                                 trace!(%topic, "received event");
 
+                                // Delivers its own tx events per backfill batch as it goes, so
+                                // there is nothing left to deliver uniformly below.
                                 process_block_message(
                                     block,
                                     &mut cursor,
@@ -436,8 +460,11 @@ impl BtcNotifyClient<Disconnected> {
                                     &mut sm,
                                     &fetcher,
                                     &block_subs_thread,
+                                    &tx_subs_thread,
+                                    backfill_batch_size,
                                 )
-                                .await
+                                .await;
+                                Vec::new()
                             }
                             Message::Tx(tx, _) => {
                                 trace!(%topic, "received event");
@@ -507,6 +534,7 @@ impl BtcNotifyClient<Disconnected> {
 
         Ok(BtcNotifyClient {
             bury_depth: self.bury_depth,
+            backfill_batch_size: self.backfill_batch_size,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
             tx_subs: self.tx_subs.clone(),
@@ -543,6 +571,7 @@ impl BtcNotifyClient<Connected> {
 
         BtcNotifyClient {
             bury_depth: self.bury_depth,
+            backfill_batch_size: self.backfill_batch_size,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
             tx_subs: self.tx_subs.clone(),
@@ -638,7 +667,10 @@ impl<State> BtcNotifyClient<State> {
 mod tests {
     use std::{
         collections::{BTreeMap, VecDeque},
-        sync::{Arc, Mutex as StdMutex},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex as StdMutex,
+        },
     };
 
     use bitcoin::{
@@ -648,7 +680,10 @@ mod tests {
     use bitcoincore_zmq::SequenceMessage;
 
     use super::*;
-    use crate::{constants::DEFAULT_BURY_DEPTH, event::BlockStatus};
+    use crate::{
+        constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH},
+        event::BlockStatus,
+    };
 
     /// Adds one subscriber that matches every transaction to `subs` and to `sm`.
     fn subscribe_all(
@@ -763,6 +798,7 @@ mod tests {
 
         let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
         let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
 
         process_block_message(
@@ -772,6 +808,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -783,6 +821,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 2);
@@ -816,6 +856,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
 
@@ -841,6 +883,7 @@ mod tests {
 
         let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
         let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
 
         process_block_message(
@@ -850,6 +893,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -876,6 +921,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
 
@@ -900,6 +947,7 @@ mod tests {
 
         let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
         let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
 
         process_block_message(
@@ -909,6 +957,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -935,6 +985,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
 
@@ -961,6 +1013,7 @@ mod tests {
 
         let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::from([old_tip]));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = START_HEIGHT;
 
         process_block_message(
@@ -970,6 +1023,8 @@ mod tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
 
@@ -979,6 +1034,220 @@ mod tests {
         );
         assert_eq!(cursor, START_HEIGHT + 1);
         assert_eq!(sm.next_expected_block_height(), Some(START_HEIGHT + 1));
+    }
+
+    /// Builds a chain of `len` blocks starting at `base_height`, each connecting to the last.
+    fn test_chain(base_height: u64, len: u64) -> Vec<Block> {
+        let mut prev_blockhash = BlockHash::all_zeros();
+        (0..len)
+            .map(|offset| {
+                let height = base_height + offset;
+                let block = test_block(height, prev_blockhash, offset as u32);
+                prev_blockhash = block.block_hash();
+                block
+            })
+            .collect()
+    }
+
+    #[derive(Clone)]
+    struct ConcurrencyTrackingFetcher {
+        blocks: Arc<BTreeMap<u64, Block>>,
+        in_flight: Arc<AtomicUsize>,
+        max_in_flight: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl BlockFetcher for ConcurrencyTrackingFetcher {
+        type Error = String;
+
+        async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+            let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
+            // Yield so overlapping fetches within the same batch actually overlap, instead of
+            // each one resolving before the next is polled.
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+
+            self.blocks
+                .get(&height)
+                .cloned()
+                .ok_or_else(|| format!("missing block at height {height}"))
+        }
+    }
+
+    #[tokio::test]
+    async fn backfill_fetches_at_most_a_batch_size_of_blocks_concurrently() {
+        const BASE_HEIGHT: u64 = 100;
+        const BATCH_SIZE: usize = 3;
+        const GAP: u64 = 10;
+
+        let chain = test_chain(BASE_HEIGHT, GAP + 1);
+        let tip = chain.last().unwrap().clone();
+        let blocks = chain
+            .into_iter()
+            .map(|block| (block.bip34_block_height().unwrap(), block))
+            .collect();
+
+        let fetcher = Arc::new(ConcurrencyTrackingFetcher {
+            blocks: Arc::new(blocks),
+            in_flight: Arc::new(AtomicUsize::new(0)),
+            max_in_flight: Arc::new(AtomicUsize::new(0)),
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = BASE_HEIGHT;
+
+        process_block_message(
+            tip,
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+            &tx_subs,
+            BATCH_SIZE,
+        )
+        .await;
+
+        assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
+        assert!(
+            fetcher.max_in_flight.load(Ordering::SeqCst) <= BATCH_SIZE,
+            "backfill must never hold more than one batch's worth of blocks in flight, saw {}",
+            fetcher.max_in_flight.load(Ordering::SeqCst)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_zero_batch_size_still_makes_progress() {
+        const BASE_HEIGHT: u64 = 100;
+        const GAP: u64 = 3;
+
+        let chain = test_chain(BASE_HEIGHT, GAP + 1);
+        let tip = chain.last().unwrap().clone();
+        let blocks = chain
+            .into_iter()
+            .map(|block| (block.bip34_block_height().unwrap(), block))
+            .collect();
+
+        let fetcher = Arc::new(ConcurrencyTrackingFetcher {
+            blocks: Arc::new(blocks),
+            in_flight: Arc::new(AtomicUsize::new(0)),
+            max_in_flight: Arc::new(AtomicUsize::new(0)),
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = BASE_HEIGHT;
+
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            process_block_message(
+                tip,
+                &mut cursor,
+                BASE_HEIGHT,
+                &mut sm,
+                &fetcher,
+                &block_subs,
+                &tx_subs,
+                0,
+            ),
+        )
+        .await
+        .expect("a zero batch size must not spin forever");
+
+        assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
+    }
+
+    #[derive(Clone)]
+    struct OrderTrackingFetcher {
+        blocks: Arc<BTreeMap<u64, Block>>,
+        receiver: Arc<StdMutex<mpsc::UnboundedReceiver<TxEvent>>>,
+        delivered_before_fetch: Arc<StdMutex<BTreeMap<u64, usize>>>,
+        delivered_so_far: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl BlockFetcher for OrderTrackingFetcher {
+        type Error = String;
+
+        async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+            while self.receiver.lock().unwrap().try_recv().is_ok() {
+                self.delivered_so_far.fetch_add(1, Ordering::SeqCst);
+            }
+            self.delivered_before_fetch
+                .lock()
+                .unwrap()
+                .insert(height, self.delivered_so_far.load(Ordering::SeqCst));
+
+            self.blocks
+                .get(&height)
+                .cloned()
+                .ok_or_else(|| format!("missing block at height {height}"))
+        }
+    }
+
+    #[tokio::test]
+    async fn backfill_delivers_each_batchs_tx_events_before_fetching_the_next() {
+        const BASE_HEIGHT: u64 = 100;
+        const BATCH_SIZE: usize = 2;
+        const GAP: u64 = 4;
+
+        let chain = test_chain(BASE_HEIGHT, GAP + 1);
+        let tip = chain.last().unwrap().clone();
+        let blocks = chain
+            .into_iter()
+            .map(|block| (block.bip34_block_height().unwrap(), block))
+            .collect();
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let mut tx_subs_vec = Vec::new();
+        let receiver = subscribe_all(&mut tx_subs_vec, &mut sm);
+        let tx_subs = Arc::new(Mutex::new(tx_subs_vec));
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+
+        let fetcher = Arc::new(OrderTrackingFetcher {
+            blocks: Arc::new(blocks),
+            receiver: Arc::new(StdMutex::new(receiver)),
+            delivered_before_fetch: Arc::new(StdMutex::new(BTreeMap::new())),
+            delivered_so_far: Arc::new(AtomicUsize::new(0)),
+        });
+        let mut cursor = BASE_HEIGHT;
+
+        process_block_message(
+            tip,
+            &mut cursor,
+            BASE_HEIGHT,
+            &mut sm,
+            &fetcher,
+            &block_subs,
+            &tx_subs,
+            BATCH_SIZE,
+        )
+        .await;
+
+        let delivered_before_fetch = fetcher.delivered_before_fetch.lock().unwrap().clone();
+        assert_eq!(
+            delivered_before_fetch,
+            BTreeMap::from([
+                (BASE_HEIGHT, 0),
+                (BASE_HEIGHT + 1, 0),
+                (BASE_HEIGHT + 2, BATCH_SIZE),
+                (BASE_HEIGHT + 3, BATCH_SIZE),
+            ]),
+            "the first batch's tx events must be delivered before the second batch is fetched"
+        );
+
+        while fetcher.receiver.lock().unwrap().try_recv().is_ok() {
+            fetcher.delivered_so_far.fetch_add(1, Ordering::SeqCst);
+        }
+        assert_eq!(
+            fetcher.delivered_so_far.load(Ordering::SeqCst),
+            (GAP + 1) as usize,
+            "every backfilled block and the block from ZMQ must have its tx event delivered"
+        );
     }
 }
 
@@ -995,7 +1264,10 @@ mod e2e_tests {
     use tokio::time::timeout;
 
     use super::*;
-    use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
+    use crate::{
+        constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH},
+        event::TxStatus,
+    };
 
     async fn setup_node() -> Result<(BtcNotifyConfig, corepc_node::Node), Box<dyn std::error::Error>>
     {
@@ -1170,6 +1442,7 @@ mod e2e_tests {
             fetched_heights: fetched_heights.clone(),
         });
         let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut sm = BtcNotifySM::init(cfg.bury_depth, VecDeque::new());
         let mut cursor = base_height;
 
@@ -1180,6 +1453,8 @@ mod e2e_tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
         assert_eq!(cursor, base_height + 1);
@@ -1199,6 +1474,8 @@ mod e2e_tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
         assert_eq!(cursor, base_height + 2);
@@ -1251,6 +1528,8 @@ mod e2e_tests {
             &mut sm,
             &fetcher,
             &block_subs,
+            &tx_subs,
+            DEFAULT_BACKFILL_BATCH_SIZE,
         )
         .await;
 
