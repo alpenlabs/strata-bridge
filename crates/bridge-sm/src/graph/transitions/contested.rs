@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use bitcoin::Transaction;
 use strata_bridge_primitives::{operator_table::OperatorTable, types::OperatorIdx};
-use strata_bridge_tx_graph::game_graph::{GameConnectors, GameGraphSummary};
+use strata_bridge_tx_graph::game_graph::GameGraphSummary;
 
 use crate::{
     graph::{
         config::GraphSMCfg,
-        duties::GraphDuty,
         errors::{GSMError, GSMResult},
         events::{
             BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
@@ -25,12 +24,12 @@ use crate::{
 impl GraphSM {
     /// Processes the event where a contest transaction has been confirmed on-chain.
     ///
-    /// Only valid from the `Claimed` state transitions to `Contested` state.
-    /// Emits a [`GraphDuty::GenerateAndPublishBridgeProof`] duty if the current operator is the
-    /// graph owner.
+    /// Only valid from the `Claimed` state transitions to `Contested` state. Emits no duty: the
+    /// graph owner's bridge proof is emitted by `notify_new_block` once the configured delay has
+    /// elapsed.
     pub(crate) fn process_contest(
         &mut self,
-        cfg: Arc<GraphSMCfg>,
+        _cfg: Arc<GraphSMCfg>,
         event: ContestConfirmedEvent,
     ) -> GSMResult<GSMOutput> {
         match self.state.clone() {
@@ -65,29 +64,7 @@ impl GraphSM {
                     payout_connector_spent,
                 };
 
-                // The graph owner must publish a bridge proof to defend against the contest
-                let duties =
-                    if self.context().operator_idx() == self.context().operator_table().pov_idx() {
-                        let setup_params = self.context().generate_setup_params(&cfg, &graph_data);
-                        let connectors = GameConnectors::new(
-                            graph_data.game_index,
-                            &cfg.game_graph_params,
-                            &setup_params,
-                        );
-
-                        vec![GraphDuty::GenerateAndPublishBridgeProof {
-                            graph_idx: self.context().graph_idx(),
-                            last_block_height,
-                            contest_txid: graph_summary.contest,
-                            game_index: graph_data.game_index,
-                            contest_proof_connector: connectors.contest_proof,
-                            operator_pubkey: self.context().owner_btc_x_only_key(),
-                        }]
-                    } else {
-                        Vec::new()
-                    };
-
-                Ok(GSMOutput::with_duties(duties))
+                Ok(GSMOutput::new())
             }
             state @ GraphState::Contested { .. } => Err(GSMError::duplicate(state, event.into())),
             state => Err(GSMError::invalid_event(state, event.into(), None)),
@@ -97,7 +74,8 @@ impl GraphSM {
     /// Processes the event where a bridge proof transaction has been confirmed on-chain.
     ///
     /// Only valid from the `Contested` state, transitions to `BridgeProofPosted`.
-    /// If the current operator is a watchtower, emits a [`GraphDuty::PotentialCounterProof`]
+    /// If the current operator is a watchtower, emits a
+    /// [`GraphDuty::PotentialCounterProof`](crate::graph::duties::GraphDuty::PotentialCounterProof)
     /// duty; the executor verifies the proof and decides whether to publish a counterproof.
     pub(crate) fn process_bridge_proof(
         &mut self,

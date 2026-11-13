@@ -10,7 +10,9 @@ use crate::graph::{
     duties::GraphDuty,
     errors::{GSMError, GSMResult},
     events::RetryTickEvent,
-    machine::{GSMOutput, GraphSM, generate_game_graph},
+    machine::{
+        GSMOutput, GraphSM, bridge_proof_delay_elapsed, bridge_proof_duty, generate_game_graph,
+    },
     state::GraphState,
     watchtower::watchtower_slot_for_operator,
 };
@@ -96,25 +98,20 @@ impl GraphSM {
             }
             GraphState::Contested {
                 last_block_height,
+                contest_block_height,
                 graph_data,
                 graph_summary,
                 ..
-            } if self.context().operator_idx() == self.context().operator_table().pov_idx() => {
-                let setup_params = self.context().generate_setup_params(&cfg, graph_data);
-                let connectors = GameConnectors::new(
-                    graph_data.game_index,
-                    &cfg.game_graph_params,
-                    &setup_params,
-                );
-
-                vec![GraphDuty::GenerateAndPublishBridgeProof {
-                    graph_idx: self.context().graph_idx(),
-                    last_block_height: *last_block_height,
-                    contest_txid: graph_summary.contest,
-                    game_index: graph_data.game_index,
-                    contest_proof_connector: connectors.contest_proof,
-                    operator_pubkey: self.context().owner_btc_x_only_key(),
-                }]
+            } if self.context().operator_idx() == self.context().operator_table().pov_idx()
+                && bridge_proof_delay_elapsed(&cfg, *contest_block_height, *last_block_height) =>
+            {
+                vec![bridge_proof_duty(
+                    self.context(),
+                    &cfg,
+                    graph_data,
+                    graph_summary.contest,
+                    *last_block_height,
+                )]
             }
             GraphState::BridgeProofPosted {
                 last_block_height,
@@ -138,6 +135,7 @@ impl GraphSM {
             }
             GraphState::CounterProofPosted {
                 last_block_height,
+                contest_block_height,
                 graph_data,
                 graph_summary,
                 signatures,
@@ -159,15 +157,20 @@ impl GraphSM {
 
                     let mut duties: Vec<GraphDuty> = Vec::new();
 
-                    if refuted_bridge_proof.is_none() {
-                        duties.push(GraphDuty::GenerateAndPublishBridgeProof {
-                            graph_idx: self.context().graph_idx(),
-                            last_block_height: *last_block_height,
-                            contest_txid: graph_summary.contest,
-                            game_index: graph_data.game_index,
-                            contest_proof_connector: connectors.contest_proof,
-                            operator_pubkey: self.context().owner_btc_x_only_key(),
-                        });
+                    if refuted_bridge_proof.is_none()
+                        && bridge_proof_delay_elapsed(
+                            &cfg,
+                            *contest_block_height,
+                            *last_block_height,
+                        )
+                    {
+                        duties.push(bridge_proof_duty(
+                            self.context(),
+                            &cfg,
+                            graph_data,
+                            graph_summary.contest,
+                            *last_block_height,
+                        ));
                     }
 
                     // Retry NACKs for confirmed counterproofs that have not been NACK'd yet.

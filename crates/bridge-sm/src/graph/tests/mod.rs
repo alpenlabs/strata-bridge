@@ -38,8 +38,8 @@ use strata_bridge_test_utils::{
 };
 use strata_bridge_tx_graph::{
     game_graph::{
-        AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary,
-        ProtocolParams,
+        AdminMultisig, CounterproofGraphSummary, DepositParams, GameConnectors, GameGraph,
+        GameGraphSummary, ProtocolParams,
     },
     musig_functor::GameFunctor,
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
@@ -112,6 +112,11 @@ const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 /// Creates a test bridge-wide GSM configuration.
 pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
+    test_graph_sm_cfg_with_delay(0)
+}
+
+/// Creates a test bridge-wide GSM configuration with the given bridge proof delay.
+pub(super) fn test_graph_sm_cfg_with_delay(bridge_proof_delay_blocks: u16) -> Arc<GraphSMCfg> {
     let payout_descs = (0..N_TEST_OPERATORS as OperatorIdx)
         .map(|idx| (idx, random_p2tr_desc()))
         .collect();
@@ -137,6 +142,7 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         payout_descs,
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),
+        bridge_proof_delay_blocks,
     })
 }
 
@@ -502,6 +508,31 @@ pub(super) fn expected_potential_counterproof_duty(
         proof: proof.clone(),
         bridge_proof_tx: bridge_proof_tx.clone(),
         operator_table: sm.context().operator_table().clone(),
+    }
+}
+
+/// The [`GraphDuty::GenerateAndPublishBridgeProof`] the PoV graph owner is expected to emit
+/// for the test graph, anchored at `anchor_height`.
+pub(super) fn expected_bridge_proof_duty_at(
+    cfg: &GraphSMCfg,
+    anchor_height: BitcoinBlockHeight,
+) -> GraphDuty {
+    let ctx = test_graph_sm_ctx();
+    let deposit_params = test_deposit_params();
+    let setup_params = ctx.generate_setup_params(cfg, &deposit_params);
+    let connectors = GameConnectors::new(
+        deposit_params.game_index,
+        &cfg.game_graph_params,
+        &setup_params,
+    );
+
+    GraphDuty::GenerateAndPublishBridgeProof {
+        graph_idx: ctx.graph_idx(),
+        anchor_height,
+        contest_txid: mock_states::TEST_GRAPH_SUMMARY.contest,
+        game_index: deposit_params.game_index,
+        contest_proof_connector: connectors.contest_proof,
+        operator_pubkey: ctx.owner_btc_x_only_key(),
     }
 }
 

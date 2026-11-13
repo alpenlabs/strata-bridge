@@ -81,6 +81,7 @@ def generate_config_toml(
         min_withdrawal_fulfillment_window=bridge_config_params.min_withdrawal_fulfillment_window,
         shutdown_timeout=Duration(secs=30, nanos=0),
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
+        bridge_proof_delay_blocks=bridge_config_params.bridge_proof_delay_blocks,
         max_fee_rate=bridge_config_params.max_fee_rate,
         max_active_deposits=bridge_config_params.max_active_deposits,
         dev=bridge_config_params.dev or _dev_mode_from_env(),

@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use bitcoin::Transaction;
+use bitcoin::{Transaction, Txid};
 use musig2::secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_tx_graph::{
-    game_graph::{DepositParams, GameData, GameGraph},
+    game_graph::{DepositParams, GameConnectors, GameData, GameGraph},
     musig_functor::GameFunctor,
 };
 use zkaleido::ProofReceipt;
@@ -246,6 +246,53 @@ impl GraphSM {
             bridge_proof_tx: bridge_proof_tx.clone(),
             operator_table: self.context().operator_table().clone(),
         })
+    }
+}
+
+/// Returns whether `height` is at least `bridge_proof_delay_blocks` past the contest block.
+pub(super) fn bridge_proof_delay_elapsed(
+    cfg: &GraphSMCfg,
+    contest_block_height: BitcoinBlockHeight,
+    height: BitcoinBlockHeight,
+) -> bool {
+    height >= contest_block_height + u64::from(cfg.bridge_proof_delay_blocks)
+}
+
+/// Returns whether moving from `prev_height` to `new_height` ends the bridge proof delay.
+///
+/// With a delay of `0` this holds on the contest block itself: the `Claimed` -> `Contested`
+/// handoff carries over a pre-contest height, and the contest block's own `NewBlock` follows the
+/// contest event.
+pub(super) fn bridge_proof_delay_ends(
+    cfg: &GraphSMCfg,
+    contest_block_height: BitcoinBlockHeight,
+    prev_height: BitcoinBlockHeight,
+    new_height: BitcoinBlockHeight,
+) -> bool {
+    !bridge_proof_delay_elapsed(cfg, contest_block_height, prev_height)
+        && bridge_proof_delay_elapsed(cfg, contest_block_height, new_height)
+}
+
+/// Builds the [`GraphDuty::GenerateAndPublishBridgeProof`] the graph owner emits to defend
+/// against a contest, anchoring the proof at `anchor_height`.
+pub(super) fn bridge_proof_duty(
+    ctx: &GraphSMCtx,
+    cfg: &GraphSMCfg,
+    graph_data: &DepositParams,
+    contest_txid: Txid,
+    anchor_height: BitcoinBlockHeight,
+) -> GraphDuty {
+    let setup_params = ctx.generate_setup_params(cfg, graph_data);
+    let connectors =
+        GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
+
+    GraphDuty::GenerateAndPublishBridgeProof {
+        graph_idx: ctx.graph_idx(),
+        anchor_height,
+        contest_txid,
+        game_index: graph_data.game_index,
+        contest_proof_connector: connectors.contest_proof,
+        operator_pubkey: ctx.owner_btc_x_only_key(),
     }
 }
 
