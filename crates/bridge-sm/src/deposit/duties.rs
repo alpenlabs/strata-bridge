@@ -12,6 +12,7 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_tx_graph::transactions::prelude::{CooperativePayoutTx, SweepTx};
+use strata_l1_txfmt::MagicBytes;
 
 /// The nag duties that can be emitted to remind operators of missing data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,6 +198,10 @@ pub enum DepositDuty {
         recipient_desc: Descriptor,
         /// The fixed deposit amount expected by the bridge protocol.
         deposit_amount: Amount,
+        /// Operator fee from the deposit's pinned config.
+        operator_fee: Amount,
+        /// Bridge identifier from the deposit's pinned config.
+        magic_bytes: MagicBytes,
     },
     /// Request pubnonces from all operators for cooperative payout.
     RequestPayoutNonces {

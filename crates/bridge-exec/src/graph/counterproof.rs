@@ -25,6 +25,7 @@ use strata_bridge_proof::{
     BridgeProofOutput, MerkleProofB32, MohoRecursiveOutput, MohoState, RecursiveMohoProof,
 };
 use strata_bridge_proof_common::prove;
+use strata_bridge_sm::graph::config::GraphSMCfg;
 use strata_bridge_tx_graph::transactions::counterproof::CounterproofTx;
 use strata_identifiers::Buf32;
 use strata_mosaic_client_api::types::{G16ProofRaw, N_WITHDRAWAL_INPUT_WIRES, Role};
@@ -34,8 +35,7 @@ use zkaleido::ProofReceipt;
 use zkaleido_sp1_groth16_verifier::Sp1Groth16Proof;
 
 use crate::{
-    chain::publish_signed_transaction, config::ExecutionConfig, errors::ExecutorError,
-    output_handles::OutputHandles,
+    chain::publish_signed_transaction, errors::ExecutorError, output_handles::OutputHandles,
 };
 
 /// Handles a [`GraphDuty::PotentialCounterProof`]: verifies the observed bridge proof and publishes
@@ -43,7 +43,7 @@ use crate::{
 /// because our heavier canonical chain contradicts its claim.
 #[expect(clippy::too_many_arguments)]
 pub(super) async fn evaluate_and_publish_counterproof(
-    cfg: &ExecutionConfig,
+    graph_cfg: &GraphSMCfg,
     output_handles: &OutputHandles,
     counterproof_tx: CounterproofTx,
     operator_idx: OperatorIdx,
@@ -77,7 +77,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
             break 'select_mode CounterproofMode::InvalidBridgeProof;
         }
 
-        if !verify_bridge_proof(&cfg.graph_sm_cfg.bridge_proof_predicate, &proof) {
+        if !verify_bridge_proof(&graph_cfg.bridge_proof_predicate, &proof) {
             info!(%deposit_idx, %operator_idx, %game_index, "bridge proof failed verification; publishing counterproof");
             break 'select_mode CounterproofMode::InvalidBridgeProof;
         }
@@ -106,7 +106,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
     };
 
     generate_and_publish_counterproof(
-        cfg,
+        graph_cfg,
         output_handles,
         counterproof_tx,
         operator_idx,
@@ -125,7 +125,7 @@ pub(super) async fn evaluate_and_publish_counterproof(
 /// Bitcoin.
 #[expect(clippy::too_many_arguments)]
 async fn generate_and_publish_counterproof(
-    cfg: &ExecutionConfig,
+    graph_cfg: &GraphSMCfg,
     output_handles: &OutputHandles,
     counterproof_tx: CounterproofTx,
     operator_idx: OperatorIdx,
@@ -175,7 +175,7 @@ async fn generate_and_publish_counterproof(
         }
 
         let counterproof_data = generate_counterproof(
-            cfg,
+            graph_cfg,
             output_handles,
             deposit_idx,
             operator_idx,
@@ -227,7 +227,7 @@ async fn generate_and_publish_counterproof(
 /// is returned as a stand-in.
 #[expect(clippy::too_many_arguments)]
 async fn generate_counterproof(
-    cfg: &ExecutionConfig,
+    graph_cfg: &GraphSMCfg,
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
@@ -239,7 +239,7 @@ async fn generate_counterproof(
     counter!("strata_bridge_counterproof_generation_attempts").increment(1);
 
     let proof_input = fetch_counterproof_input(
-        cfg,
+        graph_cfg,
         output_handles,
         deposit_idx,
         operator_idx,
@@ -280,7 +280,7 @@ async fn generate_counterproof(
 /// into a [`CounterproofInput`] ready to feed into the counterproof program.
 #[expect(clippy::too_many_arguments)]
 async fn fetch_counterproof_input(
-    cfg: &ExecutionConfig,
+    graph_cfg: &GraphSMCfg,
     output_handles: &OutputHandles,
     deposit_idx: DepositIdx,
     operator_idx: OperatorIdx,
@@ -293,7 +293,7 @@ async fn fetch_counterproof_input(
 
     let (operator_xonly, n_of_n_xonly) = counterproof_operator_keys(operator_table, operator_idx);
 
-    let proof_timelock = cfg.graph_sm_cfg.game_graph_params.proof_timelock.value();
+    let proof_timelock = graph_cfg.game_graph_params.proof_timelock.value();
 
     let mut bridge_proof_tx_prevouts = Vec::with_capacity(bridge_proof_tx.input.len());
     for txin in &bridge_proof_tx.input {

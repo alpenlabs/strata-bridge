@@ -6,7 +6,7 @@ use strata_bridge_primitives::scripts::taproot::TaprootTweak;
 
 use crate::graph::{
     config::GraphSMCfg,
-    duties::{GraphDuty, NagDuty},
+    duties::{DutyConfig, GraphDuty, NagDuty},
     errors::{GSMError, GSMResult},
     events::{GraphEvent, NagReceivedEvent},
     machine::{GSMOutput, GraphSM, generate_game_graph},
@@ -90,7 +90,7 @@ impl GraphSM {
         event: NagReceivedEvent,
     ) -> GSMResult<GSMOutput> {
         let duties = match &event.payload {
-            NagRequestPayload::GraphData { .. } => self.process_graph_data_nag(&event),
+            NagRequestPayload::GraphData { .. } => self.process_graph_data_nag(&cfg, &event),
             NagRequestPayload::GraphNonces { .. } => self.process_graph_nonces_nag(&cfg, &event),
             NagRequestPayload::GraphPartials { .. } => {
                 self.process_graph_partials_nag(&cfg, &event)
@@ -129,7 +129,11 @@ impl GraphSM {
         )
     }
 
-    fn process_graph_data_nag(&self, event: &NagReceivedEvent) -> GSMResult<Vec<GraphDuty>> {
+    fn process_graph_data_nag(
+        &self,
+        cfg: &Arc<GraphSMCfg>,
+        event: &NagReceivedEvent,
+    ) -> GSMResult<Vec<GraphDuty>> {
         match self.state() {
             GraphState::Created { .. }
             | GraphState::GraphGenerated { .. }
@@ -140,6 +144,7 @@ impl GraphSM {
                 stake_outpoint: self.context().stake_outpoint(),
                 unstaking_image: self.context().unstaking_image(),
                 operator_table: self.context().operator_table().clone(),
+                cfg: DutyConfig(cfg.clone()),
             }]),
             _ => {
                 tracing::debug!(

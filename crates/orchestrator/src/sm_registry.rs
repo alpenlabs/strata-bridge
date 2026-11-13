@@ -13,6 +13,7 @@ use bitcoin::{
     hashes::{Hash, sha256},
 };
 use strata_asm_bridge_types::SafeHarborAddress;
+use strata_bridge_db::types::PinnedConfig;
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::OperatorTable,
@@ -45,9 +46,11 @@ use crate::{
 /// Static configuration shared by all state machines.
 #[derive(Debug, Clone)]
 pub struct SMConfig {
-    /// Static configuration for all deposit state machines.
+    /// Configuration for deposits created from now on. A deposit keeps the config it was created
+    /// under; see [`SMRegistry::deposit_config`].
     pub deposit: Arc<DepositSMCfg>,
-    /// Static configuration for all graph state machines.
+    /// Configuration for the graphs of deposits created from now on. A graph uses its deposit's
+    /// pinned config.
     pub graph: Arc<GraphSMCfg>,
     /// Static configuration for all stake state machines.
     pub stake: Arc<StakeSMCfg>,
@@ -85,6 +88,10 @@ const fn is_terminal(state: &DepositState) -> bool {
 pub struct SMRegistry {
     /// Static configuration shared by all state machines.
     cfg: SMConfig,
+    /// The deposit and graph configs of [`Self::cfg`], which new deposits are pinned to.
+    current_config: PinnedConfig,
+    /// The config each deposit and its graphs were created under, indexed by deposit index.
+    deposit_configs: BTreeMap<DepositIdx, PinnedConfig>,
     /// The state machines responsible for processing deposits, indexed by their deposit index.
     deposits: BTreeMap<DepositIdx, DepositSM>,
     /// The state machines responsible for processing graphs, indexed by their graph index.
@@ -158,8 +165,10 @@ pub enum ProcessOutcome {
 
 impl SMRegistry {
     /// Creates a new empty registry with the given configuration.
-    pub const fn new(cfg: SMConfig) -> Self {
+    pub fn new(cfg: SMConfig) -> Self {
         Self {
+            current_config: PinnedConfig::new(cfg.deposit.clone(), cfg.graph.clone()),
+            deposit_configs: BTreeMap::new(),
             cfg,
             deposits: BTreeMap::new(),
             graphs: BTreeMap::new(),
@@ -172,6 +181,16 @@ impl SMRegistry {
     /// Gets a reference to the registry configuration.
     pub const fn cfg(&self) -> &SMConfig {
         &self.cfg
+    }
+
+    /// Returns the config new deposits are pinned to.
+    pub const fn current_config(&self) -> &PinnedConfig {
+        &self.current_config
+    }
+
+    /// Returns the config a deposit and its graphs were created under.
+    pub fn deposit_config(&self, deposit_idx: &DepositIdx) -> Option<&PinnedConfig> {
+        self.deposit_configs.get(deposit_idx)
     }
 
     // ── Safe Harbour ──────────────────────────────────────────────────
@@ -423,7 +442,7 @@ impl SMRegistry {
         self.cfg.deposit_index_offset
     }
 
-    /// Inserts a new deposit state machine into the registry with the given deposit index.
+    /// Inserts a new deposit state machine, pinned to the [current config](Self::current_config).
     ///
     /// Returns an error if a state machine with the same [`DepositIdx`] already exists.
     pub fn insert_deposit(
@@ -431,9 +450,23 @@ impl SMRegistry {
         deposit_idx: DepositIdx,
         sm: DepositSM,
     ) -> Result<(), RegistryInsertError> {
+        let config = self.current_config.clone();
+        self.insert_pinned_deposit(deposit_idx, sm, config)
+    }
+
+    /// Inserts a deposit state machine pinned to `config`, the config it was created under.
+    ///
+    /// Returns an error if a state machine with the same [`DepositIdx`] already exists.
+    pub fn insert_pinned_deposit(
+        &mut self,
+        deposit_idx: DepositIdx,
+        sm: DepositSM,
+        config: PinnedConfig,
+    ) -> Result<(), RegistryInsertError> {
         match self.deposits.entry(deposit_idx) {
             Entry::Vacant(entry) => {
                 entry.insert(sm);
+                self.deposit_configs.insert(deposit_idx, config);
                 Ok(())
             }
             Entry::Occupied(_) => {
@@ -648,12 +681,17 @@ impl SMRegistry {
                     .deposits
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
+                let cfg = self
+                    .deposit_configs
+                    .get(idx)
+                    .ok_or(ProcessError::SMNotFound(*id))?
+                    .deposit();
                 let event = SMEvent::Deposit(deposit_event.clone());
-                sm.process_event(self.cfg.deposit.clone(), *deposit_event)
+                sm.process_event(cfg.clone(), *deposit_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Deposit)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -664,12 +702,17 @@ impl SMRegistry {
                     .graphs
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
+                let cfg = self
+                    .deposit_configs
+                    .get(&idx.deposit)
+                    .ok_or(ProcessError::SMNotFound(SMId::Deposit(idx.deposit)))?
+                    .graph();
                 let event = SMEvent::Graph(graph_event.clone());
-                sm.process_event(self.cfg.graph.clone(), *graph_event)
+                sm.process_event(cfg.clone(), *graph_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Graph)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -890,6 +933,102 @@ mod tests {
             test_registry_with_cap, test_sm_config, unavailable_bitcoin_client,
         },
     };
+
+    #[test]
+    fn fulfillment_assignment_and_retry_keep_pinned_fee_and_magic_bytes() {
+        use strata_bridge_sm::{
+            deposit::{
+                duties::DepositDuty,
+                events::{RetryTickEvent, WithdrawalAssignedEvent},
+            },
+            tx_classifier::{TxClassifier, is_fulfillment},
+        };
+        use strata_bridge_test_utils::bridge_fixtures::random_p2tr_desc;
+        use strata_bridge_tx_graph::transactions::prelude::{
+            WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+        };
+
+        let original = test_populated_registry(1);
+        let pinned = original.current_config().clone();
+        let mut startup = original.cfg().clone();
+        let startup_deposit = Arc::make_mut(&mut startup.deposit);
+        startup_deposit.operator_fee += Amount::from_sat(100);
+        startup_deposit.magic_bytes = [0x4e, 0x45, 0x57, 0x21].into();
+        let mut deposit = original.get_deposit(&0).unwrap().clone();
+        deposit.state = DepositState::Deposited {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+        let mut registry = SMRegistry::new(startup.clone());
+        registry
+            .insert_pinned_deposit(0, deposit, pinned.clone())
+            .unwrap();
+        let recipient = random_p2tr_desc();
+
+        for event in [
+            DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: INITIAL_BLOCK_HEIGHT + 100,
+                recipient_desc: recipient.clone(),
+            }),
+            DepositEvent::RetryTick(RetryTickEvent),
+        ] {
+            let ProcessOutcome::Applied(output) = registry
+                .process_event(&SMId::Deposit(0), event.into())
+                .unwrap()
+            else {
+                panic!("assignment and retry must apply");
+            };
+            let [
+                UnifiedDuty::Deposit(DepositDuty::FulfillWithdrawalRequest {
+                    deposit_idx,
+                    deposit_amount,
+                    operator_fee,
+                    magic_bytes,
+                    recipient_desc,
+                    ..
+                }),
+            ] = output.duties.as_slice()
+            else {
+                panic!("expected one fulfillment duty, got {:?}", output.duties);
+            };
+            assert_eq!(*operator_fee, pinned.deposit().operator_fee);
+            assert_eq!(*magic_bytes, pinned.deposit().magic_bytes);
+            let tx = WithdrawalFulfillmentTx::new(
+                WithdrawalFulfillmentData {
+                    deposit_idx: *deposit_idx,
+                    user_amount: *deposit_amount - *operator_fee,
+                    magic_bytes: *magic_bytes,
+                },
+                recipient_desc.clone(),
+            )
+            .into_unsigned_tx();
+            assert!(matches!(
+                registry.get_deposit(&0).unwrap().classify_tx(
+                    pinned.deposit(),
+                    &tx,
+                    INITIAL_BLOCK_HEIGHT + 1,
+                ),
+                Some(DepositEvent::FulfillmentConfirmed(_))
+            ));
+            // Either startup value would make this fulfillment unrecognizable.
+            assert!(!is_fulfillment(
+                *magic_bytes,
+                *deposit_idx,
+                *deposit_amount,
+                startup.deposit.operator_fee,
+                recipient_desc,
+                &tx,
+            ));
+            assert!(!is_fulfillment(
+                startup.deposit.magic_bytes,
+                *deposit_idx,
+                *deposit_amount,
+                *operator_fee,
+                recipient_desc,
+                &tx,
+            ));
+        }
+    }
 
     // ===== Basic CRUD tests =====
 

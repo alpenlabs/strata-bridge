@@ -17,6 +17,7 @@ use crate::{
         dirs::Directories,
         errors::{LayerError, TransactionError},
         row_spec::{
+            configs::DepositConfigKey,
             deposits::DepositStateKey,
             kv::{KVRowSpec, PackableKey, SerializableValue},
         },
@@ -469,8 +470,33 @@ impl FdbClient {
     // These perform multiple deletes within a single transaction to maintain consistency between
     // related data. They are expected to be infrequent but may involve large range clears.
 
-    /// Atomically deletes a deposit state and all associated graph states in a
-    /// single FDB transaction.
+    /// Atomically deletes a deposit state and its config reference.
+    pub(super) async fn delete_deposit_rows(
+        &self,
+        deposit_idx: DepositIdx,
+    ) -> Result<(), OneOf<(FdbBindingError, LayerError)>> {
+        let keys = (
+            DepositStateKey { deposit_idx }
+                .pack(&self.dirs)
+                .map_err(LayerError::failed_to_pack_key)
+                .map_err(OneOf::new)?,
+            DepositConfigKey { deposit_idx }
+                .pack(&self.dirs)
+                .map_err(LayerError::failed_to_pack_key)
+                .map_err(OneOf::new)?,
+        );
+        self.transact(keys, |trx, keys| {
+            Box::pin(async move {
+                trx.clear(keys.0.as_ref());
+                trx.clear(keys.1.as_ref());
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Atomically deletes a deposit state, its config reference and all associated graph states
+    /// in a single FDB transaction.
     pub async fn delete_deposit_cascade(
         &self,
         deposit_idx: DepositIdx,
@@ -480,15 +506,24 @@ impl FdbClient {
             .map_err(LayerError::failed_to_pack_key)
             .map_err(OneOf::new)?;
 
+        let config_key = DepositConfigKey { deposit_idx }
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+
         let (graph_begin, graph_end) = self.dirs.graphs.subspace(&(deposit_idx,)).range();
 
-        self.transact((deposit_key, graph_begin, graph_end), |trx, data| {
-            Box::pin(async move {
-                trx.clear(data.0.as_ref());
-                trx.clear_range(&data.1, &data.2);
-                Ok(())
-            })
-        })
+        self.transact(
+            (deposit_key, config_key, graph_begin, graph_end),
+            |trx, data| {
+                Box::pin(async move {
+                    trx.clear(data.0.as_ref());
+                    trx.clear(data.1.as_ref());
+                    trx.clear_range(&data.2, &data.3);
+                    Ok(())
+                })
+            },
+        )
         .await
     }
 

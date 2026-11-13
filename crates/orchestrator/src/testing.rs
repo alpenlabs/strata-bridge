@@ -233,7 +233,7 @@ pub(crate) fn insert_deposit_with_graphs(registry: &mut SMRegistry, deposit_idx:
             unstaking_image: sha256::Hash::all_zeros(),
             operator_table: operator_table.clone(),
         };
-        let (gsm, _duty) = GraphSM::new(gsm_ctx, INITIAL_BLOCK_HEIGHT);
+        let (gsm, _duty) = GraphSM::new(&test_graph_sm_cfg(), gsm_ctx, INITIAL_BLOCK_HEIGHT);
         registry
             .insert_graph(graph_idx, gsm)
             .expect("test helper must not insert duplicate graph index");

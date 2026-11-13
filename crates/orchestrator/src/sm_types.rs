@@ -202,6 +202,8 @@ mod tests {
             deadline: 100,
             recipient_desc: random_p2tr_desc(),
             deposit_amount: Amount::from_sat(1_000_000),
+            operator_fee: Amount::from_sat(1_000),
+            magic_bytes: [0x54, 0x45, 0x53, 0x54].into(),
         }
         .into();
         assert!(fulfill.should_suppress_under_safe_harbour());
