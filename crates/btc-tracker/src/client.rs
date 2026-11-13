@@ -128,9 +128,9 @@ pub trait BlockFetcher {
 /// The handler enforces the configured start height, backfills any height gap before the received
 /// block, and then processes the resulting contiguous block list in order. `cursor` is advanced by
 /// the lower-level block processor for each block that is accepted. Backfilled blocks are fetched
-/// and processed in batches of at most `backfill_batch_size` blocks, rather than all at once, so
-/// that a long backlog bounds memory use instead of holding every fetched block and every derived
-/// transaction event for the whole gap until the end.
+/// and processed in batches of at most `backfill_batch_size` blocks (clamped to at least one),
+/// rather than all at once, so that a long backlog bounds memory use instead of holding every
+/// fetched block and every derived transaction event for the whole gap until the end.
 #[expect(
     clippy::too_many_arguments,
     reason = "splitting these into a struct would obscure the per-call lifetimes of the shared state it borrows"
@@ -183,6 +183,10 @@ async fn process_block_message<F>(
 
     debug!("received block at height {received_height}, expected {cursor}");
 
+    // A batch size of zero would never advance `batch_start` below, spinning forever on empty
+    // batches while holding the state machine lock; clamp it to make progress regardless.
+    let backfill_batch_size = backfill_batch_size.max(1) as u64;
+
     // Backfill any skipped blocks in the range [cursor, received_height), a batch of
     // `backfill_batch_size` blocks at a time. Each batch is fetched, processed and delivered to
     // subscribers before the next batch is fetched, so a long backlog never holds more than one
@@ -190,7 +194,7 @@ async fn process_block_message<F>(
     let mut batch_start = *cursor;
     while batch_start < received_height {
         let batch_end = batch_start
-            .saturating_add(backfill_batch_size as u64)
+            .saturating_add(backfill_batch_size)
             .min(received_height);
 
         let batch_blocks = match join_all((batch_start..batch_end).map(|height| {
@@ -1113,6 +1117,48 @@ mod tests {
             "backfill must never hold more than one batch's worth of blocks in flight, saw {}",
             fetcher.max_in_flight.load(Ordering::SeqCst)
         );
+    }
+
+    #[tokio::test]
+    async fn a_zero_batch_size_still_makes_progress() {
+        const BASE_HEIGHT: u64 = 100;
+        const GAP: u64 = 3;
+
+        let chain = test_chain(BASE_HEIGHT, GAP + 1);
+        let tip = chain.last().unwrap().clone();
+        let blocks = chain
+            .into_iter()
+            .map(|block| (block.bip34_block_height().unwrap(), block))
+            .collect();
+
+        let fetcher = Arc::new(ConcurrencyTrackingFetcher {
+            blocks: Arc::new(blocks),
+            in_flight: Arc::new(AtomicUsize::new(0)),
+            max_in_flight: Arc::new(AtomicUsize::new(0)),
+        });
+
+        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let block_subs = Arc::new(Mutex::new(Vec::new()));
+        let tx_subs = Arc::new(Mutex::new(Vec::new()));
+        let mut cursor = BASE_HEIGHT;
+
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            process_block_message(
+                tip,
+                &mut cursor,
+                BASE_HEIGHT,
+                &mut sm,
+                &fetcher,
+                &block_subs,
+                &tx_subs,
+                0,
+            ),
+        )
+        .await
+        .expect("a zero batch size must not spin forever");
+
+        assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
     }
 
     #[derive(Clone)]
