@@ -1,7 +1,7 @@
 //! Configuration for the Bitcoin ZMQ client.
 use serde::{Deserialize, Serialize};
 
-use crate::constants::DEFAULT_BURY_DEPTH;
+use crate::constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH};
 
 /// Main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
 ///
@@ -16,6 +16,10 @@ use crate::constants::DEFAULT_BURY_DEPTH;
 pub struct BtcNotifyConfig {
     /// Depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
     pub(crate) bury_depth: usize,
+
+    /// Number of blocks backfilled, fetched and processed at once after a gap in the block
+    /// stream, defaults to [`DEFAULT_BACKFILL_BATCH_SIZE`].
+    pub(crate) backfill_batch_size: usize,
 
     /// Connection string used in `bitcoin.conf => zmqpubhashblock`.
     pub(crate) hashblock_connection_string: Option<String>,
@@ -96,12 +100,33 @@ impl BtcNotifyConfig {
     pub const fn bury_depth(&self) -> usize {
         self.bury_depth
     }
+
+    /// Updates the [`BtcNotifyConfig`] with a new backfill batch size and returns the updated
+    /// config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
+    ///
+    /// Note, this bounds how many blocks are fetched and processed at once when the client
+    /// backfills a gap in the block stream, for example after prolonged downtime. A larger batch
+    /// size backfills in fewer round trips at the cost of holding more blocks in memory at once;
+    /// a smaller one bounds memory and RPC load more tightly at the cost of more round trips.
+    pub const fn with_backfill_batch_size(mut self, n: usize) -> Self {
+        self.backfill_batch_size = n;
+        self
+    }
+
+    /// Returns the value configured with the [`BtcNotifyConfig::with_backfill_batch_size`]
+    /// function.
+    pub const fn backfill_batch_size(&self) -> usize {
+        self.backfill_batch_size
+    }
 }
 
 impl Default for BtcNotifyConfig {
     fn default() -> Self {
         BtcNotifyConfig {
             bury_depth: DEFAULT_BURY_DEPTH,
+            backfill_batch_size: DEFAULT_BACKFILL_BATCH_SIZE,
             hashblock_connection_string: None,
             hashtx_connection_string: None,
             rawblock_connection_string: None,
