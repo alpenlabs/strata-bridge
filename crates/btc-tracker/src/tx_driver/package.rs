@@ -188,11 +188,15 @@ impl Package {
                 self.bump().into_iter().collect()
             }
             Event::Tick => Vec::new(),
+            // The spend that conflicted the parent may have left with the block, so the parent goes
+            // out again. If the spend is still on chain, the read of this block conflicts it again.
             Event::Reorged => {
                 if matches!(self.state, PackageState::Conflicted { .. }) {
                     self.state = Self::evicted();
+                    vec![Action::Broadcast]
+                } else {
+                    Vec::new()
                 }
-                Vec::new()
             }
             Event::Broadcasted(result) => self.broadcasted(result),
             Event::Bumped(outcome) => self.bumped(outcome),
@@ -311,6 +315,21 @@ impl Package {
             (_, true) => {
                 self.state = PackageState::Conflicted { first_seen: tip };
                 Vec::new()
+            }
+            // A bump sends nothing for a parent that meets the target alone, so a rejected parent
+            // goes out again on each block until the cause of the rejection is gone.
+            (
+                PackageState::Pending {
+                    cause,
+                    rejection: Some(_),
+                },
+                false,
+            ) => {
+                self.state = PackageState::Pending {
+                    cause: *cause,
+                    rejection: None,
+                };
+                vec![Action::Broadcast]
             }
             (_, false) => self.observe(TxStatus::Unknown),
         }
@@ -1146,7 +1165,11 @@ mod tests {
             let conflicted = pkg(armed(), PackageState::Conflicted { first_seen: 100 });
 
             let (package, actions) = conflicted.step(Event::Reorged);
-            assert!(actions.is_empty(), "the next read decides");
+            assert_eq!(
+                actions,
+                vec![Action::Broadcast],
+                "the parent goes out again, since the conflict may have left with the block"
+            );
             let (package, _) = package.step(read(true, TxStatus::Unknown, 104));
 
             assert_eq!(
