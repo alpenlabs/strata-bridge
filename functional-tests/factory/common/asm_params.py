@@ -14,11 +14,16 @@ from constants import ASM_MAGIC_BYTES
 # (mainnet, testnet, signet, regtest) per Bitcoin Core's consensus params.
 DIFFICULTY_ADJUSTMENT_INTERVAL = 2016
 
-# Default P2TR bosd descriptor used as the initial safe harbour address. Matches the
-# upstream asm functional-tests value for the P2TR address
-# bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf, encoded as type tag
-# 0x04 (P2A/P2TR) followed by the 32-byte x-only pubkey.
-DEFAULT_SAFE_HARBOUR_ADDRESS = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+# Default P2TR safe harbour address, matching the upstream asm functional tests. It is a
+# regtest address because the runner rejects a safe harbour whose prefix disagrees with the
+# anchor's network.
+DEFAULT_SAFE_HARBOUR_ADDRESS = "bcrt1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ense4hynu"
+
+# BOSD descriptor of `DEFAULT_SAFE_HARBOUR_ADDRESS`, the form the RPCs report: type tag 0x04
+# (P2TR) followed by the 32-byte x-only pubkey.
+DEFAULT_SAFE_HARBOUR_DESCRIPTOR = (
+    "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667"
+)
 
 # X-only pubkey of `MOCK_SEQUENCER_KEY` in bin/dev-cli/src/handlers/checkpoint/constants.rs. ASM
 # only accepts checkpoint envelopes committing to the configured sequencer key, and dev-cli signs
@@ -96,8 +101,8 @@ class BridgeSubprotocol:
 @dataclass
 class AsmParams:
     """Typed mirror of ``asm-params.json``. Round-trips via ``to_dict`` /
-    ``from_dict``; the on-disk JSON keeps its Rust-enum-style ``subprotocols`` list
-    so the asm-runner deserializer is unchanged."""
+    ``from_dict``; the on-disk JSON nests these fields under ``genesis``, keeps the
+    Rust-enum-style ``subprotocols`` list, and writes an empty ``runtime`` part."""
 
     magic: str
     anchor: L1Anchor
@@ -107,17 +112,21 @@ class AsmParams:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "magic": self.magic,
-            "anchor": asdict(self.anchor),
-            "subprotocols": [
-                {"Admin": asdict(self.admin)},
-                {"Checkpoint": asdict(self.checkpoint)},
-                {"Bridge": asdict(self.bridge)},
-            ],
+            "genesis": {
+                "magic": self.magic,
+                "anchor": asdict(self.anchor),
+                "subprotocols": [
+                    {"Admin": asdict(self.admin)},
+                    {"Checkpoint": asdict(self.checkpoint)},
+                    {"Bridge": asdict(self.bridge)},
+                ],
+            },
+            "runtime": {},
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AsmParams:
+        data = data["genesis"]
         anchor_d = data["anchor"]
         anchor = L1Anchor(
             block=Block(**anchor_d["block"]),

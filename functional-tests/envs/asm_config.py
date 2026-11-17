@@ -13,9 +13,8 @@ class AsmEnvConfig:
     assignment_duration: int = 10_000
     operator_fee: int = 10_000_000
     recovery_delay: int = 1_008
-    # Hex-encoded bitcoin-bosd Descriptor. The new asm requires a P2TR (type tag 0x04)
-    # descriptor; the address is held deactivated at init and toggled by the security
-    # council via Defcon signals.
+    # P2TR address on the anchor's network. The address is held deactivated at init and
+    # toggled by the security council via Defcon signals.
     safe_harbour_address: str = DEFAULT_SAFE_HARBOUR_ADDRESS
     # Blocks after inclusion at which ASM enacts an admin operator set update.
     operator_update_confirmation_depth: int = 144

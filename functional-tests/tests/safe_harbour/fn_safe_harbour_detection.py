@@ -23,7 +23,7 @@ import flexitest
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
-from factory.common.asm_params import DEFAULT_SAFE_HARBOUR_ADDRESS
+from factory.common.asm_params import DEFAULT_SAFE_HARBOUR_DESCRIPTOR
 from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.dev_cli import DevCli
 from utils.utils import read_operator_key, wait_until
@@ -63,7 +63,7 @@ class SafeHarbourDetectionTest(StrataTestBase):
         def all_latched():
             addresses = [rpc.stratabridge_safeHarbourAddress() for rpc in bridge_rpcs]
             self.logger.info(f"Safe-harbour addresses: {addresses}")
-            return all(address == DEFAULT_SAFE_HARBOUR_ADDRESS for address in addresses)
+            return all(address == DEFAULT_SAFE_HARBOUR_DESCRIPTOR for address in addresses)
 
         wait_until(
             all_latched,
@@ -89,7 +89,7 @@ class SafeHarbourDetectionTest(StrataTestBase):
                 self.logger.info(f"operator 0 RPC not up yet: {exc}")
                 return False
             self.logger.info(f"operator 0 safe-harbour address after restart: {address}")
-            return address == DEFAULT_SAFE_HARBOUR_ADDRESS
+            return address == DEFAULT_SAFE_HARBOUR_DESCRIPTOR
 
         wait_until(
             latched_after_restart,

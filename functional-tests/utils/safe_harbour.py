@@ -5,7 +5,7 @@ import logging
 from bitcoinlib.services.bitcoind import BitcoindClient
 
 from constants import DT_DEPOSIT_VOUT
-from factory.common.asm_params import DEFAULT_SAFE_HARBOUR_ADDRESS
+from factory.common.asm_params import DEFAULT_SAFE_HARBOUR_DESCRIPTOR
 from utils.deposit import wait_until_deposit_utxo_spent
 from utils.dev_cli import DevCli
 from utils.utils import find_utxo_spender_txid, read_operator_key, wait_until
@@ -32,7 +32,7 @@ def p2tr_descriptor_script_hex(descriptor: str) -> str:
 
 def safe_harbour_script_hex() -> str:
     """P2TR scriptPubKey hex of the frozen safe-harbour address."""
-    return p2tr_descriptor_script_hex(DEFAULT_SAFE_HARBOUR_ADDRESS)
+    return p2tr_descriptor_script_hex(DEFAULT_SAFE_HARBOUR_DESCRIPTOR)
 
 
 def activate_safe_harbour(ctx, bridge_rpcs, timeout=180) -> str:
@@ -47,7 +47,7 @@ def activate_safe_harbour(ctx, bridge_rpcs, timeout=180) -> str:
     def all_latched():
         addresses = [rpc.stratabridge_safeHarbourAddress() for rpc in bridge_rpcs]
         logging.info(f"Safe-harbour addresses: {addresses}")
-        return all(address == DEFAULT_SAFE_HARBOUR_ADDRESS for address in addresses)
+        return all(address == DEFAULT_SAFE_HARBOUR_DESCRIPTOR for address in addresses)
 
     wait_until(
         all_latched,
