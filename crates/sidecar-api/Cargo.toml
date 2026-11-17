@@ -8,11 +8,10 @@ workspace = true
 
 [features]
 default = []
-client = ["dep:jsonrpsee", "jsonrpsee/client-core"]
-server = ["dep:jsonrpsee", "jsonrpsee/server-core"]
+client = ["jsonrpsee/client-core"]
 
 [dependencies]
 blake3.workspace = true
-jsonrpsee = { workspace = true, optional = true, features = ["macros"] }
+jsonrpsee = { workspace = true, features = ["macros", "server-core"] }
 serde.workspace = true
 serde_json.workspace = true

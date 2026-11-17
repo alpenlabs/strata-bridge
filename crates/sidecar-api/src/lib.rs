@@ -8,7 +8,7 @@
 //!
 //! ```text
 //! bridge                                          sidecar
-//!   │  bridgeSidecar_assess(AssessmentRequest)       │
+//!   │  sidecar_assess(AssessmentRequest)             │
 //!   │ ─────────────────────────────────────────────► │
 //!   │                                   Assessment   │
 //!   │ ◄───────────────────────────────────────────── │
@@ -43,12 +43,11 @@
 //!
 //! - `request`: the question ([`Action`], [`AssessmentRequest`]).
 //! - `assessment`: the answer ([`Decision`], [`Assessment`]).
-//! - `rpc`: the JSON-RPC method, behind the `client` and `server` features.
+//! - `rpc`: the JSON-RPC method; the client side is behind the `client` feature.
 
 mod assessment;
 mod request;
 
-#[cfg(any(feature = "client", feature = "server"))]
 pub mod rpc;
 
 pub use assessment::{Assessment, Decision, unix_ms};
