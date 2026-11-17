@@ -29,10 +29,10 @@ pub struct HeavierChainProof {
     /// Validity proof of `moho_state`.
     pub moho_proof: RecursiveMohoProof,
 
-    /// Operator claim unlock committed on the heavier chain.
-    pub claim_unlock: OperatorClaimUnlockV1,
+    /// Hash of the operator claim unlock committed on the heavier chain.
+    pub claim_unlock_hash: [u8; 32],
 
-    /// Inclusion proof for `claim_unlock` in `moho_state`.
+    /// Inclusion proof for `claim_unlock_hash` in `moho_state`.
     pub claim_unlock_inclusion_proof: MerkleProofB32,
 }
 
@@ -41,13 +41,13 @@ impl HeavierChainProof {
     pub const fn new(
         moho_state: MohoState,
         moho_proof: RecursiveMohoProof,
-        claim_unlock: OperatorClaimUnlockV1,
+        claim_unlock_hash: [u8; 32],
         inclusion_proof: MerkleProofB32,
     ) -> Self {
         Self {
             moho_state,
             moho_proof,
-            claim_unlock,
+            claim_unlock_hash,
             claim_unlock_inclusion_proof: inclusion_proof,
         }
     }
