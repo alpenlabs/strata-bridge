@@ -331,12 +331,16 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let deposit_request_txid = dsm.context().deposit_request_outpoint().txid;
         let status = match dsm.state() {
-            DepositState::Created { .. }
+            DepositState::ParticipationPending { .. }
+            | DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. } => RpcDepositStatus::InProgress,
             DepositState::Aborted => RpcDepositStatus::Failed {
                 reason: "Deposit request spent elsewhere".to_string(),
+            },
+            DepositState::ParticipationDeclined => RpcDepositStatus::Failed {
+                reason: "Local policy declined participation in the deposit".to_string(),
             },
             DepositState::Skipped => RpcDepositStatus::Failed {
                 reason: "Deposit cap reached".to_string(),

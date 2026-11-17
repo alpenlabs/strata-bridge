@@ -43,7 +43,9 @@ impl DepositSM {
         abort: SafeHarbourAbortEvent,
     ) -> DSMResult<DSMOutput> {
         match self.state() {
-            DepositState::Created { .. } | DepositState::GraphGenerated { .. } => {
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::ParticipationPending { .. } => {
                 self.state = DepositState::Aborted;
 
                 Ok(SMOutput {
@@ -60,7 +62,7 @@ impl DepositSM {
 
             // The per-block scan re-emits the abort until the deposit leaves the safe window; a
             // skipped deposit never receives one and has nothing to abort.
-            DepositState::Aborted | DepositState::Skipped => {
+            DepositState::Aborted | DepositState::Skipped | DepositState::ParticipationDeclined => {
                 Err(DSMError::duplicate(self.state().clone(), abort.into()))
             }
 
@@ -139,12 +141,14 @@ impl DepositSM {
                 ));
             }
 
-            DepositState::Created { .. }
+            DepositState::ParticipationPending { .. }
+            | DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. }
             | DepositState::Aborted
-            | DepositState::Skipped => {
+            | DepositState::Skipped
+            | DepositState::ParticipationDeclined => {
                 return Err(DSMError::invalid_event(
                     self.state().clone(),
                     sweep_request.into(),

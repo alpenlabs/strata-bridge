@@ -64,8 +64,12 @@ pub struct SMConfig {
 /// cap, since a wrong default would either leak capacity or let the bridge exceed the cap.
 const fn is_terminal(state: &DepositState) -> bool {
     match state {
-        DepositState::Spent { .. } | DepositState::Aborted | DepositState::Skipped => true,
-        DepositState::Created { .. }
+        DepositState::Spent { .. }
+        | DepositState::Aborted
+        | DepositState::Skipped
+        | DepositState::ParticipationDeclined => true,
+        DepositState::ParticipationPending { .. }
+        | DepositState::Created { .. }
         | DepositState::GraphGenerated { .. }
         | DepositState::DepositNoncesCollected { .. }
         | DepositState::DepositPartialsCollected { .. }

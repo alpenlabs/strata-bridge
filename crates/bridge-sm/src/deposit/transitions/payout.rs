@@ -88,9 +88,17 @@ impl DepositSM {
                     "deposit request skipped under the deposit cap",
                 ));
             }
+            DepositState::ParticipationDeclined => {
+                return Err(DSMError::rejected(
+                    self.state.clone(),
+                    assignment.into(),
+                    "this node declined to take part in the deposit",
+                ));
+            }
 
             // Exhaustive so a new state must be classified rather than inherit the fatal arm.
-            DepositState::Created { .. }
+            DepositState::ParticipationPending { .. }
+            | DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. }
@@ -634,12 +642,14 @@ impl DepositSM {
                     payout_confirmed.clone().into(),
                 ));
             }
-            DepositState::Created { .. }
+            DepositState::ParticipationPending { .. }
+            | DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. }
             | DepositState::Aborted
-            | DepositState::Skipped => {
+            | DepositState::Skipped
+            | DepositState::ParticipationDeclined => {
                 return Err(DSMError::invalid_event(
                     self.state().clone(),
                     payout_confirmed.clone().into(),

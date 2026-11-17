@@ -322,6 +322,8 @@ pub(crate) const fn deposit_state_kind(state: &DepositState) -> &'static str {
         DepositState::Spent { .. } => "spent",
         DepositState::Aborted => "aborted",
         DepositState::Skipped => "skipped",
+        DepositState::ParticipationPending { .. } => "participation_pending",
+        DepositState::ParticipationDeclined => "participation_declined",
     }
 }
 
