@@ -43,9 +43,13 @@
 //!
 //! - `request`: the question ([`Action`], [`AssessmentRequest`]).
 //! - `assessment`: the answer ([`Decision`], [`Assessment`]).
+//! - `rpc`: the JSON-RPC method, behind the `client` and `server` features.
 
 mod assessment;
 mod request;
+
+#[cfg(any(feature = "client", feature = "server"))]
+pub mod rpc;
 
 pub use assessment::{Assessment, Decision, unix_ms};
 pub use request::{Action, AssessmentRequest, PROTOCOL_VERSION};

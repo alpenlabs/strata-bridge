@@ -12528,6 +12528,7 @@ name = "strata-bridge-sidecar-api"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "jsonrpsee",
  "serde",
  "serde_json",
 ]

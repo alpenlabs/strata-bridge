@@ -6,7 +6,13 @@ edition = "2024"
 [lints]
 workspace = true
 
+[features]
+default = []
+client = ["dep:jsonrpsee", "jsonrpsee/client-core"]
+server = ["dep:jsonrpsee", "jsonrpsee/server-core"]
+
 [dependencies]
 blake3.workspace = true
+jsonrpsee = { workspace = true, optional = true, features = ["macros"] }
 serde.workspace = true
 serde_json.workspace = true
