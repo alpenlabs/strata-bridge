@@ -191,10 +191,10 @@ def validate_env(env: str) -> str:
 
 
 def genesis_l1_height(asm_params: dict) -> int:
-    """asm-params.json shape: subprotocols is a list of single-key objects; the
-    Checkpoint subprotocol carries `genesis_l1_height`. Keeps the ELF and circuit
+    """asm-params.json shape: genesis.subprotocols is a list of single-key objects;
+    the Checkpoint subprotocol carries `genesis_l1_height`. Keeps the ELF and circuit
     version strings derived from the same source in lockstep."""
-    for entry in asm_params.get("subprotocols", []):
+    for entry in asm_params.get("genesis", {}).get("subprotocols", []):
         if isinstance(entry, dict) and "Checkpoint" in entry:
             height = entry["Checkpoint"].get("genesis_l1_height")
             if height is None:
