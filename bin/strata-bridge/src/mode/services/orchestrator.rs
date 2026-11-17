@@ -34,6 +34,7 @@ use strata_bridge_orchestrator::{
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_proof::BridgeProofHost;
+use strata_bridge_sidecar_client::SidecarClient;
 use strata_bridge_sm::{
     self, deposit::config::DepositSMCfg, graph::config::GraphSMCfg, stake::config::StakeSMCfg,
 };
@@ -170,6 +171,9 @@ where
 
     let (shutdown_sender, shutdown_receiver) = oneshot::channel();
 
+    let sidecar = SidecarClient::connect(&config.sidecar, params.network, config.dev)?;
+    let sidecar_decision_rx = sidecar.as_ref().and_then(|client| client.take_wakeups());
+
     let events_mux = EventsMux {
         ouroboros_msg_rx: ouroboros_msg_receiver,
         shutdown_rx: Some(shutdown_receiver),
@@ -291,6 +295,13 @@ where
         nag_dedup_window,
         nag_dedup_in_flight_timeout,
     );
+
+    let orchestrator_pipeline = match (sidecar, sidecar_decision_rx) {
+        (Some(client), Some(decision_rx)) => {
+            orchestrator_pipeline.with_sidecar_hook(client, decision_rx)
+        }
+        _ => orchestrator_pipeline,
+    };
 
     debug!("starting orchestrator pipeline");
     health_registry.mark_ok(COMPONENT_ORCHESTRATOR, "pipeline_spawned");

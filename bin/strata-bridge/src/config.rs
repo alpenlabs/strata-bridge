@@ -20,6 +20,7 @@ use strata_bridge_exec::fees::{FeeSourceConfig, QUOTE_TTL};
 use strata_bridge_p2p_service::GossipsubScoringPreset;
 use strata_bridge_primitives::types::OperatorIdx;
 pub(crate) use strata_bridge_proof::ProofBackendConfig;
+use strata_bridge_sidecar_client::SidecarConfig;
 
 /// Default cadence for the CPFP bump-check timer — see [`Config::cpfp_bump_check_interval`]. The
 /// default must exceed [`QUOTE_TTL`], so that each tick of an idle node reads a new quote.
@@ -125,6 +126,13 @@ pub(crate) struct Config {
     /// where `estimatesmartfee` is unreliable should configure the mempool-explorer variant.
     #[serde(default)]
     pub fee_source: FeeSourceConfig,
+
+    /// The sidecar this node asks before taking part in a deposit request or paying a withdrawal
+    /// (see `docs/sidecar.md`). Disabled by default, which keeps today's behaviour. A deposit
+    /// already pending when the sidecar is removed stays pending until the depositor takes the
+    /// request back.
+    #[serde(default)]
+    pub sidecar: SidecarConfig,
 
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
