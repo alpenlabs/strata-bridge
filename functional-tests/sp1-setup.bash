@@ -32,12 +32,34 @@ fetch_release_elf() {
     echo "$dir/$guest.elf"
 }
 
+# asm publishes one guest per network, each baking in that network's runtime params, and no
+# SHA256SUMS. The fn-test params carry no runtime section, like testnet's, so the testnet guest
+# is the one that matches. Downloads it with its predicate into $GUEST_ELFS_DIR and prints the
+# ELF path; the caller checks the predicate it derives against `<elf dir>/asm-predicate.txt`.
+ASM_RELEASE_NETWORK=testnet
+fetch_asm_release_elf() {
+    local ref_type="$1" tag="$2"
+    if [ "$ref_type" != "tag" ]; then
+        echo "ERROR: asm is pinned by $ref_type $tag; release ELFs need a tag pin" >&2
+        return 1
+    fi
+    local dir="$GUEST_ELFS_DIR/asm-$tag"
+    local url="https://github.com/alpenlabs/asm/releases/download/$tag"
+    mkdir -p "$dir"
+    curl -fsSL --proto "=https" --retry 5 --retry-delay 5 --retry-all-errors \
+        -o "$dir/asm.elf" "$url/$ASM_RELEASE_NETWORK-asm.elf" || return 1
+    curl -fsSL --proto "=https" --retry 5 --retry-delay 5 --retry-all-errors \
+        -o "$dir/asm-predicate.txt" "$url/$ASM_RELEASE_NETWORK-asm-predicate.txt" || return 1
+    echo "$ASM_RELEASE_NETWORK-asm.elf ($tag) sha256: $(shasum -a 256 "$dir/asm.elf" | cut -d' ' -f1)" >&2
+    echo "$dir/asm.elf"
+}
+
 BRIDGE_FEATURES=""
 if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
     export SP1_PROVER="${SP1_PROVER:-mock}"
     # The guests bake the Moho genesis in, so they must match the asm-runner's genesis spec
     # (`ASM_SPEC_ID` in constants.py).
-    export BRIDGE_PROOF_ASM_GENESIS_SPEC_ID=1
+    export BRIDGE_PROOF_ASM_GENESIS_SPEC_ID=2
     if [ "$BRIDGE_EXTERNAL_BITCOIN" = "1" ]; then
         export BRIDGE_PROOF_ASM_PARAMS_DIR="$(realpath functional-tests)/_asm_params"
         mkdir -p "$BRIDGE_PROOF_ASM_PARAMS_DIR"
@@ -50,7 +72,7 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
         if [ "$BRIDGE_PROOF_SP1_ASM" = "1" ]; then
             read -r MOHO_REF_TYPE MOHO_REF < <(extract_cargo_git_ref moho-types)
             GUEST_ELFS_DIR="$(realpath functional-tests)/.guest-elfs"
-            BRIDGE_PROOF_ASM_ELF_PATH="$(fetch_release_elf asm "$ASM_REF_TYPE" "$ASM_REF")"
+            BRIDGE_PROOF_ASM_ELF_PATH="$(fetch_asm_release_elf "$ASM_REF_TYPE" "$ASM_REF")"
             BRIDGE_PROOF_MOHO_ELF_PATH="$(fetch_release_elf moho "$MOHO_REF_TYPE" "$MOHO_REF")"
             export BRIDGE_PROOF_ASM_ELF_PATH BRIDGE_PROOF_MOHO_ELF_PATH
 
@@ -61,6 +83,11 @@ if [ "$BRIDGE_PROOF_SP1" = "1" ]; then
             BRIDGE_PROOF_SP1_ASM_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_ASM_ELF_PATH")"
             BRIDGE_PROOF_SP1_MOHO_PREDICATE="$(target/release/proof-datatool sp1-predicate "$BRIDGE_PROOF_MOHO_ELF_PATH")"
             export BRIDGE_PROOF_SP1_ASM_PREDICATE BRIDGE_PROOF_SP1_MOHO_PREDICATE
+            ASM_RELEASE_PREDICATE="$(tr -d '[:space:]' < "$(dirname "$BRIDGE_PROOF_ASM_ELF_PATH")/asm-predicate.txt")"
+            if [ "$BRIDGE_PROOF_SP1_ASM_PREDICATE" != "$ASM_RELEASE_PREDICATE" ]; then
+                echo "ERROR: asm.elf predicate does not match the release's $ASM_RELEASE_NETWORK-asm-predicate.txt" >&2
+                exit 1
+            fi
             echo "ASM predicate:  $BRIDGE_PROOF_SP1_ASM_PREDICATE"
             echo "MOHO predicate: $BRIDGE_PROOF_SP1_MOHO_PREDICATE"
         fi
