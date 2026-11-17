@@ -25,7 +25,7 @@ impl MockCheckpointBuilder {
     pub(crate) fn new() -> Self {
         // For testing we use ASM on `AlwaysAccept` predicate which accepts any valid schnorr
         // signature
-        let sk = SigningKey::from_bytes(&MOCK_PREDICATE_KEY).expect("invalid mock predicate key");
+        let sk = SigningKey::from_slice(&MOCK_PREDICATE_KEY).expect("invalid mock predicate key");
 
         Self {
             checkpoint_predicate: sk,

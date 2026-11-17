@@ -446,6 +446,7 @@ async fn fetch_bridge_proof_input(
         .ok_or_else(|| {
             ExecutorError::AsmRpcErr(format!("moho proof unavailable at {recent_block_hash}"))
         })?;
+    #[expect(deprecated, reason = "not yet on getExportEntryProof")]
     let mmr_proof_bytes = asm
         .get_export_entry_mmr_proof(recent_block_hash, BRIDGE_SUBPROTOCOL_ID, leaf_hash)
         .await

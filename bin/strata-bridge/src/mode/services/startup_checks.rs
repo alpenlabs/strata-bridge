@@ -17,7 +17,7 @@ use secp256k1::XOnlyPublicKey;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::{SchnorrSigner, SecretService};
 use serde::Deserialize;
-use strata_asm_params::AsmParams;
+use strata_asm_params::{AsmGenesisParams, AsmParams};
 use strata_asm_rpc::traits::AsmControlApiClient;
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_common::params::Params;
@@ -212,7 +212,7 @@ pub(in crate::mode) async fn verify_external_components(
     let asm_params = fetch_asm_params(asm_rpc_client, &config.asm_rpc)
         .await
         .context("fetching ASM params for startup consistency check")?;
-    verify_asm_params(params, config, &asm_params).context("bridge/ASM params mismatch")?;
+    verify_asm_params(params, config, &asm_params.genesis).context("bridge/ASM params mismatch")?;
 
     let circuit_defs = fetch_mosaic_circuit_defs(mosaic_rpc_client, &config.mosaic)
         .await
@@ -359,7 +359,7 @@ pub(in crate::mode) fn verify_predicates(
 }
 
 /// The bridge params and local fulfillment window are compatible with the ASM instance.
-fn verify_asm_params(params: &Params, config: &Config, asm: &AsmParams) -> Result<()> {
+fn verify_asm_params(params: &Params, config: &Config, asm: &AsmGenesisParams) -> Result<()> {
     let Some(bridge) = asm.bridge_config() else {
         anyhow::bail!(
             "ASM params carry no bridge-v1 subprotocol config; point the bridge at an ASM \
@@ -661,10 +661,10 @@ mod tests {
         check_fee_config(&config).expect("the floor is a warning, and the cap wins");
     }
 
-    /// Arbitrary [`AsmParams`] with every *compared* field overwritten from `params`; the
+    /// Arbitrary [`AsmGenesisParams`] with every *compared* field overwritten from `params`; the
     /// uncompared fields stay arbitrary on purpose — they must not affect the verdict.
-    fn matching_asm(params: &Params) -> AsmParams {
-        let mut asm: AsmParams = ArbitraryGenerator::new().generate();
+    fn matching_asm(params: &Params) -> AsmGenesisParams {
+        let mut asm: AsmGenesisParams = ArbitraryGenerator::new().generate();
         asm.magic = params.protocol.magic_bytes;
         asm.anchor.network = params.network;
         asm.anchor.block.height =
@@ -683,14 +683,14 @@ mod tests {
         asm
     }
 
-    fn bridge_cfg_mut(asm: &mut AsmParams) -> &mut BridgeInitConfig {
+    fn bridge_cfg_mut(asm: &mut AsmGenesisParams) -> &mut BridgeInitConfig {
         asm.subprotocols
             .iter_mut()
             .find_map(|s| match s {
                 SubprotocolInstance::Bridge(cfg) => Some(cfg),
                 _ => None,
             })
-            .expect("arbitrary AsmParams always carries a bridge subprotocol")
+            .expect("arbitrary AsmGenesisParams always carries a bridge subprotocol")
     }
 
     fn circuit_def(vkey_hash: [u8; 32]) -> RpcCircuitInfoEntry {
@@ -760,7 +760,7 @@ mod tests {
 
     #[test]
     fn each_mismatched_field_fails_with_its_label() {
-        type Mutator = fn(&mut AsmParams);
+        type Mutator = fn(&mut AsmGenesisParams);
         let cases: &[(&str, Mutator)] = &[
             ("network", |asm| {
                 asm.anchor.network = bitcoin::Network::Bitcoin

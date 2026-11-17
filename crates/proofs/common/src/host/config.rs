@@ -52,6 +52,6 @@ mod hex_signing_key {
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SigningKey, D::Error> {
         let s = String::deserialize(d)?;
         let bytes = hex::decode(&s).map_err(D::Error::custom)?;
-        SigningKey::from_bytes(&bytes).map_err(D::Error::custom)
+        SigningKey::from_slice(&bytes).map_err(D::Error::custom)
     }
 }

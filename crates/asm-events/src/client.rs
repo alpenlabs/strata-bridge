@@ -411,6 +411,7 @@ mod tests {
         server::{ServerBuilder, ServerHandle},
         types::ErrorObjectOwned,
     };
+    use strata_asm_admin_types::Role;
     use strata_asm_bridge_types::SafeHarborAddress;
     use strata_asm_checkpoint_types::CheckpointTip;
     use strata_asm_common::{AnchorState, AsmManifest};
@@ -459,6 +460,14 @@ mod tests {
 
     #[async_trait]
     impl AsmStateApiServer for MockAsm {
+        async fn get_admin_seq_no(
+            &self,
+            _block_hash: BlockHash,
+            _role: Role,
+        ) -> RpcResult<Option<u64>> {
+            Err(mock_err())
+        }
+
         async fn get_assignments(&self, _block_hash: BlockHash) -> RpcResult<Vec<AssignmentEntry>> {
             if self.fail_assignments.load(Ordering::Relaxed) {
                 return Err(mock_err());

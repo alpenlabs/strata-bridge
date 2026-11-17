@@ -473,6 +473,7 @@ async fn fetch_canonical_inclusion_proof(
     anchor_hash: bitcoin::BlockHash,
     claim_unlock: &OperatorClaimUnlockV1,
 ) -> Result<MerkleProofB32, ExecutorError> {
+    #[expect(deprecated, reason = "not yet on getExportEntryProof")]
     let inclusion_bytes = output_handles
         .asm_rpc_client
         .get_export_entry_mmr_proof(
