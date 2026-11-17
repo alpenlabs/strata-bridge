@@ -13,7 +13,7 @@ use ssz::Decode;
 use strata_asm_proto_bridge_txs::BRIDGE_SUBPROTOCOL_ID;
 use strata_bridge_connectors::prelude::ContestProofConnector;
 use strata_bridge_proof::BridgeProofOutput;
-use strata_bridge_proof_common::{verify_claim_unlock_inclusion, verify_moho_proof};
+use strata_bridge_proof_common::verify_moho_proof;
 use zkaleido::{ProofReceipt, ZkVmEnv, ZkVmEnvSsz};
 
 #[cfg(not(target_os = "zkvm"))]
@@ -194,7 +194,7 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             let HeavierChainProof {
                 moho_state: heavier_moho_state,
                 moho_proof: heavier_moho_proof,
-                claim_unlock: heavier_unlock,
+                claim_unlock_hash: heavier_unlock_hash,
                 claim_unlock_inclusion_proof: heavier_inclusion_proof,
             } = heavier_chain_proof;
 
@@ -248,15 +248,15 @@ fn process_counterproof_inner(zkvm: &impl ZkVmEnv, genesis: &BridgeCounterproofG
             }
 
             // Fail if heavier inclusion proof doesn't verify
-            verify_claim_unlock_inclusion(
-                &heavier_unlock,
-                heavier_bridge_container,
-                &heavier_inclusion_proof,
+            assert!(
+                heavier_bridge_container
+                    .entries_mmr()
+                    .verify(&heavier_inclusion_proof, &heavier_unlock_hash),
                 "invalid counterproof: heavier inclusion proof doesn't verify",
             );
 
             // Fail if heavier unlock is equal to the bridge proof unlock
-            if heavier_unlock == unlock {
+            if heavier_unlock_hash == unlock.compute_hash() {
                 panic!(
                     "invalid counterproof: heavier unlock must be different from bridge proof unlock"
                 )
@@ -940,7 +940,7 @@ mod tests {
             mode: CounterproofMode::HeavierChain(HeavierChainProof::new(
                 heavier_moho_state,
                 heavier_moho_proof,
-                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                HEAVIER_CHAIN_CLAIM_UNLOCK.compute_hash(),
                 heavier_inclusion_proof,
             )),
         }
@@ -1011,7 +1011,7 @@ mod tests {
             input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
                 heavier_moho_state,
                 heavier_moho_proof,
-                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                HEAVIER_CHAIN_CLAIM_UNLOCK.compute_hash(),
                 heavier_inclusion_proof,
             ));
 
@@ -1030,7 +1030,7 @@ mod tests {
             input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
                 heavier_moho_state,
                 heavier_moho_proof,
-                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                HEAVIER_CHAIN_CLAIM_UNLOCK.compute_hash(),
                 MerkleProofB32::new_zero(),
             ));
 
@@ -1077,7 +1077,7 @@ mod tests {
             input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
                 heavier_moho_state,
                 heavier_moho_proof,
-                HEAVIER_CHAIN_CLAIM_UNLOCK.clone(),
+                HEAVIER_CHAIN_CLAIM_UNLOCK.compute_hash(),
                 MerkleProofB32::new_zero(),
             ));
 
@@ -1099,7 +1099,7 @@ mod tests {
             input.mode = CounterproofMode::HeavierChain(HeavierChainProof::new(
                 heavier_moho_state,
                 heavier_moho_proof,
-                BRIDGE_PROOF_CLAIM_UNLOCK.clone(),
+                BRIDGE_PROOF_CLAIM_UNLOCK.compute_hash(),
                 bridge_inclusion_proof,
             ));
 

@@ -413,34 +413,38 @@ async fn detect_heavier_chain(
     }
 
     let claim_unlock = OperatorClaimUnlockV1::new(deposit_idx, operator_pubkey);
+    let mmr_idx = operator_commitment.mmr_idx;
 
-    let inclusion_proof = if container.entries_mmr().num_entries() <= operator_commitment.mmr_idx {
-        // The guest ignores the claim unlock and its inclusion proof when the
+    let (canonical_unlock_hash, inclusion_proof) = if container.entries_mmr().num_entries()
+        <= mmr_idx
+    {
+        // The guest ignores the claim unlock hash and its inclusion proof when the
         // operator's committed index is out of bounds on the canonical chain.
-        MerkleProofB32::new_zero()
+        (claim_unlock.compute_hash(), MerkleProofB32::new_zero())
     } else {
-        let inclusion_proof =
-            fetch_canonical_inclusion_proof(output_handles, anchor_hash, &claim_unlock).await?;
-        if inclusion_proof.index() != operator_commitment.mmr_idx {
+        let (leaf_hash, inclusion_proof) =
+            fetch_canonical_entry(output_handles, anchor_hash, mmr_idx).await?;
+        if inclusion_proof.index() != mmr_idx
+            || !container.entries_mmr().verify(&inclusion_proof, &leaf_hash)
+        {
             return Err(ExecutorError::AsmRpcErr(format!(
-                "canonical MMR entry unavailable at index {} (deposit {deposit_idx}, operator {operator_idx})",
-                operator_commitment.mmr_idx
+                "canonical MMR entry at index {mmr_idx} does not verify against the anchor state"
             )));
         }
 
         // The canonical chain agrees with the operator's commitment; nothing to challenge.
-        if claim_unlock == operator_commitment.claim_unlock {
+        if leaf_hash == operator_commitment.claim_unlock.compute_hash() {
             return Ok(None);
         }
 
-        inclusion_proof
+        (leaf_hash, inclusion_proof)
     };
 
     let moho_proof = fetch_moho_proof(output_handles, anchor_hash).await?;
     Ok(Some(HeavierChainProof::new(
         moho_state,
         moho_proof,
-        claim_unlock,
+        canonical_unlock_hash,
         inclusion_proof,
     )))
 }
@@ -467,25 +471,22 @@ async fn fetch_canonical_moho_state(
     Ok((block_hash, moho_state))
 }
 
-/// Fetches the inclusion proof for the given claim unlock in the canonical export MMR.
-async fn fetch_canonical_inclusion_proof(
+/// Fetches the leaf hash at `mmr_idx` in the canonical bridge export MMR with its inclusion proof.
+async fn fetch_canonical_entry(
     output_handles: &OutputHandles,
     anchor_hash: bitcoin::BlockHash,
-    claim_unlock: &OperatorClaimUnlockV1,
-) -> Result<MerkleProofB32, ExecutorError> {
-    #[expect(deprecated, reason = "not yet on getExportEntryProof")]
-    let inclusion_bytes = output_handles
+    mmr_idx: u64,
+) -> Result<([u8; 32], MerkleProofB32), ExecutorError> {
+    let entry = output_handles
         .asm_rpc_client
-        .get_export_entry_mmr_proof(
-            anchor_hash,
-            BRIDGE_SUBPROTOCOL_ID,
-            claim_unlock.compute_hash(),
-        )
+        .get_export_entry_proof(anchor_hash, BRIDGE_SUBPROTOCOL_ID, mmr_idx)
         .await
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_mmr_proof: {e}")))?;
+        .map_err(|e| ExecutorError::AsmRpcErr(format!("get_export_entry_proof: {e}")))?;
 
-    MerkleProofB32::from_ssz_bytes(&inclusion_bytes)
-        .map_err(|e| ExecutorError::AsmRpcErr(format!("decode mmr proof ssz: {e:?}")))
+    Ok((
+        entry.leaf_hash.0,
+        MerkleProofB32::from_generic(&entry.proof),
+    ))
 }
 
 /// Fetches the recursive Moho proof for `block_hash` from the ASM and rebuilds the
