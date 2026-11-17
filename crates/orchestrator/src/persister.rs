@@ -10,8 +10,9 @@ use std::{
 
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
+use strata_bridge_primitives::types::DepositIdx;
 use thiserror::Error;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     observability,
@@ -205,6 +206,19 @@ impl Persister {
                 );
                 error!(%error, batch_size, "failed to persist state-machine batch");
                 Err(error)
+            }
+        }
+    }
+
+    /// Whether this node has recorded funding inputs for the withdrawal of `deposit_idx`. The
+    /// executor records them before it signs a fulfillment, so a recorded row means this node
+    /// already committed to that payment. A read error counts as not recorded.
+    pub(crate) async fn withdrawal_funding_recorded(&self, deposit_idx: DepositIdx) -> bool {
+        match self.db.get_withdrawal_funding_outpoints(deposit_idx).await {
+            Ok(outpoints) => outpoints.is_some(),
+            Err(error) => {
+                warn!(%deposit_idx, ?error, "could not read withdrawal funding inputs");
+                false
             }
         }
     }
@@ -539,6 +553,35 @@ mod covenant_storage_tests {
             test_safe_harbour_address, test_sm_config,
         },
     };
+
+    #[tokio::test]
+    async fn withdrawal_funding_is_recorded_once_the_executor_reserves_inputs() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-withdrawal-funding-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+
+        assert!(!persister.withdrawal_funding_recorded(3).await);
+        db.get_or_set_withdrawal_funding_outpoints(3, vec![bitcoin::OutPoint::default()])
+            .await
+            .unwrap();
+        assert!(persister.withdrawal_funding_recorded(3).await);
+        assert!(
+            !persister.withdrawal_funding_recorded(4).await,
+            "another deposit's funding does not count"
+        );
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
 
     /// A held deposit survives a restart with its frozen graph bindings and no graphs; taking
     /// part afterwards persists the deposit and every graph together.
