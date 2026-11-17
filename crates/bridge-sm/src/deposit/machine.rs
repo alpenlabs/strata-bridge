@@ -260,7 +260,7 @@ impl DepositSM {
         }
     }
 
-    /// Holds this deposit request until a local policy decides whether this node takes part.
+    /// Holds this deposit request until the sidecar hook decides whether this node takes part.
     ///
     /// Meant for a machine fresh out of [`DepositSM::new`], like [`Self::into_skipped`]: the
     /// context is kept, so the deposit index and outpoints still match every other operator's.
