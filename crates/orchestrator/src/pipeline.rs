@@ -1,7 +1,10 @@
 //! The main event loop that wires all pipeline stages together:
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use bitcoind_async_client::Client as BitcoinClient;
 use btc_tracker::event::BlockEvent;
@@ -16,7 +19,7 @@ use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 use crate::{
     applicator::{Applicator, BatchOutput},
     duty_dispatcher::DutyDispatcher,
-    errors::PipelineError,
+    errors::{PipelineError, ProcessError},
     events_classifier::{offchain, onchain},
     events_mux::{EventsMux, SafeHarbourEvent, UnifiedEvent},
     events_router,
@@ -24,6 +27,7 @@ use crate::{
     observability,
     persister::Persister,
     safe_harbour_scan::safe_harbour_scan,
+    sidecar_hook::{self, SidecarHook},
     sm_registry::SMRegistry,
     sm_types::UnifiedDuty,
 };
@@ -41,6 +45,7 @@ pub struct Pipeline {
     persister: Persister,
     dispatcher: DutyDispatcher,
     nag_dedup: NagDedup,
+    sidecar_hook: Option<Arc<dyn SidecarHook>>,
 }
 
 impl Pipeline {
@@ -65,7 +70,25 @@ impl Pipeline {
             persister,
             dispatcher,
             nag_dedup: NagDedup::new(nag_dedup_window, nag_dedup_in_flight_timeout),
+            sidecar_hook: None,
         }
+    }
+
+    /// Attaches a sidecar hook that decides whether this node takes part in each new deposit.
+    ///
+    /// From then on, every newly registered deposit request is held in
+    /// `ParticipationPending` until `hook` decides. `decision_rx` is the channel on which the hook
+    /// signals that a decision is ready. Deposits registered before the hook is attached are
+    /// not held.
+    pub fn with_sidecar_hook(
+        mut self,
+        hook: Arc<dyn SidecarHook>,
+        decision_rx: tokio::sync::mpsc::Receiver<()>,
+    ) -> Self {
+        self.registry.hold_new_deposits();
+        self.event_mux.sidecar_hook_decision_rx = Some(decision_rx);
+        self.sidecar_hook = Some(hook);
+        self
     }
 
     /// Runs the main event loop until shutdown.
@@ -188,6 +211,9 @@ impl Pipeline {
                     // On first latch: sweep and abort immediately rather than waiting for the next
                     // buried block.
                     UnifiedEvent::SafeHarbour(_) => apply_safe_harbour_scan(&mut applicator)?,
+
+                    // Nothing to route: the commit below asks the sidecar hook for its decisions.
+                    UnifiedEvent::SidecarHookDecision => {}
 
                     _ => {
                         trace!(
@@ -326,7 +352,22 @@ impl Pipeline {
 
     /// Persists all causal groups before dispatching any duties.
     /// If persistence fails, no duties are dispatched.
+    ///
+    /// With a sidecar hook attached, then applies the participation decisions that are ready, as
+    /// a second batch persisted before its own duties are dispatched.
     async fn commit_batch(
+        &mut self,
+        batch: BatchOutput,
+        nag_reply: Option<&NagRequestPayload>,
+    ) -> Result<(), PipelineError> {
+        self.persist_and_dispatch(batch, nag_reply).await?;
+        if let Some(batch) = self.apply_participation_decisions()? {
+            self.persist_and_dispatch(batch, None).await?;
+        }
+        Ok(())
+    }
+
+    async fn persist_and_dispatch(
         &self,
         batch: BatchOutput,
         nag_reply: Option<&NagRequestPayload>,
@@ -336,6 +377,27 @@ impl Pipeline {
             .await?;
         self.dispatch_duties(batch.duties, nag_reply);
         Ok(())
+    }
+
+    /// Asks the sidecar hook about every deposit waiting for a participation decision and
+    /// applies the decisions that are ready. Returns `None` if there are none.
+    ///
+    /// Asking also lets the hook start evaluating a deposit it has not seen yet.
+    fn apply_participation_decisions(&mut self) -> Result<Option<BatchOutput>, PipelineError> {
+        let Some(hook) = &self.sidecar_hook else {
+            return Ok(None);
+        };
+        let decisions = sidecar_hook::ready_participation_decisions(&self.registry, hook.as_ref());
+        if decisions.is_empty() {
+            return Ok(None);
+        }
+        let mut applicator = Applicator::new(&mut self.registry, None);
+        for (deposit_idx, decision) in decisions {
+            applicator
+                .apply_participation_decision(deposit_idx, decision)
+                .map_err(ProcessError::from)?;
+        }
+        Ok(Some(applicator.finish()))
     }
 
     /// Dispatches duties, dropping the suppressed ones while safe harbour is active. Duties that

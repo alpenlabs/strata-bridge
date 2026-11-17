@@ -40,6 +40,11 @@ pub enum UnifiedEvent {
     GossipMessage(GossipsubMsg),
     /// Priority 4b: Adaptor verified event from mosaic.
     MosaicEvent(MosaicEvent),
+    /// Priority 4c: The sidecar hook has a decision ready.
+    ///
+    /// Carries nothing: the pipeline asks the hook again after the batch it commits for this
+    /// event.
+    SidecarHookDecision,
     /// Priority 5a: Periodic tick for nagging peers for missing messages.
     NagTick,
     /// Priority 5b: Periodic tick for retrying failed duties.
@@ -93,6 +98,10 @@ pub struct EventsMux {
     /// Buffer for events decomposed from an `AsmState` snapshot but not yet delivered.
     /// Initialize empty.
     pub pending_asm_events: VecDeque<UnifiedEvent>,
+
+    /// Wake-ups from the sidecar hook. Initialize `None`;
+    /// [`Pipeline::with_sidecar_hook`](crate::pipeline::Pipeline::with_sidecar_hook) sets it.
+    pub sidecar_hook_decision_rx: Option<tokio::sync::mpsc::Receiver<()>>,
 }
 
 impl EventsMux {
@@ -168,6 +177,16 @@ impl EventsMux {
                 },
 
                 Some(evt) = self.mosaic_event_sub.next() => return UnifiedEvent::MosaicEvent(evt),
+
+                // A sidecar hook decision only gates this node's own action, so it follows every
+                // observation, and a takeback or safe-harbour update already queued lands before
+                // it. It precedes the periodic ticks, which can be an hour apart.
+                Some(()) = async {
+                    match self.sidecar_hook_decision_rx.as_mut() {
+                        Some(decision_rx) => decision_rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => return UnifiedEvent::SidecarHookDecision,
 
                 // Then, we handle the periodic nag tick for nagging peers about missing messages.
                 // We do this toward the last because it's less urgent and prevents flooding the network

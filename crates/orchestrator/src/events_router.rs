@@ -27,6 +27,8 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
         // handled directly by the pipeline/registry (the latch), not deposit-scoped, so it is not
         // routed to any state machine
         UnifiedEvent::SafeHarbour(_) => Vec::new(),
+        // handled by the pipeline, which asks the sidecar hook after every committed batch
+        UnifiedEvent::SidecarHookDecision => Vec::new(),
         // Membership has no peer retry or nag duties.
         UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry
             .get_all_ids()
