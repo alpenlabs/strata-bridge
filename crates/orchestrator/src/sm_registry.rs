@@ -107,6 +107,12 @@ pub struct SMRegistry {
     /// cleared, so it survives a tip reorg that flips the ASM flag back to inactive. `None` means
     /// safe harbour has not been observed as activated on this node.
     safe_harbour: Option<SafeHarborAddress>,
+    /// Whether a newly registered deposit request waits for a local participation decision.
+    ///
+    /// Not persisted:
+    /// [`Pipeline::with_sidecar_hook`](crate::pipeline::Pipeline::with_sidecar_hook)
+    /// sets it, so it holds deposits exactly when a hook is attached to resolve them.
+    holds_new_deposits: bool,
 }
 
 /// Invariant errors when inserting state machines into the registry.
@@ -170,7 +176,19 @@ impl SMRegistry {
             stakes: BTreeMap::new(),
             operator_set: None,
             safe_harbour: None,
+            holds_new_deposits: false,
         }
+    }
+
+    /// Holds every deposit request registered from now on until a sidecar hook decides whether
+    /// this node takes part.
+    pub(crate) const fn hold_new_deposits(&mut self) {
+        self.holds_new_deposits = true;
+    }
+
+    /// Whether a newly registered deposit request waits for a local participation decision.
+    pub(crate) const fn holds_new_deposits(&self) -> bool {
+        self.holds_new_deposits
     }
 
     /// Gets a reference to the registry configuration.
@@ -320,6 +338,11 @@ impl SMRegistry {
     /// registry.
     pub fn get_deposit(&self, deposit_idx: &DepositIdx) -> Option<&DepositSM> {
         self.deposits.get(deposit_idx)
+    }
+
+    /// Gets a mutable reference to the deposit state machine at `deposit_idx`, if it exists.
+    pub(crate) fn get_deposit_mut(&mut self, deposit_idx: &DepositIdx) -> Option<&mut DepositSM> {
+        self.deposits.get_mut(deposit_idx)
     }
 
     /// Gets a reference to the graph state machine identified by `id`, if it exists in the

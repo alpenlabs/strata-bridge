@@ -27,6 +27,7 @@ use tracing::{debug, info, warn};
 use crate::{
     errors::{PipelineError, ProcessError},
     persister::PersistenceTracker,
+    sidecar_hook::ParticipationDecision,
     signals_router,
     sm_registry::{IgnoredEventReason, ProcessOutcome, RegistryInsertError, SMRegistry},
     sm_types::{SMEvent, SMId, UnifiedDuty},
@@ -149,6 +150,48 @@ impl<'a> Applicator<'a> {
         self.registry.insert_graph(graph_idx, sm)?;
         self.tracker
             .link(SMId::Deposit(graph_idx.deposit), SMId::Graph(graph_idx));
+        Ok(())
+    }
+
+    /// Applies a local participation decision to a deposit held in
+    /// [`DepositState::ParticipationPending`](strata_bridge_sm::deposit::state::DepositState::ParticipationPending).
+    ///
+    /// Taking part returns the deposit to `Created` and registers its graphs from the contexts
+    /// frozen at registration; the deposit and its graphs persist in one causal group. Declining
+    /// makes the deposit terminal. A decision for a deposit that is missing or no longer pending
+    /// (taken back, aborted or already decided) changes nothing.
+    pub fn apply_participation_decision(
+        &mut self,
+        deposit_idx: DepositIdx,
+        decision: ParticipationDecision,
+    ) -> Result<(), RegistryInsertError> {
+        let Some(sm) = self.registry.get_deposit_mut(&deposit_idx) else {
+            return Ok(());
+        };
+        let height = sm.state().last_processed_block_height().copied();
+        match decision {
+            ParticipationDecision::Decline => {
+                if sm.decline_participation() {
+                    info!(%deposit_idx, "sidecar hook declined participation in the deposit");
+                    self.tracker.record(SMId::Deposit(deposit_idx));
+                }
+            }
+            ParticipationDecision::Participate => {
+                let Some(graph_contexts) = sm.participate() else {
+                    return Ok(());
+                };
+                info!(%deposit_idx, "sidecar hook approved participation in the deposit");
+                self.tracker.record(SMId::Deposit(deposit_idx));
+                let height = height.expect("a pending deposit tracks its block height");
+                for graph_context in graph_contexts {
+                    let (graph, duty) = GraphSM::new(graph_context, height);
+                    self.insert_graph(graph.context().graph_idx(), graph)?;
+                    if let Some(duty) = duty {
+                        self.duties.push(duty.into());
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
