@@ -340,7 +340,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 reason: "Deposit request spent elsewhere".to_string(),
             },
             DepositState::ParticipationDeclined => RpcDepositStatus::Failed {
-                reason: "Local policy declined participation in the deposit".to_string(),
+                reason: "Participation declined".to_string(),
             },
             DepositState::Skipped => RpcDepositStatus::Failed {
                 reason: "Deposit cap reached".to_string(),
