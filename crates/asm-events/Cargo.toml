@@ -24,6 +24,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+strata-asm-admin-types.workspace = true
 strata-asm-common.workspace = true
 strata-asm-params.workspace = true
 strata-asm-checkpoint-types.workspace = true

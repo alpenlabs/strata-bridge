@@ -7,7 +7,7 @@ use moho_types::{ExportState, MohoState, StateRefAttestation, StateReference};
 use strata_asm_common::{AnchorState, AsmSpec, SpecId};
 use strata_asm_params::AsmParams;
 use strata_asm_proof_impl::moho_program::program::compute_anchor_state_commitment;
-use strata_asm_spec::{StrataAsmSpec, StrataAsmSpecV1};
+use strata_asm_spec::{StrataAsmSpec, StrataAsmSpecV1, StrataAsmSpecV2};
 use strata_predicate::PredicateKey;
 
 use crate::types::BridgeProofGenesis;
@@ -88,7 +88,7 @@ fn derive_anchor_attestation(
     let export_state = ExportState::new(vec![]).expect("empty export state is always valid");
     let genesis_moho_state = MohoState::new(inner_state, asm_predicate, export_state);
 
-    let blkid_bytes: [u8; 32] = *asm_params.anchor.block.blkid().as_ref();
+    let blkid_bytes: [u8; 32] = *asm_params.genesis.anchor.block.blkid().as_ref();
     let state_ref = StateReference::new(blkid_bytes);
     let commitment = genesis_moho_state.compute_commitment();
 
@@ -98,8 +98,13 @@ fn derive_anchor_attestation(
 // The anchor records the spec that built it, so the genesis commitment differs per spec.
 fn construct_genesis_anchor(params: &AsmParams, spec_id: SpecId) -> AnchorState {
     match spec_id {
-        StrataAsmSpec::ID => StrataAsmSpec.construct_genesis_state(params),
-        StrataAsmSpecV1::ID => StrataAsmSpecV1.construct_genesis_state(params),
+        StrataAsmSpec::ID => StrataAsmSpec.construct_genesis_state(&params.genesis),
+        StrataAsmSpecV1::ID => StrataAsmSpecV1.construct_genesis_state(&params.genesis),
+        StrataAsmSpecV2::ID => {
+            let depths = params.runtime.spec_v2.as_ref();
+            StrataAsmSpecV2::new(depths.map(|section| section.confirmation_depths.clone()))
+                .construct_genesis_state(&params.genesis)
+        }
         other => panic!("unsupported ASM genesis spec {other}"),
     }
 }
