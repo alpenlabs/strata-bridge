@@ -341,7 +341,15 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             DepositState::Skipped => RpcDepositStatus::Failed {
                 reason: "Deposit cap reached".to_string(),
             },
-            _ => RpcDepositStatus::Complete {
+            DepositState::Deposited { .. }
+            | DepositState::Assigned { .. }
+            | DepositState::Fulfilled { .. }
+            | DepositState::PayoutDescriptorReceived { .. }
+            | DepositState::PayoutNoncesCollected { .. }
+            | DepositState::CooperativePathFailed { .. }
+            | DepositState::SweepNoncesPending { .. }
+            | DepositState::SweepNoncesCollected { .. }
+            | DepositState::Spent { .. } => RpcDepositStatus::Complete {
                 deposit_txid: dsm.context().deposit_outpoint().txid,
             },
         };
