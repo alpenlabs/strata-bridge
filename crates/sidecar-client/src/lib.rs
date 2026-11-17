@@ -13,9 +13,11 @@
 //! - `config`: the node's `[sidecar]` section and the client's fixed limits.
 //! - `client`: [`SidecarClient`]: building it, the answers it holds, and `poll`.
 //! - `worker`: the one background task that runs the calls.
+//! - `hook`: `SidecarHook` for [`SidecarClient`].
 
 mod client;
 mod config;
+mod hook;
 mod worker;
 
 pub use client::SidecarClient;

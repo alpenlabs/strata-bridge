@@ -12539,9 +12539,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
+ "bitcoin-bosd",
  "futures",
  "jsonrpsee",
  "serde",
+ "serde_json",
+ "strata-bridge-orchestrator",
+ "strata-bridge-primitives",
  "strata-bridge-sidecar-api",
  "tokio",
  "toml 0.8.23",
