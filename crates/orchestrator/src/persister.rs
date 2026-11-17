@@ -540,6 +540,87 @@ mod covenant_storage_tests {
         },
     };
 
+    /// A held deposit survives a restart with its frozen graph bindings and no graphs; taking
+    /// part afterwards persists the deposit and every graph together.
+    #[tokio::test]
+    async fn a_held_deposit_recovers_its_bindings_and_taking_part_persists_its_graphs_together() {
+        use strata_bridge_sm::deposit::state::DepositState;
+
+        use crate::{applicator::Applicator, sidecar_hook::ParticipationDecision};
+
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-participation-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        let persister = Persister::new(db.clone());
+
+        let mut originals = test_empty_registry();
+        insert_deposit_with_graphs(&mut originals, 7);
+        let graph_contexts: Vec<_> = originals
+            .graphs()
+            .map(|(_, graph)| graph.context().clone())
+            .collect();
+        let held = originals
+            .get_deposit(&7)
+            .unwrap()
+            .clone()
+            .into_participation_pending(graph_contexts.clone());
+        let mut registry = test_empty_registry();
+        registry.insert_deposit(7, held.clone()).unwrap();
+        persister
+            .persist_batch(BTreeSet::from([SMId::Deposit(7)]), &registry)
+            .await
+            .unwrap();
+
+        let mut recovered = persister.recover_registry(test_sm_config()).await.unwrap();
+        assert_eq!(recovered.get_deposit(&7), Some(&held));
+        assert!(recovered.get_graph_ids().is_empty());
+        assert_eq!(recovered.last_deposit_idx(), Some(7));
+
+        let mut applicator = Applicator::new(&mut recovered, Some(TEST_POV_IDX));
+        applicator
+            .apply_participation_decision(7, ParticipationDecision::Participate)
+            .unwrap();
+        let batch = applicator.finish();
+        assert!(!batch.duties.is_empty());
+        let groups = batch.tracker.clone().into_batches();
+        assert_eq!(
+            groups.len(),
+            1,
+            "the deposit and every graph commit together"
+        );
+        assert_eq!(groups[0].len(), 1 + N_TEST_OPERATORS);
+        persister
+            .persist_batches(batch.tracker, &recovered)
+            .await
+            .unwrap();
+
+        let recovered = persister.recover_registry(test_sm_config()).await.unwrap();
+        assert!(matches!(
+            recovered.get_deposit(&7).unwrap().state(),
+            DepositState::Created { .. }
+        ));
+        for graph_context in graph_contexts {
+            assert_eq!(
+                recovered
+                    .get_graph(&graph_context.graph_idx)
+                    .unwrap()
+                    .context(),
+                &graph_context
+            );
+        }
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
     #[test]
     fn write_batch_preserves_multiple_covenants_for_one_operator() {
         let mut registry = test_empty_registry();
