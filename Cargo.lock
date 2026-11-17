@@ -3080,10 +3080,10 @@ dependencies = [
 [[package]]
 name = "ckt-fmtv5-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/ckt?tag=v0.4.0-rc.2#1a53a2dbdc6487be4acfc8a01e2309c02e2c3ddb"
+source = "git+https://github.com/alpenlabs/ckt?tag=v0.4.0#8d598f20fe013efdd573c87b2191c48cd2fe5cc4"
 dependencies = [
  "blake3",
- "cynosure 0.6.0",
+ "cynosure",
  "kanal",
  "libc",
  "monoio",
@@ -3092,7 +3092,7 @@ dependencies = [
 [[package]]
 name = "ckt-gobble"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/ckt?tag=v0.4.0-rc.2#1a53a2dbdc6487be4acfc8a01e2309c02e2c3ddb"
+source = "git+https://github.com/alpenlabs/ckt?tag=v0.4.0#8d598f20fe013efdd573c87b2191c48cd2fe5cc4"
 dependencies = [
  "bitvec",
  "blake3",
@@ -3612,18 +3612,12 @@ dependencies = [
 
 [[package]]
 name = "cynosure"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85ae3fe761ac97c0847c4a5af729031ad2a77bd0dab9cc24f22ad2a8c5e51d48"
-dependencies = [
- "monoio",
-]
-
-[[package]]
-name = "cynosure"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0917e39016c56ea6bc962f91a0bdc20cc9b641cbb2e4ac82329f6660f798c0bd"
+dependencies = [
+ "monoio",
+]
 
 [[package]]
 name = "darling"
@@ -7246,7 +7240,7 @@ dependencies = [
 [[package]]
 name = "mosaic-adaptor-sigs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -7261,7 +7255,7 @@ dependencies = [
 [[package]]
 name = "mosaic-cac-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -7282,7 +7276,7 @@ dependencies = [
 [[package]]
 name = "mosaic-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -7291,7 +7285,7 @@ dependencies = [
 [[package]]
 name = "mosaic-heap-array"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "ark-serialize 0.6.0",
  "serde",
@@ -7300,7 +7294,7 @@ dependencies = [
 [[package]]
 name = "mosaic-net-svc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "ark-serialize 0.6.0",
  "ed25519-dalek 3.0.0",
@@ -7312,7 +7306,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-api"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "bitcoin",
  "jsonrpsee",
@@ -7322,7 +7316,7 @@ dependencies = [
 [[package]]
 name = "mosaic-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "bitcoin",
  "ckt-fmtv5-types",
@@ -7339,7 +7333,7 @@ dependencies = [
 [[package]]
 name = "mosaic-vs3"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/mosaic?rev=5497a5671b41255540107bef17cbb97da465f1cb#5497a5671b41255540107bef17cbb97da465f1cb"
+source = "git+https://github.com/alpenlabs/mosaic?tag=v0.4.3#349c1da18e9bef81587b4ecaf925f5aca404d25c"
 dependencies = [
  "ark-ec",
  "ark-ff 0.6.0",
@@ -12973,7 +12967,7 @@ name = "strata-p2p"
 version = "0.4.0"
 source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.5.0#0623f58d3cbfe2b393b30e78b969fc40c736f4c8"
 dependencies = [
- "cynosure 0.7.1",
+ "cynosure",
  "flexbuffers",
  "futures",
  "libp2p",
