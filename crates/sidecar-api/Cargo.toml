@@ -1,0 +1,12 @@
+[package]
+name = "strata-bridge-sidecar-api"
+version = "0.1.0"
+edition = "2024"
+
+[lints]
+workspace = true
+
+[dependencies]
+blake3.workspace = true
+serde.workspace = true
+serde_json.workspace = true

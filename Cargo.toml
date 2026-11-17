@@ -23,6 +23,7 @@ members = [
   "crates/secret-service-client",
   "crates/secret-service-proto",
   "crates/secret-service-server",
+  "crates/sidecar-api",
   "crates/tx-graph",
 
   # binaries listed separately
@@ -79,6 +80,7 @@ strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof = { path = "crates/proofs/bridge-proof", default-features = false }
 strata-bridge-proof-common = { path = "crates/proofs/common" }
 strata-bridge-rpc = { path = "crates/rpc" }
+strata-bridge-sidecar-api = { path = "crates/sidecar-api" }
 strata-bridge-sm = { path = "crates/bridge-sm" }
 strata-bridge-sp1-guest-builder = { path = "guest-builder/sp1" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
