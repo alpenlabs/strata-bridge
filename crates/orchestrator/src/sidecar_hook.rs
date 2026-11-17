@@ -25,7 +25,7 @@ use bitcoin::{Amount, OutPoint};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::{
     covenant::CovenantId,
-    types::{BitcoinBlockHeight, DepositIdx},
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_sm::deposit::{duties::DepositDuty, state::DepositState};
 use tracing::{debug, info};
@@ -57,7 +57,8 @@ pub enum ParticipationDecision {
 /// A withdrawal this node is assigned to pay.
 ///
 /// Built from the fulfillment duty's own fields, so a changed assignment (new deadline or
-/// destination) is a different request and carries no earlier approval.
+/// destination) is a different request and carries no earlier approval. Together the fields
+/// identify the assignment completely, so the hook can check it against ASM before it decides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalFulfillmentRequest {
     /// The deposit whose withdrawal is being paid.
@@ -70,6 +71,10 @@ pub struct WithdrawalFulfillmentRequest {
     pub destination: Descriptor,
     /// The deposit amount; the user receives it minus the operator fee.
     pub amount: Amount,
+    /// The operator ASM assigned the withdrawal to: this node.
+    pub assignee: OperatorIdx,
+    /// The operator fee this node deducts from the payment, from its deposit configuration.
+    pub operator_fee: Amount,
 }
 
 /// A decision on paying a withdrawal.
@@ -279,6 +284,8 @@ fn fulfillment_request(
             deadline: *deadline,
             destination: recipient_desc.clone(),
             amount: *deposit_amount,
+            assignee: *assignee,
+            operator_fee: registry.cfg().deposit.operator_fee(),
         })
 }
 
@@ -359,7 +366,6 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_primitives::types::OperatorIdx;
     use strata_bridge_sm::deposit::duties::DepositDuty;
 
     use super::{testing::FixedHook, *};
@@ -417,6 +423,8 @@ mod tests {
             deadline,
             destination: recipient.clone(),
             amount: TEST_DEPOSIT_AMOUNT,
+            assignee: TEST_POV_IDX,
+            operator_fee: registry.cfg().deposit.operator_fee(),
         }
     }
 
