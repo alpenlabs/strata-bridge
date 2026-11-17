@@ -2,7 +2,7 @@
 """Fill a partial asm-params.json with live L1 anchor data.
 
 Standalone, offline util: given a bitcoin RPC endpoint and a partial
-asm-params.json (whose ``anchor`` carries the target ``height``/``network`` but
+asm-params.json (whose ``genesis.anchor`` carries the target ``height``/``network`` but
 placeholder chain data), it fetches the on-chain context and writes out the
 actual params. Run this once before bringing up the asm-runner container, which
 then consumes the result verbatim with no post-processing of its own.
@@ -108,11 +108,12 @@ def main() -> None:
 
     params = json.loads(params_path.read_text())
 
-    genesis_height = params["anchor"]["block"]["height"]
-    network = params["anchor"]["network"]
+    genesis = params["genesis"]
+    genesis_height = genesis["anchor"]["block"]["height"]
+    network = genesis["anchor"]["network"]
 
     print(f"Filling ASM anchor from chain context at height {genesis_height} ({network})")
-    params["anchor"] = build_l1_anchor(genesis_height, network, bitcoin_cfg)
+    genesis["anchor"] = build_l1_anchor(genesis_height, network, bitcoin_cfg)
 
     print(f"Writing filled ASM params to {output_path}")
     output_path.write_text(json.dumps(params, indent=4) + "\n")
