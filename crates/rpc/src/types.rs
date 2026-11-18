@@ -33,9 +33,9 @@ pub enum RpcDepositStatus {
     /// Deposit exists, but minting hasn't happened yet.
     InProgress,
 
-    /// Deposit exists, but was never completed (can be reclaimed).
-    Failed {
-        /// Reason for the failure.
+    /// Deposit was not completed and can be reclaimed.
+    Reclaimable {
+        /// Reason the deposit was not completed.
         reason: String,
     },
 

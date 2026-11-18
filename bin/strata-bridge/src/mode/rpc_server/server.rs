@@ -335,10 +335,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. } => RpcDepositStatus::InProgress,
-            DepositState::Aborted => RpcDepositStatus::Failed {
-                reason: "Deposit request spent elsewhere".to_string(),
+            DepositState::Aborted => RpcDepositStatus::Reclaimable {
+                reason: "Deposit processing aborted".to_string(),
             },
-            DepositState::Skipped => RpcDepositStatus::Failed {
+            DepositState::Skipped => RpcDepositStatus::Reclaimable {
                 reason: "Deposit cap reached".to_string(),
             },
             _ => RpcDepositStatus::Complete {

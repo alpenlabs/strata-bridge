@@ -5,7 +5,7 @@ from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
 from factory.bridge_operator.params_cfg import BridgeProtocolParams
-from rpc.types import RpcDepositStatusComplete, RpcDepositStatusFailed
+from rpc.types import RpcDepositStatusComplete, RpcDepositStatusReclaimable
 from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import (
     wait_until_deposit_status,
@@ -138,11 +138,11 @@ class BridgeDepositCapTest(StrataTestBase):
 
     def _assert_skipped(self, rpc, deposit_id: int, who: str):
         status = rpc.stratabridge_depositInfo(deposit_id)["status"]
-        assert status["status"] == RpcDepositStatusFailed.status, (
-            f"{who} reports deposit {deposit_id} as {status}, expected failed"
+        assert status["status"] == RpcDepositStatusReclaimable.status, (
+            f"{who} reports deposit {deposit_id} as {status}, expected reclaimable"
         )
         assert status["reason"] == "Deposit cap reached", (
-            f"{who} reports deposit {deposit_id} as failed for another reason: {status}"
+            f"{who} reports deposit {deposit_id} as reclaimable for another reason: {status}"
         )
 
     def _assert_registry(self, rpc, expected_mapping: dict, who: str):
