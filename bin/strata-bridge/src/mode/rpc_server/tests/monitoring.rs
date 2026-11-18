@@ -25,7 +25,7 @@ use strata_bridge_sm::{
     graph::{
         config::GraphSMCfg,
         context::GraphSMCtx,
-        state::{AbortReason, GraphState},
+        state::{AbortReason, GraphState, PayoutKind},
     },
     stake::config::StakeSMCfg,
 };
@@ -832,7 +832,7 @@ fn reimbursement_status_reports_each_graph_state() {
     let graph_summary = test_graph_summary();
     let claim_txid = graph_summary.claim;
     let fulfillment_txid = generate_txid();
-    let payout_txid = generate_txid();
+    let payout_txid = graph_summary.uncontested_payout;
     let slash_txid = graph_summary.slash;
     let signatures = vec![Signature::from_slice(&[0x0c; 64]).expect("valid signature")];
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, vec![generate_pubnonce()])]);
@@ -1055,6 +1055,7 @@ fn reimbursement_status_reports_each_graph_state() {
             GraphState::Withdrawn {
                 claim_txid,
                 payout_txid,
+                payout_kind: Some(PayoutKind::Uncontested),
             },
             RpcReimbursementStatus::Complete {
                 claim_txid,

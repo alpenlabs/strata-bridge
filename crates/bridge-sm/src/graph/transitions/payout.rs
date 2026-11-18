@@ -6,7 +6,7 @@ use crate::{
         errors::{GSMError, GSMResult},
         events::{PayoutConfirmedEvent, PayoutConnectorSpentEvent},
         machine::{GSMOutput, GraphSM},
-        state::{AbortReason, GraphState},
+        state::{AbortReason, GraphState, PayoutKind},
     },
     tx_classifier::is_payout_connector_spent,
 };
@@ -31,6 +31,7 @@ impl GraphSM {
                 self.state = GraphState::Withdrawn {
                     claim_txid: graph_summary.claim,
                     payout_txid: payout_event.payout_txid,
+                    payout_kind: Some(PayoutKind::Uncontested),
                 };
 
                 Ok(GSMOutput::new())
@@ -53,6 +54,7 @@ impl GraphSM {
                 self.state = GraphState::Withdrawn {
                     claim_txid: graph_summary.claim,
                     payout_txid: payout_event.payout_txid,
+                    payout_kind: Some(PayoutKind::Contested),
                 };
 
                 Ok(GSMOutput::new())
@@ -75,6 +77,7 @@ impl GraphSM {
                 self.state = GraphState::Withdrawn {
                     claim_txid: graph_summary.claim,
                     payout_txid: payout_event.payout_txid,
+                    payout_kind: Some(PayoutKind::Contested),
                 };
 
                 Ok(GSMOutput::new())
@@ -101,6 +104,7 @@ impl GraphSM {
                 self.state = GraphState::Withdrawn {
                     claim_txid: *claim_txid,
                     payout_txid: payout_event.payout_txid,
+                    payout_kind: Some(PayoutKind::Contested),
                 };
 
                 Ok(GSMOutput::new())
@@ -135,6 +139,7 @@ impl GraphSM {
                 self.state = GraphState::Withdrawn {
                     claim_txid: graph_summary.claim,
                     payout_txid: payout_event.payout_txid,
+                    payout_kind: Some(PayoutKind::Contested),
                 };
 
                 Ok(GSMOutput::new())

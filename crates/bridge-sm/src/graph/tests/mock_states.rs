@@ -30,7 +30,7 @@ use super::{
 use crate::graph::{
     config::GraphSMCfg,
     machine::generate_game_graph,
-    state::{AbortReason, CounterproofData, GraphState},
+    state::{AbortReason, CounterproofData, GraphState, PayoutKind},
     watchtower::watchtower_slot_for_operator,
 };
 
@@ -462,6 +462,7 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
         GraphState::Withdrawn {
             claim_txid: graph_summary.claim,
             payout_txid: graph_summary.uncontested_payout,
+            payout_kind: Some(PayoutKind::Uncontested),
         },
         GraphState::Slashed {
             claim_txid: graph_summary.claim,

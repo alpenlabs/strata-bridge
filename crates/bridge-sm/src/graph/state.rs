@@ -80,6 +80,15 @@ pub struct CounterproofData {
     pub completed_signatures: CompletedSignatures,
 }
 
+/// The reimbursement payout path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PayoutKind {
+    /// Payout through the uncontested claim path.
+    Uncontested,
+    /// Payout through the contested claim path.
+    Contested,
+}
+
 /// The state of a pegout graph associated with a particular deposit.
 /// Each graph is uniquely identified by the two-tuple (depositIdx, operatorIdx).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -473,6 +482,11 @@ pub enum GraphState {
         /// The txid of the transaction (uncontested or contested payout) that spent the deposit
         /// output.
         payout_txid: Txid,
+
+        /// Payout path, if recorded.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_kind: Option<PayoutKind>,
     },
     /// The operator has been slashed on chain.
     Slashed {
