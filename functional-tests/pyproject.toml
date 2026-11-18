@@ -18,7 +18,7 @@ dev = ["ruff==0.14.5", "ty>=0.0.12"]
 
 [tool.uv]
 [tool.uv.sources]
-flexitest = { git = "https://codeberg.org/treyd/flexitest.git" }
+flexitest = { git = "https://github.com/alpenlabs/flexitest.git", rev = "50841c19444e154eb18750cade4cd89587c24344" }
 
 
 [tool.ruff]
