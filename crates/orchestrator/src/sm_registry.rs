@@ -32,7 +32,7 @@ use strata_bridge_sm::{
 };
 use strata_bridge_tx_graph::transactions::stake::StakeTx;
 use thiserror::Error;
-use tracing::{debug, error, info, info_span};
+use tracing::{debug, debug_span, error, info};
 
 use crate::{
     current_covenant::{self, CurrentCovenant, CurrentCovenantError},
@@ -564,10 +564,11 @@ impl SMRegistry {
         let sm_kind = observability::sm_kind(id);
         let is_periodic = is_periodic_event(&event);
         let from_state = self.state_kind(id).unwrap_or("missing");
-        // Info-level so the transition span exists under the default INFO filter; span creation
-        // emits no log lines, and the per-tick log statements below stay at debug.
-        let span = info_span!(
-            "bridge_sm_transition",
+        // Event-processing diagnostics, not a transition record: every routed event, including
+        // each unchanged nag/retry tick on every tracked SM, opens this span. It stays at DEBUG so
+        // its close line never reaches default INFO output.
+        let span = debug_span!(
+            "bridge_sm_event",
             sm_kind,
             sm_id = %id,
             event = %event,
@@ -583,12 +584,19 @@ impl SMRegistry {
 
         span.record("to_state", to_state);
         span.record("result", result);
-        observability::record_transition(sm_kind, from_state, to_state, result, started.elapsed());
+        observability::record_sm_event(sm_kind, result, started.elapsed());
 
-        // Keep transition telemetry here, but leave ignored-outcome and fatal-error severity to
-        // the applicator and pipeline respectively.
-        match &outcome {
-            Ok(ProcessOutcome::Applied(output)) if output.did_mutate() && is_periodic => {
+        // A transition is an output that reports a mutation, not a from/to name change: a
+        // mutation can stay within one state variant. Ignored-outcome and fatal-error severity is
+        // left to the applicator and pipeline respectively.
+        if let Ok(ProcessOutcome::Applied(output)) = &outcome
+            && output.did_mutate()
+        {
+            observability::record_transition(sm_kind, from_state, to_state);
+            // Periodic events (blocks, nag/retry ticks) mutate bookkeeping such as the last seen
+            // height on every SM; those stay at DEBUG. A variant change is a lifecycle step and is
+            // reported at INFO whatever triggered it.
+            if is_periodic && from_state == to_state {
                 debug!(
                     sm_kind,
                     sm_id = %id,
@@ -596,10 +604,9 @@ impl SMRegistry {
                     to_state,
                     duty_count = output.duties.len(),
                     signal_count = output.signals.len(),
-                    "periodic state-machine transition applied"
+                    "state-machine transition applied"
                 );
-            }
-            Ok(ProcessOutcome::Applied(output)) if output.did_mutate() => {
+            } else {
                 info!(
                     sm_kind,
                     sm_id = %id,
@@ -610,7 +617,6 @@ impl SMRegistry {
                     "state-machine transition applied"
                 );
             }
-            Ok(ProcessOutcome::Applied(_)) | Ok(ProcessOutcome::Ignored { .. }) | Err(_) => {}
         }
 
         outcome

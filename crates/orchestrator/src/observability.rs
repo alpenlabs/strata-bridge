@@ -33,8 +33,9 @@ use crate::{
 
 const PIPELINE_EVENT_DURATION_SECONDS: &str = "strata_bridge_pipeline_event_duration_seconds";
 const PIPELINE_ROUTING_TOTAL: &str = "strata_bridge_pipeline_routing_total";
+const SM_EVENTS_TOTAL: &str = "strata_bridge_sm_events_total";
+const SM_EVENT_DURATION_SECONDS: &str = "strata_bridge_sm_event_duration_seconds";
 const SM_TRANSITIONS_TOTAL: &str = "strata_bridge_sm_transitions_total";
-const SM_TRANSITION_DURATION_SECONDS: &str = "strata_bridge_sm_transition_duration_seconds";
 const DUTIES_TOTAL: &str = "strata_bridge_duties_total";
 const DUTIES_IN_FLIGHT: &str = "strata_bridge_duties_in_flight";
 const DUTY_DURATION_SECONDS: &str = "strata_bridge_duty_duration_seconds";
@@ -55,13 +56,19 @@ pub(crate) fn describe_metrics() {
         "Top-level off-chain event routing and classification outcomes"
     );
     describe_counter!(
-        SM_TRANSITIONS_TOTAL,
-        "State-machine event processing outcomes by bounded state-machine kind and state pair"
+        SM_EVENTS_TOTAL,
+        "State-machine events processed, by state-machine kind and outcome; includes unchanged \
+         nag/retry ticks, duplicates, rejections and invalid events"
     );
     describe_histogram!(
-        SM_TRANSITION_DURATION_SECONDS,
+        SM_EVENT_DURATION_SECONDS,
         Unit::Seconds,
-        "State-machine event processing time"
+        "State-machine event processing time, by state-machine kind and outcome"
+    );
+    describe_counter!(
+        SM_TRANSITIONS_TOTAL,
+        "State-machine transitions (events that mutated state), by state-machine kind and coarse \
+         state pair; a same-named pair is a mutation within one state variant"
     );
     describe_counter!(DUTIES_TOTAL, "Duty dispatch and execution outcomes");
     describe_gauge!(
@@ -118,29 +125,29 @@ pub(crate) fn record_routing(event_kind: &'static str, result: &'static str) {
     .increment(1);
 }
 
+/// Records one processed state-machine event, whatever its outcome.
+///
+/// This is event-processing telemetry, not transition reporting: unchanged nag and retry ticks
+/// land here (as `applied_unchanged`) so tick load and latency stay measurable.
+pub(crate) fn record_sm_event(sm_kind: &'static str, result: &'static str, duration: Duration) {
+    counter!(SM_EVENTS_TOTAL, "sm_kind" => sm_kind, "result" => result).increment(1);
+    histogram!(SM_EVENT_DURATION_SECONDS, "sm_kind" => sm_kind, "result" => result)
+        .record(duration.as_secs_f64());
+}
+
+/// Records one state-machine transition. Call only for events whose output reports a mutation.
 pub(crate) fn record_transition(
     sm_kind: &'static str,
     from_state: &'static str,
     to_state: &'static str,
-    result: &'static str,
-    duration: Duration,
 ) {
     counter!(
         SM_TRANSITIONS_TOTAL,
         "sm_kind" => sm_kind,
         "from_state" => from_state,
-        "to_state" => to_state,
-        "result" => result
+        "to_state" => to_state
     )
     .increment(1);
-    // State pairs stay on the counter, where they describe lifecycle flow. They are omitted from
-    // the duration distribution because they multiply series without improving latency triage.
-    histogram!(
-        SM_TRANSITION_DURATION_SECONDS,
-        "sm_kind" => sm_kind,
-        "result" => result
-    )
-    .record(duration.as_secs_f64());
 }
 
 pub(crate) fn record_duty(
@@ -230,6 +237,19 @@ pub(crate) const fn sm_kind(id: &SMId) -> &'static str {
         SMId::Stake(_) => "stake",
         SMId::OperatorSet => "operator_set",
     }
+}
+
+/// Whether `duty` only re-requests data from peers; such duties repeat on every nag tick.
+pub(crate) const fn is_nag_duty(duty: &UnifiedDuty) -> bool {
+    matches!(
+        duty,
+        UnifiedDuty::Deposit(DepositDuty::Nag { .. })
+            | UnifiedDuty::Graph(GraphDuty::Nag { .. })
+            | UnifiedDuty::Stake {
+                duty: StakeDuty::Nag(_),
+                ..
+            }
+    )
 }
 
 pub(crate) const fn duty_kind(duty: &UnifiedDuty) -> &'static str {

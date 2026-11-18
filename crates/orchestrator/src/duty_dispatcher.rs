@@ -1,13 +1,13 @@
 //! Provides interface for dispatching duties to the appropriate executors.
 
-use std::{any::Any, panic::AssertUnwindSafe, sync::Arc, time::Instant};
+use std::{any::Any, fmt::Display, panic::AssertUnwindSafe, sync::Arc, time::Instant};
 
 use futures::FutureExt;
 use strata_bridge_exec::{
     config::ExecutionConfig, deposit::execute_deposit_duty, errors::ExecutorError,
     graph::execute_graph_duty, output_handles::OutputHandles, stake::execute_stake_duty,
 };
-use tracing::{Instrument, debug, error, info_span};
+use tracing::{Instrument, Span, debug, debug_span, error, info_span};
 
 use crate::{observability, sm_types::UnifiedDuty};
 
@@ -51,12 +51,7 @@ impl DutyDispatcher {
 
         let cfg = self.cfg.clone();
         let handles = self.handles.clone();
-        let span = info_span!(
-            "bridge_duty_execution",
-            duty_kind,
-            duty = %duty,
-            result = tracing::field::Empty,
-        );
+        let span = duty_span(duty_kind, &duty, observability::is_nag_duty(&duty));
         let task = async move {
             let started = Instant::now();
             observability::record_duty_started(duty_kind);
@@ -75,10 +70,13 @@ impl DutyDispatcher {
                     observability::record_duty(duty_kind, "error", error_class);
                     observability::record_duty_duration(duty_kind, "error", started.elapsed());
                     tracing::Span::current().record("result", "error");
+                    // Carry the duty itself: a nag duty's span is below INFO, so the span prefix
+                    // will not identify it in default output.
                     error!(
                         error = %execution_error,
                         error_class,
                         duty_kind,
+                        duty = %duty,
                         "duty execution failed"
                     );
                     false
@@ -89,7 +87,9 @@ impl DutyDispatcher {
                     tracing::Span::current().record("result", "panic");
                     error!(
                         panic = panic_payload_message(panic_payload.as_ref()),
-                        duty_kind, "duty execution panicked"
+                        duty_kind,
+                        duty = %duty,
+                        "duty execution panicked"
                     );
                     false
                 }
@@ -103,6 +103,28 @@ impl DutyDispatcher {
         // Duty tasks are intentionally detached, but all executor errors and task panics are
         // handled inside the task before the join handle is dropped.
         drop(tokio::task::spawn(task));
+    }
+}
+
+/// Opens the span a dispatched duty executes in.
+///
+/// Nag duties are re-emitted on every nag tick while peers are missing data, so their span stays
+/// at DEBUG; execution failures are still logged at ERROR inside it.
+pub(crate) fn duty_span(duty_kind: &'static str, duty: &dyn Display, nag: bool) -> Span {
+    if nag {
+        debug_span!(
+            "bridge_duty_execution",
+            duty_kind,
+            duty = %duty,
+            result = tracing::field::Empty,
+        )
+    } else {
+        info_span!(
+            "bridge_duty_execution",
+            duty_kind,
+            duty = %duty,
+            result = tracing::field::Empty,
+        )
     }
 }
 
