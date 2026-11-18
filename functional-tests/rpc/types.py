@@ -29,10 +29,10 @@ class RpcDepositStatusInProgress:
 
 
 @dataclass
-class RpcDepositStatusFailed:
-    """Deposit exists, but was never completed (can be reclaimed)."""
+class RpcDepositStatusReclaimable:
+    """Deposit was not completed and can be reclaimed."""
 
-    status: str = "failed"
+    status: str = "reclaimable"
     reason: str = ""
 
 
@@ -44,7 +44,9 @@ class RpcDepositStatusComplete:
     deposit_txid: str = ""
 
 
-RpcDepositStatus = RpcDepositStatusInProgress | RpcDepositStatusFailed | RpcDepositStatusComplete
+RpcDepositStatus = (
+    RpcDepositStatusInProgress | RpcDepositStatusReclaimable | RpcDepositStatusComplete
+)
 
 
 @dataclass
