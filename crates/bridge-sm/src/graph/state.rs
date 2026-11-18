@@ -469,6 +469,11 @@ pub enum GraphState {
         /// The txid of the claim transaction associated with this reimbursement path.
         claim_txid: Txid,
 
+        /// The txid of the contest transaction spent by the slash.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection
+        // purposes.
+        contest_txid: Txid,
+
         /// The txid of the slash transaction.
         slash_txid: Txid,
     },

@@ -834,7 +834,6 @@ fn reimbursement_status_reports_each_graph_state() {
     let claim_txid = graph_summary.claim;
     let fulfillment_txid = generate_txid();
     let payout_txid = generate_txid();
-    let slash_txid = generate_txid();
     let signatures = vec![Signature::from_slice(&[0x0c; 64]).expect("valid signature")];
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, vec![generate_pubnonce()])]);
     let partial_signatures = BTreeMap::from([(OPERATOR_IDX, vec![generate_partial_signature()])]);
@@ -986,7 +985,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 signatures: signatures.clone(),
                 fulfillment_txid: Some(fulfillment_txid),
                 contest_block_height: 100,
-                expected_slash_txid: slash_txid,
+                expected_slash_txid: graph_summary.slash,
                 claim_txid,
             },
             RpcReimbursementStatus::InProgress {
@@ -1024,7 +1023,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 fulfillment_txid: Some(fulfillment_txid),
                 contest_block_height: 100,
                 expected_payout_txid: payout_txid,
-                possible_slash_txid: slash_txid,
+                possible_slash_txid: graph_summary.slash,
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -1038,7 +1037,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 graph_data,
                 signatures,
                 contest_block_height: 100,
-                expected_slash_txid: slash_txid,
+                expected_slash_txid: graph_summary.slash,
                 claim_txid,
                 fulfillment_txid: Some(fulfillment_txid),
             },
@@ -1062,7 +1061,8 @@ fn reimbursement_status_reports_each_graph_state() {
             "Slashed",
             GraphState::Slashed {
                 claim_txid,
-                slash_txid,
+                contest_txid: graph_summary.contest,
+                slash_txid: graph_summary.slash,
             },
             RpcReimbursementStatus::Slashed { claim_txid },
         ),
