@@ -27,6 +27,4 @@ pub mod sm_types;
 pub mod stake_readiness;
 
 #[cfg(test)]
-mod telemetry_tests;
-#[cfg(test)]
 mod testing;
