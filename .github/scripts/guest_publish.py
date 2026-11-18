@@ -7,10 +7,10 @@ install step.
 
 Subcommands:
     validate    Verify workflow_dispatch inputs before any network/build work.
-    fetch       Download asm.elf from the alpenlabs/asm release and moho.elf from the
-                alpenlabs/moho release, check them against each release's SHA256SUMS,
-                write asm-vk.json / moho-vk.json from the published predicates, and fetch
-                asm-params.json, all into $OUTPUT_DIR.
+    fetch       Download the selected network's ASM guest and the Moho guest,
+                check Moho's SHA256SUMS, write asm-vk.json / moho-vk.json from the
+                published predicates, and fetch asm-params.json into $OUTPUT_DIR.
+                The workflow checks both predicates against the ELFs before building.
     summarize   Verify built artifacts, write the bridge manifest, and append a
                 traceability block to $GITHUB_STEP_SUMMARY.
     upload      Copy the bridge guests (+vkeys) to
@@ -77,15 +77,25 @@ def validate_spec_id(spec_id: str) -> int:
     return int(spec_id)
 
 
+ASM_NETWORKS = ("mainnet", "staging", "testnet")
+
+
+def validate_asm_network(network: str) -> str:
+    if network not in ASM_NETWORKS:
+        fail(f"asm_network must be one of {', '.join(ASM_NETWORKS)}, got {network!r}")
+    return network
+
+
 def cmd_validate() -> None:
     """Env: INPUT_ENV, INPUT_ASM_TAG, INPUT_MOHO_TAG, INPUT_ASM_PARAMS_URL,
-    INPUT_ASM_GENESIS_SPEC_ID, INPUT_REF (optional)."""
+    INPUT_ASM_GENESIS_SPEC_ID, INPUT_ASM_NETWORK, INPUT_REF (optional)."""
     env = os.environ["INPUT_ENV"]
     asm_params_url = os.environ["INPUT_ASM_PARAMS_URL"]
     asm_genesis_spec_id = os.environ["INPUT_ASM_GENESIS_SPEC_ID"]
     ref = os.environ.get("INPUT_REF", "")
 
     validate_env(env)
+    validate_asm_network(os.environ["INPUT_ASM_NETWORK"])
     validate_spec_id(asm_genesis_spec_id)
 
     for name in ("asm_tag", "moho_tag"):
@@ -118,7 +128,7 @@ def cmd_validate() -> None:
 
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256SUMS = "SHA256SUMS"
-# Each guest ships from the alpenlabs/<guest> release as <guest>.elf + <guest>-predicate.txt.
+# ASM release assets have a network prefix; local filenames stay uniform.
 GUESTS = ("asm", "moho")
 # Release provenance of the guest ELFs, written by `fetch` into OUTPUT_DIR.
 GUESTS_FILE = "guests.json"
@@ -132,15 +142,20 @@ def parse_sha256sums(path: Path) -> dict[str, str]:
     return {name.lstrip("*"): digest for digest, name in pairs}
 
 
-def fetch_release(guest: str, tag: str, output_dir: Path) -> dict[str, str]:
-    """Download <guest>.elf, its predicate and SHA256SUMS from the release via `gh`,
-    check both files against SHA256SUMS, and return the release metadata.
+def fetch_release(
+    guest: str, tag: str, output_dir: Path, *, network: str = ""
+) -> dict[str, str]:
+    """Download a guest and predicate via `gh` and return the release metadata.
+
+    ASM requires a network; Moho still ships SHA256SUMS. The workflow checks
+    both published predicates against their ELFs before building bridge guests.
 
     Assumes the repo is public. If this 404s on a tag known to exist, the repo is
     likely private: route a token with `Contents: read` on it via GH_TOKEN.
     """
     repo = f"alpenlabs/{guest}"
-    elf, predicate_file = f"{guest}.elf", f"{guest}-predicate.txt"
+    asset = f"{validate_asm_network(network)}-asm" if guest == "asm" else guest
+    elf, predicate_file = f"{asset}.elf", f"{asset}-predicate.txt"
     release_dir = output_dir / guest
     release_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -154,29 +169,36 @@ def fetch_release(guest: str, tag: str, output_dir: Path) -> dict[str, str]:
         "--dir",
         str(release_dir),
     ]
-    for name in (elf, predicate_file, SHA256SUMS):
+    assets = (
+        (elf, predicate_file) if guest == "asm" else (elf, predicate_file, SHA256SUMS)
+    )
+    for name in assets:
         cmd += ["--pattern", name]
     subprocess.run(cmd, check=True)
 
-    published = parse_sha256sums(release_dir / SHA256SUMS)
+    published = parse_sha256sums(release_dir / SHA256SUMS) if guest == "moho" else {}
     for name in (elf, predicate_file):
         if not (release_dir / name).is_file():
             fail(f"missing {name} in {repo} release {tag}")
         actual = sha256_hex(release_dir / name)
-        if published.get(name) != actual:
+        if guest == "moho" and published.get(name) != actual:
             fail(
                 f"{repo} {tag}: {name} sha256 {actual} does not match SHA256SUMS ({published.get(name)})"
             )
 
-    shutil.copyfile(release_dir / elf, output_dir / elf)
+    shutil.copyfile(release_dir / elf, output_dir / f"{guest}.elf")
     predicate = (release_dir / predicate_file).read_text().strip()
     # The genesis loader reads the vk file as a JSON string holding the predicate.
     (output_dir / f"{guest}-vk.json").write_text(json.dumps(predicate) + "\n")
 
     rev = resolve_rev(repo, tag)
-    print(f"{elf}: sha256 {published[elf]} ({repo} {tag} @ {rev})")
+    elf_sha256 = sha256_hex(release_dir / elf)
+    print(f"{elf}: sha256 {elf_sha256} ({repo} {tag} @ {rev})")
     print(f"{guest} predicate: {predicate}")
-    return {"repo": repo, "tag": tag, "rev": rev, "elf_sha256": published[elf]}
+    metadata = {"repo": repo, "tag": tag, "rev": rev, "elf_sha256": elf_sha256}
+    if guest == "asm":
+        metadata["network"] = network
+    return metadata
 
 
 def resolve_rev(repo: str, tag: str) -> str:
@@ -227,7 +249,8 @@ def fetch_asm_params(asm_params_url: str, output_path: Path) -> None:
 
 
 def cmd_fetch() -> None:
-    """Env: ASM_TAG, MOHO_TAG, ASM_PARAMS_URL, OUTPUT_DIR, GH_TOKEN."""
+    """Env: ASM_TAG, ASM_NETWORK, MOHO_TAG, ASM_PARAMS_URL, OUTPUT_DIR, GH_TOKEN."""
+    network = validate_asm_network(os.environ["ASM_NETWORK"])
     asm_params_url = os.environ["ASM_PARAMS_URL"]
     output_dir = Path(os.environ["OUTPUT_DIR"])
     # `gh` reads GH_TOKEN itself; we only verify it's present so a missing token
@@ -237,7 +260,8 @@ def cmd_fetch() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     guests = {
-        g: fetch_release(g, os.environ[f"{g.upper()}_TAG"], output_dir) for g in GUESTS
+        g: fetch_release(g, os.environ[f"{g.upper()}_TAG"], output_dir, network=network)
+        for g in GUESTS
     }
     (output_dir / GUESTS_FILE).write_text(json.dumps(guests, indent=2) + "\n")
     fetch_asm_params(asm_params_url, output_dir / "asm-params.json")
@@ -338,6 +362,7 @@ def cmd_summarize() -> None:
             f"- {name}.elf: `{g['elf_sha256']}` ({g['repo']} `{g['tag']}` @ `{g['rev']}`)"
             for name, g in guests.items()
         ),
+        f"- asm network: `{guests['asm']['network']}`",
         f"- asm-params source: `{asm_params_url}`",
         f"- asm genesis spec: `{asm_genesis_spec_id}`",
         f"- strata-bridge ref: `{bridge_ref}` @ `{bridge_sha}`",
