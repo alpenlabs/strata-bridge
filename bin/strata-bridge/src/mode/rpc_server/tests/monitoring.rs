@@ -833,7 +833,7 @@ fn reimbursement_status_reports_each_graph_state() {
     let claim_txid = graph_summary.claim;
     let fulfillment_txid = generate_txid();
     let payout_txid = generate_txid();
-    let slash_txid = generate_txid();
+    let slash_txid = graph_summary.slash;
     let signatures = vec![Signature::from_slice(&[0x0c; 64]).expect("valid signature")];
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, vec![generate_pubnonce()])]);
     let partial_signatures = BTreeMap::from([(OPERATOR_IDX, vec![generate_partial_signature()])]);
@@ -1061,6 +1061,7 @@ fn reimbursement_status_reports_each_graph_state() {
             "Slashed",
             GraphState::Slashed {
                 claim_txid,
+                contest_txid: graph_summary.contest,
                 slash_txid,
             },
             RpcReimbursementStatus::Slashed { claim_txid },

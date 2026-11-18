@@ -555,11 +555,26 @@ impl GraphSM {
         // membership and stake readiness are driven directly by on-chain
         // slash and unstake observations.
         if self.state.expected_slash_txid() == Some(spend_txid) {
+            // The expected slash spends the contest connector in its first input.
+            let contest_txid = event
+                .tx
+                .input
+                .first()
+                .ok_or_else(|| {
+                    GSMError::rejected(
+                        self.state.clone(),
+                        event.clone().into(),
+                        "slash transaction has no contest input",
+                    )
+                })?
+                .previous_output
+                .txid;
             self.state = GraphState::Slashed {
                 claim_txid: self
                     .state
                     .claim_txid()
                     .expect("slashing states must have a claim txid"),
+                contest_txid,
                 slash_txid: spend_txid,
             };
             return Ok(GSMOutput::new());

@@ -223,14 +223,28 @@ pub(super) enum TestGraphTxKind {
 
 impl From<TestGraphTxKind> for Transaction {
     fn from(kind: TestGraphTxKind) -> Self {
-        let previous_output = match kind {
-            TestGraphTxKind::Slash => test_stake_outpoint(),
-            _ => OutPoint {
+        if matches!(kind, TestGraphTxKind::Slash) {
+            let mut tx = generate_spending_tx(
+                OutPoint {
+                    txid: Transaction::from(TestGraphTxKind::Contest).compute_txid(),
+                    vout: ContestTx::SLASH_VOUT,
+                },
+                &[],
+            );
+            tx.input[0].sequence = relative::LockTime::Blocks(CONTESTED_PAYOUT_TIMELOCK).into();
+            tx.input.push(TxIn {
+                previous_output: test_stake_outpoint(),
+                ..Default::default()
+            });
+            return tx;
+        }
+        generate_spending_tx(
+            OutPoint {
                 vout: kind as u32,
                 ..OutPoint::default()
             },
-        };
-        generate_spending_tx(previous_output, &[])
+            &[],
+        )
     }
 }
 

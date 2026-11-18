@@ -461,6 +461,7 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
         },
         GraphState::Slashed {
             claim_txid: graph_summary.claim,
+            contest_txid: graph_summary.contest,
             slash_txid: graph_summary.slash,
         },
         GraphState::Aborted {

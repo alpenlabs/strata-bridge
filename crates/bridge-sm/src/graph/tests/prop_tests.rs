@@ -23,6 +23,7 @@ fn arb_terminal_state() -> impl Strategy<Value = GraphState> {
         }),
         Just(GraphState::Slashed {
             claim_txid: summary.claim,
+            contest_txid: summary.contest,
             slash_txid: summary.slash,
         }),
         Just(aborted(

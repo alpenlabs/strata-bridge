@@ -2553,8 +2553,9 @@ mod recovery_height_tests {
         registry.deposits.get_mut(&0).unwrap().state = DepositState::Aborted;
         for sm in registry.graphs.values_mut() {
             sm.state = GraphState::Slashed {
-                claim_txid: Txid::all_zeros(),
-                slash_txid: Txid::all_zeros(),
+                claim_txid: Txid::from_byte_array([1; 32]),
+                contest_txid: Txid::from_byte_array([2; 32]),
+                slash_txid: Txid::from_byte_array([3; 32]),
             };
         }
         let mut stake = make_confirmed_stake_sm(
