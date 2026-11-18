@@ -147,7 +147,8 @@ impl Pipeline {
 
             let span = bridge_event_span(
                 event_kind,
-                matches!(&event, UnifiedEvent::NagTick | UnifiedEvent::RetryTick),
+                matches!(&event, UnifiedEvent::NagTick | UnifiedEvent::RetryTick)
+                    || is_nag_request(&event),
             );
             let outcome = async {
                 trace!(?event, "processing routable event");
@@ -2743,11 +2744,11 @@ mod block_persistence_tests {
 
 /// Opens the root span for one top-level event.
 ///
-/// Nag and retry ticks fire on a timer and fan out to every tracked state machine, so their span
-/// (and its close line under `FmtSpan::CLOSE`) stays at DEBUG; any failure is still reported by
-/// the `error!` the caller emits with explicit fields.
-pub(crate) fn bridge_event_span(event_kind: &'static str, periodic: bool) -> Span {
-    if periodic {
+/// Nag and retry ticks, and the nag requests peers send on their own ticks, repeat for every
+/// tracked state machine, so their span (and its close line under `FmtSpan::CLOSE`) stays at
+/// DEBUG; any failure is still reported by the `error!` the caller emits with explicit fields.
+pub(crate) fn bridge_event_span(event_kind: &'static str, routine: bool) -> Span {
+    if routine {
         debug_span!(
             "bridge_event",
             event_kind,
