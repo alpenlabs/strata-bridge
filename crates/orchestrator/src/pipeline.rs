@@ -11,7 +11,7 @@ use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, OperatorIdx},
 };
-use tracing::{Instrument, debug, error, info, info_span, trace, warn};
+use tracing::{Instrument, Span, debug, debug_span, error, info, info_span, trace, warn};
 
 use crate::{
     applicator::{Applicator, BatchOutput},
@@ -145,11 +145,9 @@ impl Pipeline {
             let started = Instant::now();
             on_event();
 
-            let span = info_span!(
-                "bridge_event",
+            let span = bridge_event_span(
                 event_kind,
-                result = tracing::field::Empty,
-                error_class = tracing::field::Empty,
+                matches!(&event, UnifiedEvent::NagTick | UnifiedEvent::RetryTick),
             );
             let outcome = async {
                 trace!(?event, "processing routable event");
@@ -2740,5 +2738,28 @@ mod block_persistence_tests {
         drop(persister);
         drop(db);
         drop(guard);
+    }
+}
+
+/// Opens the root span for one top-level event.
+///
+/// Nag and retry ticks fire on a timer and fan out to every tracked state machine, so their span
+/// (and its close line under `FmtSpan::CLOSE`) stays at DEBUG; any failure is still reported by
+/// the `error!` the caller emits with explicit fields.
+pub(crate) fn bridge_event_span(event_kind: &'static str, periodic: bool) -> Span {
+    if periodic {
+        debug_span!(
+            "bridge_event",
+            event_kind,
+            result = tracing::field::Empty,
+            error_class = tracing::field::Empty,
+        )
+    } else {
+        info_span!(
+            "bridge_event",
+            event_kind,
+            result = tracing::field::Empty,
+            error_class = tracing::field::Empty,
+        )
     }
 }

@@ -37,6 +37,8 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+tracing-subscriber.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-bridge-tx-graph = { workspace = true, features = ["test_utils"] }
 strata-predicate.workspace = true
