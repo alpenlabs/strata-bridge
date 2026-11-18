@@ -1016,13 +1016,15 @@ fn reimbursement_status_reports_each_graph_state() {
         (
             "AllNackd",
             GraphState::AllNackd {
-                last_block_height: 100,
+                last_block_height: 101
+                    + u64::from(test_graph_cfg().game_graph_params.nack_timelock.value()),
                 graph_data: graph_data.clone(),
                 signatures: signatures.clone(),
                 claim_txid,
+                contest_txid: Some(graph_summary.contest),
                 fulfillment_txid: Some(fulfillment_txid),
                 contest_block_height: 100,
-                expected_payout_txid: payout_txid,
+                expected_payout_txid: graph_summary.contested_payout,
                 possible_slash_txid: graph_summary.slash,
             },
             RpcReimbursementStatus::InProgress {
@@ -1033,12 +1035,14 @@ fn reimbursement_status_reports_each_graph_state() {
         (
             "Acked",
             GraphState::Acked {
-                last_block_height: 100,
+                last_block_height: 101
+                    + u64::from(test_graph_cfg().game_graph_params.nack_timelock.value()),
                 graph_data,
                 signatures,
                 contest_block_height: 100,
                 expected_slash_txid: graph_summary.slash,
                 claim_txid,
+                contest_txid: Some(graph_summary.contest),
                 fulfillment_txid: Some(fulfillment_txid),
             },
             RpcReimbursementStatus::InProgress {

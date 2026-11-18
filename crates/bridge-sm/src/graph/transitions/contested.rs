@@ -399,6 +399,7 @@ impl GraphSM {
                         graph_data,
                         signatures,
                         claim_txid: graph_summary.claim,
+                        contest_txid: Some(graph_summary.contest),
                         fulfillment_txid,
                         contest_block_height,
                         expected_payout_txid: graph_summary.contested_payout,
@@ -505,6 +506,7 @@ impl GraphSM {
                     contest_block_height,
                     expected_slash_txid: graph_summary.slash,
                     claim_txid: graph_summary.claim,
+                    contest_txid: Some(graph_summary.contest),
                     fulfillment_txid,
                 };
 

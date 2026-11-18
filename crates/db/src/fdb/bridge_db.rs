@@ -1426,7 +1426,7 @@ mod tests {
             operator_idx in any::<OperatorIdx>(),
             block_height in any::<u64>(),
             txid in arb_txid(),
-            variant_selector in 0u8..4,
+            variant_selector in 0u8..5,
             operator_table in arb_operator_table(),
         ) {
             // Only includes simple variants for testing, as the more complex ones would require constructing valid GraphSMs.
@@ -1441,21 +1441,36 @@ mod tests {
                 },
                 _ => {
                     let outpoint = OutPoint { txid, vout: 0 };
-                    GraphState::AllNackd {
-                        last_block_height: block_height,
-                        graph_data: DepositParams {
-                            game_index: NonZero::new(1).unwrap(),
-                            claim_funds: outpoint,
-                            deposit_outpoint: outpoint,
-                            adaptor_pubkeys: vec![generate_xonly_pubkey()],
-                            fault_pubkeys: vec![generate_xonly_pubkey()]
-                        },
-                        signatures: Default::default(),
-                        claim_txid: txid,
-                        fulfillment_txid: Some(txid),
-                        contest_block_height: block_height,
-                        expected_payout_txid: txid,
-                        possible_slash_txid: txid
+                    let graph_data = DepositParams {
+                        game_index: NonZero::new(1).unwrap(),
+                        claim_funds: outpoint,
+                        deposit_outpoint: outpoint,
+                        adaptor_pubkeys: vec![generate_xonly_pubkey()],
+                        fault_pubkeys: vec![generate_xonly_pubkey()],
+                    };
+                    if variant_selector == 3 {
+                        GraphState::AllNackd {
+                            last_block_height: block_height,
+                            graph_data,
+                            signatures: Default::default(),
+                            claim_txid: txid,
+                            contest_txid: Some(generate_txid()),
+                            fulfillment_txid: Some(generate_txid()),
+                            contest_block_height: block_height,
+                            expected_payout_txid: generate_txid(),
+                            possible_slash_txid: generate_txid(),
+                        }
+                    } else {
+                        GraphState::Acked {
+                            last_block_height: block_height,
+                            graph_data,
+                            signatures: Default::default(),
+                            contest_block_height: block_height,
+                            expected_slash_txid: generate_txid(),
+                            claim_txid: txid,
+                            contest_txid: Some(generate_txid()),
+                            fulfillment_txid: Some(generate_txid()),
+                        }
                     }
                 },
             };
