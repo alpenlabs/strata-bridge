@@ -12,9 +12,17 @@ on:
           - staging
           - prod
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships asm.elf and its predicate (e.g. v0.4.0).
+        description: Tag in alpenlabs/asm whose release ships network-specific guests (e.g. v0.6.0-rc.2).
         required: true
         type: string
+      asm_network:
+        description: Network whose ASM guest to use; independent of the deployment environment.
+        required: true
+        type: choice
+        options:
+          - mainnet
+          - staging
+          - testnet
       moho_tag:
         description: Tag in alpenlabs/moho whose release ships moho.elf and its predicate (e.g. v0.4.0).
         required: true
@@ -40,7 +48,11 @@ on:
         required: true
         type: string
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships asm.elf and its predicate.
+        description: Tag in alpenlabs/asm whose release ships network-specific guests.
+        required: true
+        type: string
+      asm_network:
+        description: Network whose ASM guest to use (mainnet | staging | testnet).
         required: true
         type: string
       moho_tag:
@@ -67,7 +79,7 @@ env:
   S3_PREFIX: elfs
 
 concurrency:
-  group: publish-sp1-bridge-guests-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}-${{ inputs.moho_tag }}
+  group: publish-sp1-bridge-guests-${{ inputs.env }}-${{ inputs.ref || github.ref }}-${{ inputs.asm_tag }}-${{ inputs.asm_network }}-${{ inputs.moho_tag }}
   cancel-in-progress: false
 
 permissions: {}
@@ -111,6 +123,7 @@ jobs:
       - name: Validate manual inputs
         env:
           INPUT_ENV: ${{ inputs.env }}
+          INPUT_ASM_NETWORK: ${{ inputs.asm_network }}
           INPUT_ASM_TAG: ${{ inputs.asm_tag }}
           INPUT_MOHO_TAG: ${{ inputs.moho_tag }}
           INPUT_ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
@@ -139,6 +152,7 @@ jobs:
       - name: Fetch asm/moho ELFs and predicates, asm-params
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASM_NETWORK: ${{ inputs.asm_network }}
           ASM_TAG: ${{ inputs.asm_tag }}
           MOHO_TAG: ${{ inputs.moho_tag }}
           ASM_PARAMS_URL: ${{ inputs.asm_params_url }}
@@ -202,7 +216,7 @@ jobs:
       - name: Upload elfs/ as workflow artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sp1-bridge-guests-${{ inputs.env }}-asm-${{ inputs.asm_tag }}-moho-${{ inputs.moho_tag }}-${{ github.run_id }}
+          name: sp1-bridge-guests-${{ inputs.env }}-asm-${{ inputs.asm_network }}-${{ inputs.asm_tag }}-moho-${{ inputs.moho_tag }}-${{ github.run_id }}
           path: guest-builder/sp1/elfs/
           if-no-files-found: error
           retention-days: 90
