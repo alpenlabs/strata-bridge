@@ -176,6 +176,7 @@ impl GraphSM {
                             .iter()
                             .filter(|(idx, _)| !counterproof_nacks.contains_key(idx))
                             .filter_map(|(counterprover_idx, data)| {
+                                let completed_signatures = data.completed_signatures?;
                                 let watchtower_slot = watchtower_slot_for_operator(
                                     self.context().operator_table(),
                                     pov_idx,
@@ -193,7 +194,7 @@ impl GraphSM {
                                 Some(GraphDuty::PublishCounterProofNack {
                                     deposit_idx: self.context().deposit_idx(),
                                     counterprover_idx: *counterprover_idx,
-                                    completed_signatures: data.completed_signatures,
+                                    completed_signatures,
                                     counterproof_nack_tx,
                                 })
                             }),

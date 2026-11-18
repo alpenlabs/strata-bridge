@@ -662,7 +662,7 @@ mod tests {
         GraphDuty::PublishCounterProofNack {
             deposit_idx: sm.context().deposit_idx(),
             counterprover_idx,
-            completed_signatures: data.completed_signatures,
+            completed_signatures: data.completed_signatures.unwrap(),
             counterproof_nack_tx,
         }
     }
@@ -779,6 +779,39 @@ mod tests {
             cfg,
             GraphHandlerOutput {
                 state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    #[test]
+    fn retry_nacks_only_counterproofs_with_available_signatures() {
+        let cfg = test_graph_sm_cfg();
+        let mut state = counter_proof_posted_state_with(
+            Some(dummy_proof_receipt()),
+            &[TEST_NONPOV_IDX, 2],
+            &[],
+        );
+        let GraphState::CounterProofPosted {
+            counterproofs_and_confs,
+            ..
+        } = &mut state
+        else {
+            unreachable!()
+        };
+        counterproofs_and_confs
+            .get_mut(&TEST_NONPOV_IDX)
+            .unwrap()
+            .completed_signatures = None;
+        let sm = create_sm(state.clone());
+        let bytes = postcard::to_allocvec(&sm).unwrap();
+        let restored: GraphSM = postcard::from_bytes(&bytes).unwrap();
+        let expected_duty = expected_counterproof_nack_duty(&cfg, &restored, &restored.state, 2);
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state: restored.state,
                 event: GraphEvent::RetryTick(RetryTickEvent),
                 expected_duties: vec![expected_duty],
             },
