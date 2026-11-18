@@ -136,7 +136,7 @@ wheels = [
 [[package]]
 name = "flexitest"
 version = "0.1.0"
-source = { git = "https://codeberg.org/treyd/flexitest.git#50841c19444e154eb18750cade4cd89587c24344" }
+source = { git = "https://github.com/alpenlabs/flexitest.git?rev=50841c19444e154eb18750cade4cd89587c24344#50841c19444e154eb18750cade4cd89587c24344" }
 
 [[package]]
 name = "functional-tests"
@@ -159,7 +159,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "bitcoinlib", specifier = ">=0.7.5,<0.8" },
-    { name = "flexitest", git = "https://codeberg.org/treyd/flexitest.git" },
+    { name = "flexitest", git = "https://github.com/alpenlabs/flexitest.git?rev=50841c19444e154eb18750cade4cd89587c24344" },
     { name = "pathlib" },
     { name = "toml" },
     { name = "websockets", specifier = "~=15.0" },
