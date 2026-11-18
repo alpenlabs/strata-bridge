@@ -8,12 +8,12 @@ mod tests {
             errors::GSMError,
             events::{FulfillmentConfirmedEvent, GraphEvent},
             machine::GraphSM,
-            state::GraphState,
+            state::{GraphState, PayoutKind},
             tests::{
                 ASSIGNMENT_DEADLINE, FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition,
                 GraphTransition, TEST_POV_IDX, create_nonpov_sm, create_sm, get_state,
                 mock_states::{assigned_state, fulfilled_state},
-                test_graph_invalid_transition, test_recipient_desc,
+                test_graph_invalid_transition, test_graph_summary, test_recipient_desc,
             },
         },
         testing::test_transition,
@@ -112,8 +112,9 @@ mod tests {
     #[test]
     fn test_process_fulfillment_from_invalid_state() {
         let state = GraphState::Withdrawn {
-            claim_txid: generate_txid(),
-            payout_txid: generate_txid(),
+            claim_txid: test_graph_summary().claim,
+            payout_txid: test_graph_summary().uncontested_payout,
+            payout_kind: Some(PayoutKind::Uncontested),
         };
 
         test_graph_invalid_transition(GraphInvalidTransition {

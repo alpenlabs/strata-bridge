@@ -271,6 +271,7 @@ pub(super) const fn reimbursement_status(state: &GraphState) -> RpcReimbursement
         GraphState::Withdrawn {
             claim_txid,
             payout_txid,
+            ..
         } => RpcReimbursementStatus::Complete {
             claim_txid: *claim_txid,
             payout_txid: *payout_txid,

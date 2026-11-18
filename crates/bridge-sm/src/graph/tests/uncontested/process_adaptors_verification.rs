@@ -1,17 +1,16 @@
 //! Unit Tests for process_adaptors_verification
 #[cfg(test)]
 mod tests {
-    use strata_bridge_test_utils::bitcoin::generate_txid;
-
     use crate::{
         graph::{
             duties::GraphDuty,
             errors::GSMError,
             events::{AdaptorsVerifiedEvent, GraphEvent},
-            state::GraphState,
+            state::{GraphState, PayoutKind},
             tests::{
                 GraphInvalidTransition, create_nonpov_sm, create_sm, get_state,
                 mock_states::test_graph_generated_state, test_graph_invalid_transition,
+                test_graph_summary,
             },
         },
         testing::EventSequence,
@@ -83,8 +82,9 @@ mod tests {
     fn test_invalid_process_adaptors_verification_from_withdrawn() {
         // AdaptorsVerified is only valid in GraphGenerated; any other state should be InvalidEvent
         let state = GraphState::Withdrawn {
-            claim_txid: generate_txid(),
-            payout_txid: generate_txid(),
+            claim_txid: test_graph_summary().claim,
+            payout_txid: test_graph_summary().uncontested_payout,
+            payout_kind: Some(PayoutKind::Uncontested),
         };
 
         test_graph_invalid_transition(GraphInvalidTransition {

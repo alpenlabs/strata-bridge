@@ -487,7 +487,7 @@ mod tests {
         graph::{
             config::GraphSMCfg,
             context::GraphSMCtx,
-            state::{AbortReason, GraphState},
+            state::{AbortReason, GraphState, PayoutKind},
         },
         operator_set::{
             ConfirmedExit, ExitKind, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
@@ -1426,15 +1426,22 @@ mod tests {
             operator_idx in any::<OperatorIdx>(),
             block_height in any::<u64>(),
             txid in arb_txid(),
+            payout_txid in arb_txid(),
+            payout_kind in prop_oneof![Just(PayoutKind::Uncontested), Just(PayoutKind::Contested)],
             variant_selector in 0u8..5,
             operator_table in arb_operator_table(),
         ) {
             // Only includes simple variants for testing, as the more complex ones would require constructing valid GraphSMs.
             // TODO: <https://alpenlabs.atlassian.net/browse/STR-2697>
             // Implement `Arbitrary` for `GraphSM` to allow testing of all variants.
+            prop_assume!(txid != payout_txid);
             let state = match variant_selector {
                 0 => GraphState::Created { last_block_height: block_height },
-                1 => GraphState::Withdrawn { claim_txid: txid, payout_txid: txid },
+                1 => GraphState::Withdrawn {
+                    claim_txid: txid,
+                    payout_txid,
+                    payout_kind: Some(payout_kind),
+                },
                 2 => GraphState::Aborted {
                     claim_txid: Some(txid),
                     reason: AbortReason::PayoutConnectorSpent { spending_txid: txid },
