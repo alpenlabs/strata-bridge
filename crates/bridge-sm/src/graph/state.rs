@@ -418,6 +418,11 @@ pub enum GraphState {
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
         claim_txid: Txid,
 
+        /// Confirmed contest transaction ID, if recorded.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        contest_txid: Option<Txid>,
+
         /// The txid of the fulfillment transaction (None in faulty claim cases).
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
         fulfillment_txid: Option<Txid>,
@@ -450,6 +455,11 @@ pub enum GraphState {
 
         /// The txid of the claim transaction.
         claim_txid: Txid,
+
+        /// Confirmed contest transaction ID, if recorded.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        contest_txid: Option<Txid>,
 
         /// The txid of the fulfillment transaction (None in faulty claim cases).
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.

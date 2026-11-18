@@ -1,17 +1,15 @@
 //! Unit tests for processing of counterproof NACK confirmation.
 //!
-//! Tests use a two-slot graph summary ([`build_test_graph_summary(2)`]) so that the
+//! Tests use a two-slot graph summary ([`test_graph_summary`]) so that the
 //! `AllNackd` transition requires two NACKs — one per watchtower slot.
 
 use std::collections::BTreeMap;
 
-use bitcoin::{OutPoint, Txid, hashes::Hash};
-use strata_bridge_test_utils::{
-    bitcoin::{generate_spending_tx, generate_tx},
-    prelude::generate_txid,
-};
+use bitcoin::{OutPoint, Txid, hashes::Hash, relative};
+use strata_bridge_test_utils::bitcoin::{generate_spending_tx, generate_tx};
 use strata_bridge_tx_graph::{
-    game_graph::GameGraphSummary, transactions::counterproof::CounterproofTx,
+    game_graph::GameGraphSummary,
+    transactions::{contest::ContestTx, counterproof::CounterproofTx},
 };
 
 use crate::{
@@ -21,8 +19,8 @@ use crate::{
         machine::GraphSM,
         state::{AbortReason, CounterproofData, GraphState},
         tests::{
-            GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm, get_state,
+            GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, NACK_TIMELOCK,
+            TEST_NONPOV_IDX, TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm, get_state,
             mock_states::{
                 TEST_FULFILLMENT_TXID, all_nackd_state, all_state_variants,
                 counter_proof_posted_state,
@@ -37,10 +35,28 @@ use crate::{
 
 /// A second non-POV operator index for multi-slot tests.
 const SECOND_NONPOV_IDX: u32 = 2;
+const COUNTERPROOF_BLOCK_HEIGHT: u64 = LATER_BLOCK_HEIGHT + 1;
+fn nack_block_height() -> u64 {
+    COUNTERPROOF_BLOCK_HEIGHT + u64::from(NACK_TIMELOCK.value())
+}
 
-/// Graph summary with two counterproof slots.
+/// Graph summary with distinct counterproof and ACK transactions for each watchtower.
 fn test_graph_summary() -> GameGraphSummary {
-    build_test_graph_summary(2)
+    let mut summary = build_test_graph_summary(2);
+    for (slot, counterproof) in summary.counterproofs.iter_mut().enumerate() {
+        counterproof.counterproof = generate_spending_tx(
+            OutPoint::new(summary.contest, ContestTx::counterproof_vout(slot as u32)),
+            &[],
+        )
+        .compute_txid();
+        let mut ack = generate_spending_tx(
+            OutPoint::new(counterproof.counterproof, CounterproofTx::ACK_NACK_VOUT),
+            &[],
+        );
+        ack.input[0].sequence = relative::LockTime::Blocks(NACK_TIMELOCK).into();
+        counterproof.counterproof_ack = ack.compute_txid();
+    }
+    summary
 }
 
 /// Creates a NACK tx that spends the ACK/NACK output of the counterproof at the given
@@ -75,10 +91,11 @@ fn nack_event(counterprover_idx: u32) -> CounterProofNackConfirmedEvent {
 /// both non-POV operators, and `nacked_idxs` already nacked.
 fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
     let summary = test_graph_summary();
-    let counterproof_txid = summary.counterproofs[0].counterproof;
+    let first_counterproof_txid = summary.counterproofs[0].counterproof;
+    let second_counterproof_txid = summary.counterproofs[1].counterproof;
 
     GraphState::CounterProofPosted {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height: nack_block_height(),
         graph_data: test_deposit_params(),
         graph_summary: summary,
         signatures: Default::default(),
@@ -89,23 +106,23 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
             (
                 TEST_NONPOV_IDX,
                 CounterproofData {
-                    txid: counterproof_txid,
-                    conf_height: LATER_BLOCK_HEIGHT,
+                    txid: first_counterproof_txid,
+                    conf_height: COUNTERPROOF_BLOCK_HEIGHT,
                     completed_signatures: test_completed_signatures(),
                 },
             ),
             (
                 SECOND_NONPOV_IDX,
                 CounterproofData {
-                    txid: counterproof_txid,
-                    conf_height: LATER_BLOCK_HEIGHT,
+                    txid: second_counterproof_txid,
+                    conf_height: COUNTERPROOF_BLOCK_HEIGHT,
                     completed_signatures: test_completed_signatures(),
                 },
             ),
         ]),
         counterproof_nacks: nacked_idxs
             .iter()
-            .map(|&idx| (idx, generate_txid()))
+            .map(|&idx| (idx, nack_event(idx).tx.compute_txid()))
             .collect(),
         stake_spent: None,
         payout_connector_spent: None,
@@ -115,7 +132,8 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
 #[test]
 fn first_nack_stays_in_counter_proof_posted() {
     let summary = test_graph_summary();
-    let counterproof_txid = summary.counterproofs[0].counterproof;
+    let first_counterproof_txid = summary.counterproofs[0].counterproof;
+    let second_counterproof_txid = summary.counterproofs[1].counterproof;
     let from_state = counter_proof_posted_state_with_nacks(&[]);
     let event = nack_event(TEST_NONPOV_IDX);
 
@@ -123,7 +141,7 @@ fn first_nack_stays_in_counter_proof_posted() {
         from_state,
         event: GraphEvent::CounterProofNackConfirmed(event.clone()),
         expected_state: GraphState::CounterProofPosted {
-            last_block_height: LATER_BLOCK_HEIGHT,
+            last_block_height: nack_block_height(),
             graph_data: test_deposit_params(),
             graph_summary: summary,
             signatures: Default::default(),
@@ -134,16 +152,16 @@ fn first_nack_stays_in_counter_proof_posted() {
                 (
                     TEST_NONPOV_IDX,
                     CounterproofData {
-                        txid: counterproof_txid,
-                        conf_height: LATER_BLOCK_HEIGHT,
+                        txid: first_counterproof_txid,
+                        conf_height: COUNTERPROOF_BLOCK_HEIGHT,
                         completed_signatures: test_completed_signatures(),
                     },
                 ),
                 (
                     SECOND_NONPOV_IDX,
                     CounterproofData {
-                        txid: counterproof_txid,
-                        conf_height: LATER_BLOCK_HEIGHT,
+                        txid: second_counterproof_txid,
+                        conf_height: COUNTERPROOF_BLOCK_HEIGHT,
                         completed_signatures: test_completed_signatures(),
                     },
                 ),
@@ -166,10 +184,11 @@ fn second_nack_transitions_to_all_nackd() {
         from_state: counter_proof_posted_state_with_nacks(&[TEST_NONPOV_IDX]),
         event: GraphEvent::CounterProofNackConfirmed(event),
         expected_state: GraphState::AllNackd {
-            last_block_height: LATER_BLOCK_HEIGHT,
+            last_block_height: nack_block_height(),
             graph_data: test_deposit_params(),
             signatures: Default::default(),
             claim_txid: summary.claim,
+            contest_txid: Some(summary.contest),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
             expected_payout_txid: summary.contested_payout,
@@ -193,10 +212,11 @@ fn second_nack_transitions_to_all_nackd_nonpov() {
             from_state: counter_proof_posted_state_with_nacks(&[TEST_NONPOV_IDX]),
             event: GraphEvent::CounterProofNackConfirmed(event),
             expected_state: GraphState::AllNackd {
-                last_block_height: LATER_BLOCK_HEIGHT,
+                last_block_height: nack_block_height(),
                 graph_data: test_deposit_params(),
                 signatures: Default::default(),
                 claim_txid: summary.claim,
+                contest_txid: Some(summary.contest),
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 expected_payout_txid: summary.contested_payout,
@@ -249,10 +269,11 @@ fn final_nack_does_not_abort_when_only_stake_spent() {
         from_state,
         event: GraphEvent::CounterProofNackConfirmed(nack_event(SECOND_NONPOV_IDX)),
         expected_state: GraphState::AllNackd {
-            last_block_height: LATER_BLOCK_HEIGHT,
+            last_block_height: nack_block_height(),
             graph_data: test_deposit_params(),
             signatures: Default::default(),
             claim_txid: summary.claim,
+            contest_txid: Some(summary.contest),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
             expected_payout_txid: summary.contested_payout,
@@ -328,9 +349,10 @@ fn event_rejected_when_tx_is_counterproof_ack() {
     let ack_looking_as_nack = nack_tx_for_slot(slot);
     summary.counterproofs[slot].counterproof_ack = ack_looking_as_nack.compute_txid();
 
-    let counterproof_txid = summary.counterproofs[0].counterproof;
+    let first_counterproof_txid = summary.counterproofs[0].counterproof;
+    let second_counterproof_txid = summary.counterproofs[1].counterproof;
     let from_state = GraphState::CounterProofPosted {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height: nack_block_height(),
         graph_data: test_deposit_params(),
         graph_summary: summary,
         signatures: Default::default(),
@@ -341,16 +363,16 @@ fn event_rejected_when_tx_is_counterproof_ack() {
             (
                 TEST_NONPOV_IDX,
                 CounterproofData {
-                    txid: counterproof_txid,
-                    conf_height: LATER_BLOCK_HEIGHT,
+                    txid: first_counterproof_txid,
+                    conf_height: COUNTERPROOF_BLOCK_HEIGHT,
                     completed_signatures: test_completed_signatures(),
                 },
             ),
             (
                 SECOND_NONPOV_IDX,
                 CounterproofData {
-                    txid: counterproof_txid,
-                    conf_height: LATER_BLOCK_HEIGHT,
+                    txid: second_counterproof_txid,
+                    conf_height: COUNTERPROOF_BLOCK_HEIGHT,
                     completed_signatures: test_completed_signatures(),
                 },
             ),

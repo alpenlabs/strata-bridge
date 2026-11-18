@@ -21,9 +21,10 @@ use zkaleido::ProofReceipt;
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, build_test_graph_summary,
-    create_nonpov_sm, dummy_proof_receipt, test_completed_signatures, test_deposit_params,
-    test_graph_data, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_recipient_desc,
+    N_TEST_OPERATORS, NACK_TIMELOCK, TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX,
+    build_test_graph_summary, create_nonpov_sm, dummy_proof_receipt, test_completed_signatures,
+    test_deposit_params, test_graph_data, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary,
+    test_recipient_desc,
     utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{
@@ -370,10 +371,11 @@ pub(super) fn counter_proof_posted_state_with_signatures(
 pub(super) fn all_nackd_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::AllNackd {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height: LATER_BLOCK_HEIGHT + 1 + u64::from(NACK_TIMELOCK.value()),
         graph_data: test_deposit_params(),
         signatures: Default::default(),
         claim_txid: graph_summary.claim,
+        contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_payout_txid: graph_summary.contested_payout,
@@ -393,6 +395,7 @@ pub(super) fn all_nackd_state_with(
         graph_data: test_deposit_params(),
         signatures,
         claim_txid: graph_summary.claim,
+        contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height,
         expected_payout_txid: graph_summary.contested_payout,
@@ -404,12 +407,13 @@ pub(super) fn all_nackd_state_with(
 pub(super) fn acked_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::Acked {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height: LATER_BLOCK_HEIGHT + 1 + u64::from(NACK_TIMELOCK.value()),
         graph_data: test_deposit_params(),
         signatures: Default::default(),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: graph_summary.slash,
         claim_txid: graph_summary.claim,
+        contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
     }
 }
