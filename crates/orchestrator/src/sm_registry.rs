@@ -2,6 +2,7 @@
 //! querying, resolving operators, and driving state transitions.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, btree_map::Entry},
     fmt::{Debug, Display},
     sync::Arc,
@@ -562,7 +563,8 @@ impl SMRegistry {
         event: SMEvent,
     ) -> Result<ProcessOutcome, ProcessError> {
         let sm_kind = observability::sm_kind(id);
-        let is_periodic = is_periodic_event(&event);
+        let periodic_label = periodic_event_label(&event);
+        let is_periodic = periodic_label.is_some();
         let from_state = self.state_kind(id).unwrap_or("missing");
         // Event-processing diagnostics, not a transition record: every routed event, including
         // each unchanged nag/retry tick on every tracked SM, opens this span. It stays at DEBUG so
@@ -578,8 +580,12 @@ impl SMRegistry {
         );
         let _entered = span.enter();
         // `process_event_inner` consumes the event; keep its label so a transition logged below the
-        // DEBUG span still names its cause.
-        let event_label = event.to_string();
+        // DEBUG span still names its cause. Periodic events fan out to every SM on each tick, so
+        // they use a static label; only the rarer non-periodic events are formatted.
+        let event_label: Cow<'static, str> = match periodic_label {
+            Some(label) => Cow::Borrowed(label),
+            None => Cow::Owned(event.to_string()),
+        };
         let started = Instant::now();
         let outcome = self.process_event_inner(id, event);
         let to_state = self.state_kind(id).unwrap_or("missing");
@@ -780,22 +786,32 @@ const fn transition_result(outcome: &Result<ProcessOutcome, ProcessError>) -> &'
     }
 }
 
-fn is_periodic_event(event: &SMEvent) -> bool {
+/// Returns a static label for periodic events (blocks and nag/retry ticks), `None` otherwise.
+fn periodic_event_label(event: &SMEvent) -> Option<&'static str> {
     match event {
-        SMEvent::InitializeStake { .. } => false,
-        SMEvent::OperatorSet(event) => matches!(event.as_ref(), OperatorSetEvent::NewBlock { .. }),
-        SMEvent::Deposit(event) => matches!(
-            event.as_ref(),
-            DepositEvent::NewBlock(_) | DepositEvent::RetryTick(_) | DepositEvent::NagTick(_)
-        ),
-        SMEvent::Graph(event) => matches!(
-            event.as_ref(),
-            GraphEvent::NewBlock(_) | GraphEvent::RetryTick(_) | GraphEvent::NagTick(_)
-        ),
-        SMEvent::Stake(event) => matches!(
-            event.as_ref(),
-            StakeEvent::NewBlock(_) | StakeEvent::RetryTick(_) | StakeEvent::NagTick(_)
-        ),
+        SMEvent::InitializeStake { .. } => None,
+        SMEvent::OperatorSet(event) => match event.as_ref() {
+            OperatorSetEvent::NewBlock { .. } => Some("OperatorSetEvent(NewBlock)"),
+            _ => None,
+        },
+        SMEvent::Deposit(event) => match event.as_ref() {
+            DepositEvent::NewBlock(_) => Some("DepositEvent(NewBlock)"),
+            DepositEvent::RetryTick(_) => Some("DepositEvent(RetryTick)"),
+            DepositEvent::NagTick(_) => Some("DepositEvent(NagTick)"),
+            _ => None,
+        },
+        SMEvent::Graph(event) => match event.as_ref() {
+            GraphEvent::NewBlock(_) => Some("GraphEvent(NewBlock)"),
+            GraphEvent::RetryTick(_) => Some("GraphEvent(RetryTick)"),
+            GraphEvent::NagTick(_) => Some("GraphEvent(NagTick)"),
+            _ => None,
+        },
+        SMEvent::Stake(event) => match event.as_ref() {
+            StakeEvent::NewBlock(_) => Some("StakeEvent(NewBlock)"),
+            StakeEvent::RetryTick(_) => Some("StakeEvent(RetryTick)"),
+            StakeEvent::NagTick(_) => Some("StakeEvent(NagTick)"),
+            _ => None,
+        },
     }
 }
 
