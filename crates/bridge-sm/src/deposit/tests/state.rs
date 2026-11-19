@@ -7,6 +7,11 @@ mod tests {
     /// than a recompile.
     #[test]
     fn deposit_state_variant_indices_are_stable() {
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
+        let sweep_nonces = test_operator_nonces();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
+
         let desc = random_p2tr_desc();
 
         let cases: [(u8, DepositState); 15] = [
@@ -89,17 +94,18 @@ mod tests {
                     fulfillment_txid: generate_txid(),
                     cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                     cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                    payout_nonces: BTreeMap::new(),
-                    payout_aggregated_nonce: generate_agg_nonce(),
+                    payout_nonces,
+                    payout_aggregated_nonce,
                     payout_partial_signatures: BTreeMap::new(),
                 },
             ),
             (
                 9,
                 DepositState::CooperativePathFailed {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
                     fulfillment_txid: generate_txid(),
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
+                    expected_cooperative_payout_txid: None,
                 },
             ),
             (
@@ -107,6 +113,7 @@ mod tests {
                 DepositState::Spent {
                     fulfillment_txid: None,
                     assignee: None,
+                    cooperative_payout_txid: None,
                 },
             ),
             (11, DepositState::Aborted),
@@ -116,6 +123,7 @@ mod tests {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     sweep_tx: test_sweep_txn(desc.clone()),
                     sweep_nonces: BTreeMap::new(),
+                    cooperative_payout_data: None,
                 },
             ),
             (
@@ -123,9 +131,10 @@ mod tests {
                 DepositState::SweepNoncesCollected {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
                     sweep_tx: test_sweep_txn(desc.clone()),
-                    sweep_agg_nonce: generate_agg_nonce(),
-                    sweep_nonces: BTreeMap::new(),
+                    sweep_agg_nonce,
+                    sweep_nonces,
                     sweep_partials: BTreeMap::new(),
+                    cooperative_payout_data: None,
                 },
             ),
             (14, DepositState::Skipped),

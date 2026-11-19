@@ -483,7 +483,11 @@ mod tests {
         types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
     };
     use strata_bridge_sm::{
-        deposit::{config::DepositSMCfg, context::DepositSMCtx, state::DepositState},
+        deposit::{
+            config::DepositSMCfg,
+            context::DepositSMCtx,
+            state::{CooperativePayoutData, DepositState},
+        },
         graph::{
             config::GraphSMCfg,
             context::GraphSMCtx,
@@ -1319,16 +1323,27 @@ mod tests {
             // Implement `Arbitrary` for `DepositSM` to allow testing of all variants.
             let state = match variant_selector {
                 0 => DepositState::Deposited { last_block_height },
-                1 => DepositState::CooperativePathFailed { last_block_height, fulfillment_txid: generate_txid(), assignee: 0 },
+                1 => DepositState::CooperativePathFailed {
+                    assignee: 0,
+                    fulfillment_txid: generate_txid(),
+                    last_block_height,
+                    expected_cooperative_payout_txid: Some(generate_txid()),
+                },
                 2 => DepositState::Spent {
                     fulfillment_txid: Some(generate_txid()),
                     assignee: Some(0),
+                    cooperative_payout_txid: Some(generate_txid()),
                 },
                 // exercises the postcard round-trip of a Psbt-carrying variant
                 3 => DepositState::SweepNoncesPending {
                     last_block_height,
                     sweep_tx: make_sweep_tx(outpoint),
                     sweep_nonces: BTreeMap::new(),
+                    cooperative_payout_data: Some(CooperativePayoutData {
+                        txid: generate_txid(),
+                        assignee: 0,
+                        fulfillment_txid: generate_txid(),
+                    }),
                 },
                 _ => DepositState::Aborted,
             };

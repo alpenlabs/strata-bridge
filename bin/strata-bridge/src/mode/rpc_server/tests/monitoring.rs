@@ -7,6 +7,7 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
+use musig2::AggNonce;
 use secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::NOfNConnector;
 use strata_bridge_orchestrator::sm_registry::{SMConfig, SMRegistry};
@@ -381,6 +382,12 @@ fn active_claim_from_state_returns_contested_phase() {
 
 #[test]
 fn bridge_duties_for_deposit_reports_each_deposit_state() {
+    let collected_nonces: BTreeMap<_, _> = test_operator_table(3, TEST_POV_IDX)
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| (idx, generate_pubnonce()))
+        .collect();
+    let collected_aggregated_nonce = AggNonce::sum(collected_nonces.values().cloned());
     let deposit_request_txid = generate_txid();
     let claim_txids = BTreeMap::from([(OPERATOR_IDX, generate_txid())]);
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, generate_pubnonce())]);
@@ -483,8 +490,8 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 cooperative_payment_deadline: 120,
-                payout_nonces: pubnonces,
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces: collected_nonces.clone(),
+                payout_aggregated_nonce: collected_aggregated_nonce.clone(),
                 payout_partial_signatures: partial_signatures,
             },
             no_duties.clone(),
@@ -495,6 +502,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
                 assignee: OPERATOR_IDX,
                 fulfillment_txid: generate_txid(),
                 last_block_height: 100,
+                expected_cooperative_payout_txid: None,
             },
             no_duties.clone(),
         ),
@@ -503,6 +511,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
             },
             no_duties.clone(),
         ),
@@ -513,6 +522,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             no_duties.clone(),
         ),
@@ -521,9 +531,10 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             DepositState::SweepNoncesCollected {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: collected_aggregated_nonce,
+                sweep_nonces: collected_nonces.clone(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             no_duties,
         ),
@@ -637,6 +648,7 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
     let state = DepositState::Spent {
         fulfillment_txid: Some(generate_txid()),
         assignee: Some(OPERATOR_IDX),
+        cooperative_payout_txid: None,
     };
 
     assert_eq!(get_reimbursement_operator(&state), Some(OPERATOR_IDX));
@@ -647,6 +659,7 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
     let swept_from_assigned = DepositState::Spent {
         fulfillment_txid: None,
         assignee: Some(OPERATOR_IDX),
+        cooperative_payout_txid: None,
     };
 
     assert_eq!(
@@ -658,6 +671,12 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
 
 #[test]
 fn withdrawal_status_reports_each_deposit_state() {
+    let collected_nonces: BTreeMap<_, _> = test_operator_table(3, TEST_POV_IDX)
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| (idx, generate_pubnonce()))
+        .collect();
+    let collected_aggregated_nonce = AggNonce::sum(collected_nonces.values().cloned());
     let claim_txids = BTreeMap::from([(OPERATOR_IDX, generate_txid())]);
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, generate_pubnonce())]);
     let partial_signatures = BTreeMap::from([(OPERATOR_IDX, generate_partial_signature())]);
@@ -743,8 +762,8 @@ fn withdrawal_status_reports_each_deposit_state() {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 cooperative_payment_deadline: 120,
-                payout_nonces: pubnonces,
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces: collected_nonces.clone(),
+                payout_aggregated_nonce: collected_aggregated_nonce.clone(),
                 payout_partial_signatures: partial_signatures,
             },
         ),
@@ -752,8 +771,9 @@ fn withdrawal_status_reports_each_deposit_state() {
             "CooperativePathFailed",
             DepositState::CooperativePathFailed {
                 assignee: OPERATOR_IDX,
-                last_block_height: 100,
                 fulfillment_txid: generate_txid(),
+                last_block_height: 100,
+                expected_cooperative_payout_txid: None,
             },
         ),
         (
@@ -761,6 +781,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
                 assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
             },
         ),
         (
@@ -768,6 +789,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
         ),
         (
@@ -775,6 +797,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
             },
         ),
         ("Aborted", DepositState::Aborted),
@@ -784,6 +807,7 @@ fn withdrawal_status_reports_each_deposit_state() {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ),
         (
@@ -791,9 +815,10 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::SweepNoncesCollected {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: collected_aggregated_nonce,
+                sweep_nonces: collected_nonces.clone(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ),
     ];

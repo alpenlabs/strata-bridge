@@ -261,6 +261,9 @@ mod tests {
     /// tests that post-assignment states treat re-delivered Assignment events as duplicates
     #[test]
     fn test_assignment_duplicate_from_post_assignment_states() {
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
+
         let desc = random_p2tr_desc();
 
         let post_assignment_states = [
@@ -285,18 +288,20 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces,
+                payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
         ];
 
@@ -316,6 +321,9 @@ mod tests {
     /// tests that assignments re-listed by the ASM for a deposit in the sweep flow are rejected
     #[test]
     fn test_assignment_rejected_from_sweep_states() {
+        let sweep_nonces = test_operator_nonces();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
+
         let desc = random_p2tr_desc();
 
         // The ASM does not gate assignment creation on safe harbour, so it keeps re-listing
@@ -325,13 +333,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(desc.clone()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(desc.clone()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce,
+                sweep_nonces,
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ];
 

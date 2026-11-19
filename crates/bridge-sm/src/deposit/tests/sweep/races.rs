@@ -31,7 +31,8 @@ mod tests {
             assignee: TEST_ASSIGNEE,
             fulfillment_txid: generate_txid(),
             cooperative_payout_tx: test_cooperative_payout_txn(random_p2tr_desc()),
-            cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+            cooperative_payment_deadline: INITIAL_BLOCK_HEIGHT
+                + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
             payout_nonces: nonces,
             payout_aggregated_nonce,
             payout_partial_signatures: BTreeMap::new(),
@@ -39,8 +40,7 @@ mod tests {
     }
 
     /// Drives a full sweep round from `from_state`, finalizes the sweep transaction, confirms
-    /// it, and asserts the deposit lands in `Spent` with no preserved withdrawal info (the
-    /// sweep entry discarded it).
+    /// it, and asserts the sweep is recorded without a cooperative reimbursement.
     fn assert_sweep_completes_from(from_state: DepositState) {
         let signers = test_operator_signers();
         let desc = random_p2tr_desc();
@@ -119,6 +119,7 @@ mod tests {
             .assert_final_state(&DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             });
     }
 
@@ -143,7 +144,17 @@ mod tests {
         let signers = test_operator_signers();
         let desc = random_p2tr_desc();
 
-        let sm = create_sm(mid_payout_state());
+        let state = mid_payout_state();
+        let data = state.cooperative_payout_data().unwrap();
+        let DepositState::PayoutNoncesCollected {
+            ref cooperative_payout_tx,
+            ..
+        } = state
+        else {
+            unreachable!();
+        };
+        let payout_tx = cooperative_payout_tx.as_ref().clone();
+        let sm = create_sm(state);
         let mut seq = EventSequence::new(sm, get_state);
 
         // The sweep starts and collects one nonce, then the racing payout confirms.
@@ -165,16 +176,15 @@ mod tests {
 
         seq.process(
             (),
-            DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
-                tx: test_payout_tx(test_deposit_outpoint()),
-            }),
+            DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx: payout_tx }),
         );
 
-        // The payout won: terminal, with the withdrawal info already discarded at sweep entry.
+        // The payout won: preserve its TXID and the withdrawal it reimburses.
         seq.assert_no_errors()
             .assert_final_state(&DepositState::Spent {
-                fulfillment_txid: None,
-                assignee: None,
+                fulfillment_txid: Some(data.fulfillment_txid),
+                assignee: Some(data.assignee),
+                cooperative_payout_txid: Some(data.txid),
             });
     }
 }

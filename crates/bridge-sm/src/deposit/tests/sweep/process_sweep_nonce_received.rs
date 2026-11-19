@@ -10,7 +10,7 @@ mod tests {
             duties::DepositDuty,
             errors::DSMError,
             events::{DepositEvent, SweepNonceReceivedEvent},
-            state::DepositState,
+            state::{CooperativePayoutData, DepositState},
             tests::*,
         },
         testing::transition::*,
@@ -30,6 +30,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: sweep_tx.clone(),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             event: DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
                 sweep_nonce: nonce,
@@ -39,6 +40,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx,
                 sweep_nonces: expected_nonces,
+                cooperative_payout_data: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -50,6 +52,13 @@ mod tests {
     #[test]
     fn test_sweep_nonce_received_all_collected() {
         let sweep_tx = test_sweep_txn(random_p2tr_desc());
+        let cooperative_payout_data = Some(CooperativePayoutData {
+            txid: test_cooperative_payout_txn(random_p2tr_desc())
+                .as_ref()
+                .compute_txid(),
+            assignee: TEST_ASSIGNEE,
+            fulfillment_txid: generate_txid(),
+        });
 
         // Generate nonces for all operators
         let all_nonces: BTreeMap<OperatorIdx, PubNonce> = (0..N_TEST_OPERATORS)
@@ -79,6 +88,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: sweep_tx.clone(),
                 sweep_nonces: initial_nonces,
+                cooperative_payout_data,
             },
             event: DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
                 sweep_nonce: incoming_nonce,
@@ -90,6 +100,7 @@ mod tests {
                 sweep_agg_nonce: expected_agg_nonce.clone(),
                 sweep_nonces: all_nonces,
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data,
             },
             expected_duties: vec![DepositDuty::PublishSweepPartial {
                 deposit_idx: TEST_DEPOSIT_IDX,
@@ -113,6 +124,7 @@ mod tests {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             sweep_tx: test_sweep_txn(random_p2tr_desc()),
             sweep_nonces: BTreeMap::new(),
+            cooperative_payout_data: None,
         };
 
         let sm = create_sm(initial_state);
@@ -150,6 +162,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             event: DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
                 sweep_nonce: generate_pubnonce(),
@@ -162,6 +175,9 @@ mod tests {
     /// tests that all states except SweepNoncesPending reject SweepNonceReceived
     #[test]
     fn test_sweep_nonce_received_invalid_from_other_states() {
+        let sweep_nonces = test_operator_nonces();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
+
         let nonce = generate_pubnonce();
 
         let invalid_states = [
@@ -176,13 +192,15 @@ mod tests {
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce,
+                sweep_nonces,
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];

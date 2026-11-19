@@ -66,6 +66,7 @@ memory_pprof = { workspace = true, optional = true }
 tikv-jemallocator = "0.6"
 
 [dev-dependencies]
+musig2.workspace = true
 strata-asm-params = { workspace = true, features = ["arbitrary"] }
 strata-bridge-connectors.workspace = true
 strata-bridge-test-utils.workspace = true

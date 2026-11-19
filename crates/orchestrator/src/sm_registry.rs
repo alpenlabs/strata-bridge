@@ -1022,6 +1022,7 @@ mod tests {
         registry.deposits.get_mut(&0).unwrap().state = DepositState::Spent {
             fulfillment_txid: None,
             assignee: None,
+            cooperative_payout_txid: None,
         };
         registry.deposits.get_mut(&1).unwrap().state = DepositState::Aborted;
         registry.deposits.get_mut(&2).unwrap().state = DepositState::Skipped;
