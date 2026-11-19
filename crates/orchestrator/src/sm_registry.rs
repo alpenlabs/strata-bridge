@@ -577,6 +577,9 @@ impl SMRegistry {
             result = tracing::field::Empty,
         );
         let _entered = span.enter();
+        // `process_event_inner` consumes the event; keep its label so a transition logged below the
+        // DEBUG span still names its cause.
+        let event_label = event.to_string();
         let started = Instant::now();
         let outcome = self.process_event_inner(id, event);
         let to_state = self.state_kind(id).unwrap_or("missing");
@@ -600,6 +603,7 @@ impl SMRegistry {
                 debug!(
                     sm_kind,
                     sm_id = %id,
+                    event = %event_label,
                     from_state,
                     to_state,
                     duty_count = output.duties.len(),
@@ -610,6 +614,7 @@ impl SMRegistry {
                 info!(
                     sm_kind,
                     sm_id = %id,
+                    event = %event_label,
                     from_state,
                     to_state,
                     duty_count = output.duties.len(),

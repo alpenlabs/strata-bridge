@@ -17,7 +17,7 @@ pub(crate) async fn execute_nag_duty(
             operator_idx,
             operator_pubkey,
         } => {
-            info!(%operator_idx, "nagging for missing stake data");
+            info!(%stake_key, %operator_idx, "nagging for missing stake data");
             let payload = NagRequestPayload::UnstakingData { stake_key };
 
             (operator_pubkey.clone(), payload)
@@ -26,7 +26,7 @@ pub(crate) async fn execute_nag_duty(
             operator_idx,
             operator_pubkey,
         } => {
-            info!(%operator_idx, "nagging for missing unstaking nonces");
+            info!(%stake_key, %operator_idx, "nagging for missing unstaking nonces");
             let payload = NagRequestPayload::UnstakingNonces { stake_key };
 
             (operator_pubkey.clone(), payload)
@@ -35,7 +35,7 @@ pub(crate) async fn execute_nag_duty(
             operator_idx,
             operator_pubkey,
         } => {
-            info!(%operator_idx, "nagging for missing unstaking partial signatures");
+            info!(%stake_key, %operator_idx, "nagging for missing unstaking partial signatures");
             let payload = NagRequestPayload::UnstakingPartials { stake_key };
 
             (operator_pubkey.clone(), payload)
