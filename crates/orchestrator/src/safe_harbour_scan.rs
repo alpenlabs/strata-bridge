@@ -202,9 +202,10 @@ mod tests {
             &mut registry,
             2,
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: 0,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
         );
 
@@ -246,6 +247,7 @@ mod tests {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
         );
         insert_deposit_in_state(&mut registry, 2, DepositState::Aborted);

@@ -121,9 +121,10 @@ mod tests {
                 cooperative_payout_tx: test_cooperative_payout_txn(test_recipient_desc(1)),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: h,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: h,
+                expected_cooperative_payout_txid: None,
             },
         ]
     }
@@ -135,13 +136,15 @@ mod tests {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: LATER_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
+                sweep_nonces: test_operator_nonces(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ]
     }
@@ -199,6 +202,7 @@ mod tests {
         states.push(DepositState::Spent {
             fulfillment_txid: Some(generate_txid()),
             assignee: Some(TEST_ASSIGNEE),
+            cooperative_payout_txid: None,
         });
         states.push(DepositState::Aborted);
         states
@@ -299,6 +303,7 @@ mod tests {
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];
