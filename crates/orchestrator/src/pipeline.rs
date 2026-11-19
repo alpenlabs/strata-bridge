@@ -2,6 +2,7 @@
 //! `EventsMux` → classify → `Applicator::apply_batch` → persist → dispatch.
 
 use std::{
+    collections::BTreeSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -12,7 +13,7 @@ use strata_bridge_p2p_types::{NagRequestPayload, UnsignedGossipsubMsg};
 use strata_bridge_primitives::{
     operator_set_schedule::OperatorSetSchedule,
     operator_table::OperatorTable,
-    types::{BitcoinBlockHeight, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 
@@ -27,7 +28,7 @@ use crate::{
     observability,
     persister::Persister,
     safe_harbour_scan::safe_harbour_scan,
-    sidecar_hook::{self, SidecarHook},
+    sidecar_hook::{self, HeldFulfillments, SidecarHook},
     sm_registry::SMRegistry,
     sm_types::UnifiedDuty,
 };
@@ -46,7 +47,11 @@ pub struct Pipeline {
     dispatcher: DutyDispatcher,
     nag_dedup: NagDedup,
     sidecar_hook: Option<Arc<dyn SidecarHook>>,
+    held_fulfillments: HeldFulfillments,
 }
+
+/// Longest the pipeline waits, per batch, to learn which withdrawals this node already funded.
+const FUNDING_LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 impl Pipeline {
     /// Creates a new pipeline with all required components.
@@ -71,13 +76,16 @@ impl Pipeline {
             dispatcher,
             nag_dedup: NagDedup::new(nag_dedup_window, nag_dedup_in_flight_timeout),
             sidecar_hook: None,
+            held_fulfillments: HeldFulfillments::default(),
         }
     }
 
-    /// Attaches a sidecar hook that decides whether this node takes part in each new deposit.
+    /// Attaches a sidecar hook that decides whether this node takes part in each new deposit and
+    /// whether it pays each withdrawal assigned to it.
     ///
     /// From then on, every newly registered deposit request is held in
-    /// `ParticipationPending` until `hook` decides. `decision_rx` is the channel on which the hook
+    /// `ParticipationPending` until `hook` decides, and every withdrawal fulfillment duty is held
+    /// before dispatch until `hook` approves it. `decision_rx` is the channel on which the hook
     /// signals that a decision is ready. Deposits registered before the hook is attached are
     /// not held.
     pub fn with_sidecar_hook(
@@ -367,16 +375,73 @@ impl Pipeline {
         Ok(())
     }
 
+    /// Persists `batch`, then dispatches its duties. With a sidecar hook attached, a withdrawal
+    /// fulfillment the hook has not approved is held instead, unless this node already funded
+    /// that payment. Held ones the hook now approves are dispatched on their own, so they are
+    /// never taken for a reply to this batch's nag.
     async fn persist_and_dispatch(
-        &self,
+        &mut self,
         batch: BatchOutput,
         nag_reply: Option<&NagRequestPayload>,
     ) -> Result<(), PipelineError> {
         self.persister
             .persist_batches(batch.tracker, &self.registry)
             .await?;
-        self.dispatch_duties(batch.duties, nag_reply);
+        let Some(hook) = self.sidecar_hook.clone() else {
+            self.dispatch_duties(batch.duties, nag_reply);
+            return Ok(());
+        };
+        // Everything but withdrawal fulfillments goes out first, so no funding lookup below can
+        // delay a defensive duty.
+        let (fulfillments, others): (Vec<_>, Vec<_>) = batch
+            .duties
+            .into_iter()
+            .partition(|duty| sidecar_hook::fulfillment_deposit(duty).is_some());
+        self.dispatch_duties(others, nag_reply);
+        // Under safe harbour the gate passes fulfillments to the dispatcher, which suppresses
+        // them, so there is nothing to look up.
+        let funded = if self.registry.safe_harbour_active() {
+            BTreeSet::new()
+        } else {
+            self.funded_withdrawals(&fulfillments).await
+        };
+        let gated =
+            self.held_fulfillments
+                .gate(fulfillments, &funded, &self.registry, hook.as_ref());
+        self.dispatch_duties(gated.ready, nag_reply);
+        self.dispatch_duties(gated.released, None);
         Ok(())
+    }
+
+    /// The deposits among `fulfillments` whose withdrawal this node already funded.
+    ///
+    /// The reads run together under one [`FUNDING_LOOKUP_TIMEOUT`]. On timeout none counts as
+    /// funded, so their duties wait for the sidecar hook as usual; the next emission reads again.
+    async fn funded_withdrawals(&self, fulfillments: &[UnifiedDuty]) -> BTreeSet<DepositIdx> {
+        let reads = fulfillments
+            .iter()
+            .filter_map(sidecar_hook::fulfillment_deposit)
+            .map(|deposit_idx| async move {
+                (
+                    deposit_idx,
+                    self.persister
+                        .withdrawal_funding_recorded(deposit_idx)
+                        .await,
+                )
+            });
+        match tokio::time::timeout(FUNDING_LOOKUP_TIMEOUT, futures::future::join_all(reads)).await {
+            Ok(results) => results
+                .into_iter()
+                .filter_map(|(deposit_idx, funded)| funded.then_some(deposit_idx))
+                .collect(),
+            Err(_) => {
+                warn!(
+                    timeout = ?FUNDING_LOOKUP_TIMEOUT,
+                    "timed out reading withdrawal funding; fulfillments wait for the sidecar hook"
+                );
+                BTreeSet::new()
+            }
+        }
     }
 
     /// Asks the sidecar hook about every deposit waiting for a participation decision and
