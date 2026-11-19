@@ -12,7 +12,7 @@ from constants import (
     DT_DEPOSIT_VOUT,
 )
 from rpc.asm_types import AssignmentEntry
-from rpc.types import RpcClaimPhase, RpcPendingWithdrawalInfo
+from rpc.types import RpcClaimPhaseKind, RpcPendingWithdrawalInfo
 from utils.deposit import wait_until_utxo_spent
 from utils.utils import find_utxo_spender_txid, wait_for_tx_confirmation, wait_until
 
@@ -127,13 +127,15 @@ def wait_until_claim_posted(
     return result["active_claim"]
 
 
-def _wait_until_claim_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase, timeout) -> None:
+def _wait_until_claim_phase(
+    bridge_rpc, deposit_idx: int, phase: RpcClaimPhaseKind, timeout
+) -> None:
     def check():
         info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
         if info_data is None:
             return False
         info = RpcPendingWithdrawalInfo.from_json(info_data)
-        return info.assigned_claim is not None and info.assigned_claim.phase == phase
+        return info.assigned_claim is not None and info.assigned_claim.phase.phase == phase
 
     wait_until(
         check,
@@ -144,11 +146,13 @@ def _wait_until_claim_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase, 
 
 
 def wait_until_bridge_proof_posted(bridge_rpc, deposit_idx: int, timeout=450) -> None:
-    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.BRIDGE_PROOF_POSTED, timeout)
+    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhaseKind.BRIDGE_PROOF_POSTED, timeout)
 
 
 def wait_until_counter_proof_posted(bridge_rpc, deposit_idx: int, timeout=450) -> None:
-    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.COUNTER_PROOF_POSTED, timeout)
+    _wait_until_claim_phase(
+        bridge_rpc, deposit_idx, RpcClaimPhaseKind.COUNTER_PROOF_POSTED, timeout
+    )
 
 
 def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> str:
@@ -195,7 +199,9 @@ def wait_until_counterproof_ack(bitcoin_rpc, contest_txid: str, timeout=600) -> 
 
 
 def wait_until_bridge_proof_timedout(bridge_rpc, deposit_idx: int, timeout=600) -> None:
-    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.BRIDGE_PROOF_TIMEDOUT, timeout)
+    _wait_until_claim_phase(
+        bridge_rpc, deposit_idx, RpcClaimPhaseKind.BRIDGE_PROOF_TIMEDOUT, timeout
+    )
 
 
 def wait_until_counterproof_nack(bitcoin_rpc, counterproof_txid: str, timeout=600) -> str:
@@ -227,7 +233,7 @@ def wait_until_counterproof_nack(bitcoin_rpc, counterproof_txid: str, timeout=60
 def wait_until_all_nackd(bridge_rpc, deposit_idx: int, timeout=600) -> None:
     """The state machine only enters 'all_nackd' once *every* watchtower slot's counterproof
     has been NACKed, so this is the single check that no counterproof slipped through."""
-    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.ALL_NACKD, timeout)
+    _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhaseKind.ALL_NACKD, timeout)
 
 
 def assert_contested_payout_shape(
