@@ -12225,6 +12225,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-proof",
  "strata-bridge-rpc",
+ "strata-bridge-sidecar-client",
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
@@ -12612,6 +12613,26 @@ dependencies = [
  "jsonrpsee",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "strata-bridge-sidecar-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "bitcoin-bosd",
+ "futures",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+ "strata-bridge-orchestrator",
+ "strata-bridge-primitives",
+ "strata-bridge-sidecar-api",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "url",
 ]
 
 [[package]]
