@@ -20,41 +20,6 @@ ignore = [
   # Remove when metrics-exporter-otel accepts a patched scc release.
   "RUSTSEC-2026-0205",
 
-  # pulldown-cmark 0.13.5 via prost-build 0.14 -> tonic-prost-build ->
-  # sp1-prover-types (build-time only). Fixed in 0.13.6, but that release is
-  # younger than the 14-day min-publish-age cooldown in .cargo/config.toml.
-  # prost-build only parses doc comments from SP1's vendored .proto files, so
-  # the quadratic wikilink parsing is never reached with untrusted input.
-  # Remove once 0.13.6 clears the cooldown and Cargo.lock is bumped.
-  "RUSTSEC-2026-0433",
-
-  # zstd 0.13.3 / zstd-safe 7.3.0 via SP1's optional network feature.
-  # Fixed in zstd >=0.14.3 / zstd-safe >=8.2.0. SP1 6.10.0 still pins
-  # zstd ^0.13, which requires zstd-safe ^7; no compatible fixes exist.
-  # zstd-sys was upgraded to 2.1.2, fixing RUSTSEC-2026-0410.
-  #
-  # SP1's only zstd call is network/client.rs::create_artifact_with_content's encode_all
-  # on serialized proving input. Each call creates and finishes a fresh
-  # encoder: it does not reuse contexts (0391), decode legacy frames (0403),
-  # mix streaming/one-shot operations (0400), train dictionaries (0401),
-  # or call OutBuffer::around_pos (0397). The seekable (0396/0398/0405),
-  # experimental (0395/0399/0402/0404), and zstdmt (0406) features are disabled.
-  # Thus the affected paths are not used by this dependency graph.
-  # Remove this group when SP1 upgrades to zstd >=0.14.3.
-  "RUSTSEC-2026-0391",
-  "RUSTSEC-2026-0395",
-  "RUSTSEC-2026-0396",
-  "RUSTSEC-2026-0397",
-  "RUSTSEC-2026-0398",
-  "RUSTSEC-2026-0399",
-  "RUSTSEC-2026-0400",
-  "RUSTSEC-2026-0401",
-  "RUSTSEC-2026-0402",
-  "RUSTSEC-2026-0403",
-  "RUSTSEC-2026-0404",
-  "RUSTSEC-2026-0405",
-  "RUSTSEC-2026-0406",
-
   # libsqlite3-sys 0.28.0 (bundled SQLite) via rusqlite 0.31 -> bdk_chain ->
   # bdk_wallet's rusqlite feature in operator-wallet. Fixed in >=0.39.0 with
   # rusqlite 0.41, but every bdk_chain release (latest 0.23.4) requires
