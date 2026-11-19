@@ -21,6 +21,7 @@ mod observability;
 pub mod persister;
 pub mod pipeline;
 pub mod safe_harbour_scan;
+pub mod sidecar_hook;
 pub mod signals_router;
 pub mod sm_registry;
 pub mod sm_types;

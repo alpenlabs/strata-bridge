@@ -373,26 +373,38 @@ fn try_register_deposit(
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
-    info!(%deposit_outpoint, %deposit_idx, "registering new DepositSM for detected DRT");
-    applicator.insert_deposit(deposit_idx, dsm)?;
 
-    // Register one GraphSM per covenant member, collecting initial duties.
-    let mut duties = Vec::new();
-    for (&op_idx, binding) in &stakes {
-        let graph_idx = GraphIdx {
-            deposit: deposit_idx,
-            operator: op_idx,
-        };
-
-        let gsm_ctx = GraphSMCtx {
+    // One graph per covenant member, bound to the stakes of this block. A deposit held for a
+    // participation decision keeps these bindings, so a late decision cannot bind it to a newer
+    // covenant or a replacement stake.
+    let graph_contexts: Vec<_> = stakes
+        .iter()
+        .map(|(&op_idx, binding)| GraphSMCtx {
             covenant,
-            graph_idx,
+            graph_idx: GraphIdx {
+                deposit: deposit_idx,
+                operator: op_idx,
+            },
             deposit_outpoint,
             stake_outpoint: binding.outpoint,
             unstaking_image: binding.unstaking_image,
             operator_table: local_table.clone(),
-        };
+        })
+        .collect();
 
+    if applicator.registry().holds_new_deposits() {
+        info!(%deposit_outpoint, %deposit_idx, "holding new DepositSM for a participation decision");
+        applicator.insert_deposit(deposit_idx, dsm.into_participation_pending(graph_contexts))?;
+        return Ok(Vec::new());
+    }
+
+    info!(%deposit_outpoint, %deposit_idx, "registering new DepositSM for detected DRT");
+    applicator.insert_deposit(deposit_idx, dsm)?;
+
+    // Register the graphs, collecting initial duties.
+    let mut duties = Vec::new();
+    for gsm_ctx in graph_contexts {
+        let graph_idx = gsm_ctx.graph_idx;
         let (gsm, duty) = GraphSM::new(gsm_ctx, height);
 
         info!(%graph_idx, "registering new GraphSM for detected DRT");
@@ -529,6 +541,10 @@ mod tests {
         applicator::BatchOutput,
         persister::Persister,
         pipeline::process_block,
+        sidecar_hook::{
+            DepositParticipationRequest, ParticipationDecision, ready_participation_decisions,
+            testing::FixedHook,
+        },
         sm_registry::{SMConfig, SMRegistry},
         testing::{
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
@@ -717,6 +733,207 @@ mod tests {
             .into_iter()
             .filter(|graph_idx| graph_idx.deposit == deposit_idx)
             .count()
+    }
+
+    // ===== local participation decision tests =====
+
+    /// A registry that holds new deposits for a participation decision, with every stake
+    /// confirmed, and one DRT registered (and held) at deposit index 0.
+    fn registry_with_held_drt() -> (SMRegistry, OperatorTable, Transaction) {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_empty_registry();
+        registry.hold_new_deposits();
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+        assert!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt).is_empty(),
+            "a held deposit emits no duties"
+        );
+        (registry, operator_table, drt)
+    }
+
+    #[test]
+    fn a_held_drt_keeps_its_index_and_builds_no_graph_until_the_hook_decides() {
+        let (registry, operator_table, drt) = registry_with_held_drt();
+        let held = registry.get_deposit(&0).unwrap();
+        let DepositState::ParticipationPending { graph_contexts, .. } = held.state() else {
+            panic!("expected a held deposit, got {}", held.state());
+        };
+        assert_eq!(graph_contexts.len(), N_TEST_OPERATORS);
+        assert_eq!(graph_ids_of(&registry, 0), 0);
+        assert_eq!(
+            registry.num_active_deposits(),
+            1,
+            "a held deposit takes a slot"
+        );
+        assert_eq!(
+            registry.next_deposit_idx(registry.last_deposit_idx(), &operator_table, TEST_POV_IDX),
+            Ok(1),
+            "the index stays allocated, in step with the other operators"
+        );
+
+        let hook = FixedHook::default();
+        assert!(ready_participation_decisions(&registry, &hook).is_empty());
+        assert_eq!(
+            hook.asked(),
+            vec![DepositParticipationRequest {
+                deposit_idx: 0,
+                covenant: held.context().covenant(),
+                deposit_request_outpoint: OutPoint::new(
+                    drt.compute_txid(),
+                    DRT_OUTPUT_INDEX as u32
+                ),
+                amount: test_deposit_sm_cfg().deposit_amount(),
+            }]
+        );
+    }
+
+    #[test]
+    fn taking_part_builds_the_frozen_graphs_in_one_causal_group() {
+        let (mut registry, _, _) = registry_with_held_drt();
+        let DepositState::ParticipationPending { graph_contexts, .. } =
+            registry.get_deposit(&0).unwrap().state().clone()
+        else {
+            panic!("expected a held deposit");
+        };
+        let hook = FixedHook::default();
+        hook.decide(0, ParticipationDecision::Participate);
+        let decisions = ready_participation_decisions(&registry, &hook);
+        assert_eq!(decisions, vec![(0, ParticipationDecision::Participate)]);
+
+        let mut applicator = Applicator::new(&mut registry, None);
+        for (deposit_idx, decision) in decisions {
+            applicator
+                .apply_participation_decision(deposit_idx, decision)
+                .unwrap();
+        }
+        let BatchOutput { tracker, duties } = applicator.finish();
+
+        assert!(matches!(
+            registry.get_deposit(&0).unwrap().state(),
+            DepositState::Created { .. }
+        ));
+        for graph_context in &graph_contexts {
+            assert_eq!(
+                registry
+                    .get_graph(&graph_context.graph_idx)
+                    .unwrap()
+                    .context(),
+                graph_context,
+                "each graph is built from the bindings frozen at registration"
+            );
+        }
+        assert!(
+            matches!(
+                duties.as_slice(),
+                [UnifiedDuty::Graph(GraphDuty::GenerateGraphData { .. })]
+            ),
+            "only this node's own graph has data to generate: {duties:?}"
+        );
+        let groups = tracker.into_batches();
+        assert_eq!(
+            groups.len(),
+            1,
+            "the deposit and its graphs persist together"
+        );
+        assert_eq!(groups[0].len(), 1 + N_TEST_OPERATORS);
+        assert!(
+            ready_participation_decisions(&registry, &hook).is_empty(),
+            "a deposit that left ParticipationPending is not asked about again"
+        );
+    }
+
+    #[test]
+    fn declining_makes_the_deposit_terminal_and_frees_its_slot() {
+        let (mut registry, _, _) = registry_with_held_drt();
+        let mut applicator = Applicator::new(&mut registry, None);
+        applicator
+            .apply_participation_decision(0, ParticipationDecision::Decline)
+            .unwrap();
+        let BatchOutput { tracker, duties } = applicator.finish();
+
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::ParticipationDeclined
+        );
+        assert!(duties.is_empty());
+        assert_eq!(
+            tracker
+                .into_batches()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            vec![SMId::Deposit(0)]
+        );
+        assert_eq!(graph_ids_of(&registry, 0), 0);
+        assert_eq!(registry.num_active_deposits(), 0);
+    }
+
+    #[test]
+    fn a_late_decision_cannot_revive_a_taken_back_deposit() {
+        let (mut registry, _, drt) = registry_with_held_drt();
+        let mut applicator = Applicator::new(&mut registry, None);
+        applicator
+            .apply_batch(vec![(
+                SMId::Deposit(0),
+                SMEvent::Deposit(Box::new(DepositEvent::UserTakeBack(UserTakeBackEvent {
+                    tx: takeback_of(&drt),
+                }))),
+            )])
+            .unwrap();
+        let _ = applicator.finish();
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::Aborted
+        );
+
+        for decision in [
+            ParticipationDecision::Participate,
+            ParticipationDecision::Decline,
+        ] {
+            let mut applicator = Applicator::new(&mut registry, None);
+            applicator
+                .apply_participation_decision(0, decision)
+                .unwrap();
+            let BatchOutput { tracker, duties } = applicator.finish();
+            assert!(duties.is_empty());
+            assert!(tracker.into_batches().is_empty(), "nothing to persist");
+            assert_eq!(
+                registry.get_deposit(&0).unwrap().state(),
+                &DepositState::Aborted
+            );
+            assert_eq!(graph_ids_of(&registry, 0), 0);
+        }
+    }
+
+    #[test]
+    fn no_participation_decision_is_asked_under_safe_harbour() {
+        let (mut registry, _, _) = registry_with_held_drt();
+        registry.activate_safe_harbour(test_safe_harbour_address());
+        let hook = FixedHook::default();
+        hook.decide(0, ParticipationDecision::Participate);
+        assert!(ready_participation_decisions(&registry, &hook).is_empty());
+        assert!(hook.asked().is_empty());
+    }
+
+    #[test]
+    fn without_a_hook_a_drt_is_registered_with_its_graphs() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_empty_registry();
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+        assert_eq!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt).len(),
+            1,
+            "only this node's own graph has data to generate"
+        );
+        assert!(matches!(
+            registry.get_deposit(&0).unwrap().state(),
+            DepositState::Created { .. }
+        ));
+        assert_eq!(graph_ids_of(&registry, 0), N_TEST_OPERATORS);
     }
 
     #[test]
