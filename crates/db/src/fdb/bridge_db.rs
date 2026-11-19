@@ -481,7 +481,7 @@ mod tests {
         deposit::{context::DepositSMCtx, state::DepositState},
         graph::{
             context::GraphSMCtx,
-            state::{AbortReason, GraphState, PayoutKind},
+            state::{AbortReason, GraphState, PayoutBlockData, PayoutKind},
         },
         operator_set::{
             ConfirmedExit, ExitKind, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
@@ -1404,6 +1404,10 @@ mod tests {
                             claim_txid: txid,
                             contest_txid: Some(generate_txid()),
                             fulfillment_txid: Some(generate_txid()),
+                            payout_block_data: PayoutBlockData {
+                                admin_block_txid: Some(generate_txid()),
+                                unstaking_block_txid: Some(generate_txid()),
+                            },
                         }
                     }
                 },

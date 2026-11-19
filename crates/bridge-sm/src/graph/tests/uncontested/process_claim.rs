@@ -63,6 +63,7 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -211,6 +212,7 @@ mod tests {
                     claim_block_height: CLAIM_BLOCK_HEIGHT,
                     stake_spent: None,
                     payout_connector_spent: None,
+                    payout_block_data: Default::default(),
                 },
                 expected_duties: vec![GraphDuty::PublishContest {
                     contest_tx: game_graph.contest,
@@ -243,6 +245,7 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             };
 
             test_transition::<GraphSM, _, _, _, _, _, _, _>(

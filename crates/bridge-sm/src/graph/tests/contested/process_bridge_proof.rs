@@ -66,6 +66,7 @@ fn event_accepted_pov_no_duties() {
             proof: dummy_proof_receipt(),
             stake_spent: None,
             payout_connector_spent: None,
+            payout_block_data: Default::default(),
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -107,6 +108,7 @@ fn watchtower_emits_potential_counterproof_when_proof_valid() {
                 proof: dummy_proof_receipt(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![expected_duty],
             expected_signals: vec![],
@@ -149,6 +151,7 @@ fn watchtower_emits_potential_counterproof_even_when_proof_invalid() {
                 proof: dummy_proof_receipt(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![expected_duty],
             expected_signals: vec![],
@@ -194,6 +197,7 @@ fn accepts_bridge_proof_posted_after_counterproof() {
                 counterproof_nacks: Default::default(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![expected_duty],
             expected_signals: vec![],
@@ -229,6 +233,7 @@ fn watchtower_emits_potential_counterproof_on_late_proof_even_when_invalid() {
         counterproof_nacks: Default::default(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
@@ -250,6 +255,7 @@ fn watchtower_emits_potential_counterproof_on_late_proof_even_when_invalid() {
                 counterproof_nacks: Default::default(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![expected_duty],
             expected_signals: vec![],
@@ -281,6 +287,7 @@ fn pov_watchtower_skips_counterproof_even_when_proof_invalid() {
                 proof: dummy_proof_receipt(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -316,6 +323,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
         counterproof_nacks: BTreeMap::new(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
     let event_tx = event.tx.clone();
@@ -338,6 +346,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
                 counterproof_nacks: BTreeMap::new(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -370,6 +379,7 @@ fn pov_skips_counterproof_on_late_invalid_proof() {
                 counterproof_nacks: Default::default(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -477,6 +487,7 @@ fn contested_state_with_timeout_txid(timeout_txid: bitcoin::Txid) -> GraphState 
         contest_block_height: LATER_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -499,6 +510,7 @@ fn counter_proof_posted_without_refuted_proof_state_with_timeout_txid(
         counterproof_nacks: Default::default(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 

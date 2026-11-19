@@ -15,26 +15,87 @@
 //!   (either via the `payout_connector_spent` field or via [`AbortReason`]). Skipped where no such
 //!   record is possible.
 //! - `replay_other_txid`: a *different* connector-spending tx arrives at a state that already has
-//!   one recorded.
+//!   one recorded, without enough witness evidence to classify a distinct block.
 
-use bitcoin::{OutPoint, Transaction, Txid, hashes::Hash};
-use strata_bridge_test_utils::bitcoin::generate_spending_tx;
-use strata_bridge_tx_graph::transactions::prelude::ClaimTx;
-
-use crate::graph::{
-    errors::{GSMError, GSMResult},
-    events::PayoutConnectorSpentEvent,
-    machine::GSMOutput,
-    state::{AbortReason, GraphState},
-    tests::{
-        create_sm,
-        mock_states::{
-            TEST_GRAPH_SUMMARY, all_nackd_state, all_state_variants, bridge_proof_posted_state,
-            claimed_state, contested_state, counter_proof_posted_state,
-        },
-        test_deposit_outpoint,
+use bitcoin::{
+    OutPoint, Transaction, Txid, Witness,
+    absolute::LockTime,
+    hashes::{Hash, sha256},
+    relative,
+};
+use strata_bridge_connectors::prelude::AdminSignature;
+use strata_bridge_test_utils::{bitcoin::generate_spending_tx, prelude::generate_signature};
+use strata_bridge_tx_graph::{
+    game_graph::GameConnectors,
+    transactions::prelude::{
+        AdminBlockPayoutData, AdminBlockPayoutTx, ClaimTx, ContestTx, CounterproofTx,
+        UnstakingBlockPayoutData, UnstakingBlockPayoutTx,
     },
 };
+
+use crate::{
+    graph::{
+        errors::{GSMError, GSMResult},
+        events::{
+            BridgeProofConfirmedEvent, BridgeProofTimeoutConfirmedEvent, ContestConfirmedEvent,
+            CounterProofAckConfirmedEvent, CounterProofConfirmedEvent,
+            CounterProofNackConfirmedEvent, GraphEvent, NewBlockEvent, PayoutConnectorSpentEvent,
+        },
+        machine::{GSMOutput, GraphSM},
+        state::{AbortReason, GraphState, PayoutBlockData},
+        tests::{
+            LATER_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_NONPOV_IDX, build_test_graph_summary,
+            create_sm, dummy_proof_receipt,
+            mock_states::{
+                TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, all_nackd_state, all_state_variants,
+                bridge_proof_posted_state, claimed_state, contested_state,
+                counter_proof_posted_state,
+            },
+            test_bridge_proof_tx, test_counterproof_tx, test_deposit_outpoint, test_deposit_params,
+            test_graph_sm_cfg, test_graph_sm_ctx,
+        },
+    },
+    state_machine::StateMachine,
+    tx_classifier::{TxClassifier, payout_block_data},
+};
+
+/// Builds blocking transactions with connector witnesses and mock admin signatures.
+fn block_payout_txs() -> [Transaction; 2] {
+    let cfg = test_graph_sm_cfg();
+    let data = test_deposit_params();
+    let mut context = test_graph_sm_ctx();
+    context.unstaking_image = sha256::Hash::hash(&[1; 32]);
+    let setup = context.generate_setup_params(&cfg, &data);
+    let connectors = GameConnectors::new(data.game_index, &cfg.game_graph_params, &setup);
+    let admin = AdminBlockPayoutTx::new(
+        AdminBlockPayoutData {
+            claim_txid: TEST_GRAPH_SUMMARY.claim,
+        },
+        connectors.claim_admin_payout,
+    )
+    .finalize_partial(
+        (0..cfg.admin.threshold)
+            .map(|pubkey_index| AdminSignature {
+                pubkey_index,
+                signature: generate_signature(),
+            })
+            .collect(),
+    );
+    let unstaking = UnstakingBlockPayoutTx::new(
+        UnstakingBlockPayoutData {
+            claim_txid: TEST_GRAPH_SUMMARY.claim,
+        },
+        connectors.claim_unstaking_payout,
+    )
+    .finalize_partial([1; 32]);
+    [admin, unstaking]
+}
+
+fn create_block_sm(state: GraphState) -> GraphSM {
+    let mut sm = create_sm(state);
+    sm.context.unstaking_image = sha256::Hash::hash(&[1; 32]);
+    sm
+}
 
 fn run(initial: GraphState, tx: Transaction) -> GSMResult<(GraphState, GSMOutput)> {
     let mut sm = create_sm(initial);
@@ -125,8 +186,8 @@ fn expected_outcomes(state: &GraphState) -> StateClassification {
 
         // Two-fact post-`Claimed` states: record the connector spend and
         // stay; abort with `Both` if `stake_spent` is already recorded;
-        // matching re-delivery is a duplicate; a different txid arriving
-        // after one is recorded is rejected.
+        // matching re-delivery is a duplicate; a different unclassified txid
+        // arriving after one is recorded is rejected.
         GraphState::Claimed { .. }
         | GraphState::Contested { .. }
         | GraphState::BridgeProofPosted { .. }
@@ -432,5 +493,309 @@ fn rejects_event_whose_tx_does_not_spend_connector_outpoint() {
             observed, expected,
             "non-connector-spending tx outcome mismatch in state {variant}"
         );
+    }
+}
+
+#[test]
+fn classifies_blocking_paths_without_confusing_payouts_or_other_claims() {
+    let [admin, unstaking] = block_payout_txs();
+    for (tx, is_admin) in [(admin, true), (unstaking, false)] {
+        let txid = tx.compute_txid();
+        let expected = PayoutBlockData {
+            admin_block_txid: is_admin.then_some(txid),
+            unstaking_block_txid: (!is_admin).then_some(txid),
+        };
+        assert_eq!(payout_block_data(TEST_GRAPH_SUMMARY.claim, &tx), expected);
+
+        let mut with_annex = tx.clone();
+        with_annex.input[0].witness.push([0x50, 0x01]);
+        assert_eq!(
+            payout_block_data(TEST_GRAPH_SUMMARY.claim, &with_annex),
+            expected
+        );
+
+        let mut other_claim = tx.clone();
+        other_claim.input[0].previous_output.txid = TEST_GRAPH_SUMMARY.contest;
+        assert_eq!(
+            payout_block_data(TEST_GRAPH_SUMMARY.claim, &other_claim),
+            PayoutBlockData::default()
+        );
+
+        let mut other_output = tx.clone();
+        other_output.input[0].previous_output.vout = ClaimTx::CONTEST_VOUT;
+        assert_eq!(
+            payout_block_data(TEST_GRAPH_SUMMARY.claim, &other_output),
+            PayoutBlockData::default()
+        );
+
+        for witness in [
+            Witness::new(),
+            Witness::from_slice(&[generate_signature().serialize().to_vec()]),
+            Witness::from_slice(&[generate_signature().serialize().to_vec(), vec![0x50, 0x01]]),
+        ] {
+            let mut payout = tx.clone();
+            payout.input[0].witness = witness;
+            assert_eq!(
+                payout_block_data(TEST_GRAPH_SUMMARY.claim, &payout),
+                PayoutBlockData::default()
+            );
+            let (state, _) = run(contested_state(), payout).unwrap();
+            assert_eq!(state.payout_block_data(), PayoutBlockData::default());
+            assert_eq!(state.payout_connector_spent_txid(), Some(txid));
+        }
+    }
+}
+
+#[test]
+fn process_classified_connector_spend_dispatch_table_is_exhaustive() {
+    let cfg = test_graph_sm_cfg();
+    for (tx, is_admin) in block_payout_txs().into_iter().zip([true, false]) {
+        let txid = tx.compute_txid();
+        let expected = PayoutBlockData {
+            admin_block_txid: is_admin.then_some(txid),
+            unstaking_block_txid: (!is_admin).then_some(txid),
+        };
+        for state in all_state_variants() {
+            let mut sm = create_block_sm(state.clone());
+            let event = sm.classify_tx(&cfg, &tx, LATER_BLOCK_HEIGHT);
+            let accepts = matches!(
+                state,
+                GraphState::Claimed { .. }
+                    | GraphState::Contested { .. }
+                    | GraphState::BridgeProofPosted { .. }
+                    | GraphState::CounterProofPosted { .. }
+                    | GraphState::AllNackd { .. }
+            );
+            assert_eq!(
+                event.is_some(),
+                accepts,
+                "unexpected classification for {state}"
+            );
+            if let Some(event) = event {
+                assert_eq!(
+                    event,
+                    GraphEvent::PayoutConnectorSpent(PayoutConnectorSpentEvent { tx: tx.clone() })
+                );
+                let output = sm.process_event(cfg.clone(), event).unwrap();
+                assert_eq!(output, GSMOutput::new());
+                if matches!(state, GraphState::AllNackd { .. }) {
+                    assert!(matches!(sm.state, GraphState::Aborted {
+                        reason: AbortReason::PayoutConnectorSpent { spending_txid }, ..
+                    } if spending_txid == txid));
+                } else {
+                    assert_eq!(sm.state.payout_block_data(), expected, "{state}");
+                    let mut expected_state = state.clone();
+                    assert!(expected_state.set_payout_connector_spent(txid));
+                    expected_state.set_payout_block_data(expected);
+                    assert_eq!(sm.state, expected_state);
+                }
+            } else {
+                assert!(
+                    sm.process_payout_connector_spent(PayoutConnectorSpentEvent { tx: tx.clone() })
+                        .is_err()
+                );
+                assert_eq!(sm.state, state);
+            }
+        }
+    }
+}
+
+#[test]
+fn retains_both_blocking_paths_and_rejects_conflicting_spends() {
+    let [admin, unstaking] = block_payout_txs();
+    let cfg = test_graph_sm_cfg();
+    for txs in [
+        [admin.clone(), unstaking.clone()],
+        [unstaking.clone(), admin.clone()],
+    ] {
+        let mut sm = create_block_sm(contested_state());
+        for tx in &txs {
+            let event = sm.classify_tx(&cfg, tx, LATER_BLOCK_HEIGHT).unwrap();
+            assert_eq!(
+                sm.process_event(cfg.clone(), event).unwrap(),
+                GSMOutput::new()
+            );
+        }
+        assert!(matches!(sm.state, GraphState::Contested { .. }));
+        assert_eq!(
+            sm.state.payout_connector_spent_txid(),
+            Some(txs[0].compute_txid())
+        );
+        assert_eq!(
+            sm.state.payout_block_data(),
+            PayoutBlockData {
+                admin_block_txid: Some(admin.compute_txid()),
+                unstaking_block_txid: Some(unstaking.compute_txid()),
+            }
+        );
+        let before = sm.state.clone();
+        for tx in txs {
+            assert!(matches!(
+                sm.process_payout_connector_spent(PayoutConnectorSpentEvent { tx: tx.clone() }),
+                Err(GSMError::Duplicate { .. })
+            ));
+            let mut conflict = tx;
+            conflict.lock_time = LockTime::from_consensus(1);
+            assert!(matches!(
+                sm.process_payout_connector_spent(PayoutConnectorSpentEvent { tx: conflict }),
+                Err(GSMError::Rejected { .. })
+            ));
+            assert_eq!(sm.state, before);
+        }
+    }
+
+    let mut both = admin;
+    both.input.push(unstaking.input[0].clone());
+    both.input.reverse();
+    let (state, _) = run(contested_state(), both.clone()).unwrap();
+    assert_eq!(
+        state.payout_block_data(),
+        PayoutBlockData {
+            admin_block_txid: Some(both.compute_txid()),
+            unstaking_block_txid: Some(both.compute_txid()),
+        }
+    );
+}
+
+#[test]
+fn block_evidence_survives_active_challenge_transitions() {
+    let cfg = test_graph_sm_cfg();
+    let [admin, unstaking] = block_payout_txs();
+    let contest_height = LATER_BLOCK_HEIGHT + 1;
+    let proof_height = contest_height + 1;
+    let counterproof_height = proof_height + 1;
+    let mut state = claimed_state(contest_height, *TEST_FULFILLMENT_TXID, vec![]);
+    let GraphState::Claimed { graph_summary, .. } = &mut state else {
+        unreachable!();
+    };
+    *graph_summary = build_test_graph_summary(N_TEST_OPERATORS - 1);
+    for (slot, counterproof) in graph_summary.counterproofs.iter_mut().enumerate().skip(1) {
+        counterproof.counterproof = generate_spending_tx(
+            OutPoint::new(
+                graph_summary.contest,
+                ContestTx::counterproof_vout(slot as u32),
+            ),
+            &[],
+        )
+        .compute_txid();
+        let mut ack = generate_spending_tx(
+            OutPoint::new(counterproof.counterproof, CounterproofTx::ACK_NACK_VOUT),
+            &[],
+        );
+        ack.input[0].sequence =
+            relative::LockTime::Blocks(cfg.game_graph_params.nack_timelock).into();
+        counterproof.counterproof_ack = ack.compute_txid();
+    }
+    let mut sm = create_block_sm(state);
+    sm.process_payout_connector_spent(PayoutConnectorSpentEvent { tx: admin.clone() })
+        .unwrap();
+    let expected = PayoutBlockData {
+        admin_block_txid: Some(admin.compute_txid()),
+        unstaking_block_txid: None,
+    };
+    sm.process_contest(
+        cfg.clone(),
+        ContestConfirmedEvent {
+            contest_txid: TEST_GRAPH_SUMMARY.contest,
+            contest_block_height: contest_height,
+        },
+    )
+    .unwrap();
+    assert_eq!(sm.state.payout_block_data(), expected);
+    let contested = sm.clone();
+    sm.process_bridge_proof(
+        cfg.clone(),
+        BridgeProofConfirmedEvent {
+            bridge_proof_block_height: proof_height,
+            tx: test_bridge_proof_tx(),
+            proof: dummy_proof_receipt(),
+        },
+    )
+    .unwrap();
+    assert_eq!(sm.state.payout_block_data(), expected);
+    let counterproof = CounterProofConfirmedEvent {
+        counterproof_block_height: counterproof_height,
+        tx: test_counterproof_tx(),
+        counterprover_idx: TEST_NONPOV_IDX,
+    };
+    sm.notify_new_block(
+        cfg.clone(),
+        NewBlockEvent {
+            block_height: counterproof_height,
+        },
+    )
+    .unwrap();
+    sm.process_counterproof(cfg.clone(), counterproof.clone())
+        .unwrap();
+    assert_eq!(sm.state.payout_block_data(), expected);
+    let mut acked = sm.clone();
+    sm.process_counterproof_nackd(CounterProofNackConfirmedEvent {
+        tx: generate_spending_tx(
+            OutPoint::new(
+                TEST_GRAPH_SUMMARY.counterproofs[0].counterproof,
+                CounterproofTx::ACK_NACK_VOUT,
+            ),
+            &[],
+        ),
+        counterprover_idx: TEST_NONPOV_IDX,
+    })
+    .unwrap();
+    assert!(matches!(sm.state, GraphState::CounterProofPosted { .. }));
+    assert_eq!(sm.state.payout_block_data(), expected);
+
+    // An ACK follows a counterproof that has not been NACKed.
+    acked
+        .process_payout_connector_spent(PayoutConnectorSpentEvent {
+            tx: unstaking.clone(),
+        })
+        .unwrap();
+    acked
+        .process_counterproof_ack(CounterProofAckConfirmedEvent {
+            counterproof_ack_txid: TEST_GRAPH_SUMMARY.counterproofs[0].counterproof_ack,
+            counterproof_ack_block_height: counterproof_height
+                + u64::from(cfg.game_graph_params.nack_timelock.value())
+                + 1,
+            counterprover_idx: TEST_NONPOV_IDX,
+        })
+        .unwrap();
+    assert!(
+        matches!(acked.state, GraphState::Acked { contest_txid: Some(txid), .. } if txid == TEST_GRAPH_SUMMARY.contest)
+    );
+    assert_eq!(
+        acked.state.payout_block_data(),
+        PayoutBlockData {
+            admin_block_txid: expected.admin_block_txid,
+            unstaking_block_txid: Some(unstaking.compute_txid()),
+        }
+    );
+
+    // A timeout can follow a contest or a counterproof posted before the bridge proof.
+    let mut without_proof = contested.clone();
+    without_proof
+        .process_counterproof(cfg.clone(), counterproof)
+        .unwrap();
+    assert_eq!(without_proof.state.payout_block_data(), expected);
+    let mut late_proof = without_proof.clone();
+    late_proof
+        .process_bridge_proof(
+            cfg.clone(),
+            BridgeProofConfirmedEvent {
+                bridge_proof_block_height: counterproof_height + 1,
+                tx: test_bridge_proof_tx(),
+                proof: dummy_proof_receipt(),
+            },
+        )
+        .unwrap();
+    assert_eq!(late_proof.state.payout_block_data(), expected);
+    for mut sm in [contested, without_proof] {
+        sm.process_bridge_proof_timeout(BridgeProofTimeoutConfirmedEvent {
+            bridge_proof_timeout_txid: TEST_GRAPH_SUMMARY.bridge_proof_timeout,
+            bridge_proof_timeout_block_height: contest_height
+                + u64::from(cfg.game_graph_params.proof_timelock.value())
+                + 1,
+        })
+        .unwrap();
+        assert!(matches!(sm.state, GraphState::BridgeProofTimedout { .. }));
+        assert_eq!(sm.state.payout_block_data(), expected);
     }
 }
