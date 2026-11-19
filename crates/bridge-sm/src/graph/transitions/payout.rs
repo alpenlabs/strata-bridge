@@ -8,7 +8,7 @@ use crate::{
         machine::{GSMOutput, GraphSM},
         state::{AbortReason, GraphState, PayoutKind},
     },
-    tx_classifier::is_payout_connector_spent,
+    tx_classifier::{is_payout_connector_spent, payout_block_data},
 };
 
 impl GraphSM {
@@ -202,11 +202,45 @@ impl GraphSM {
             ));
         }
 
-        // A connector spend is already recorded: matching txid is a
-        // duplicate re-delivery; any other txid is rejected.
+        let mut retained_payout_block_data = self.state.payout_block_data();
+        let observed_payout_block_data = claim_txid
+            .map(|claim| payout_block_data(claim, &event.tx))
+            .unwrap_or_default();
+        if retained_payout_block_data
+            .admin_block_txid
+            .zip(observed_payout_block_data.admin_block_txid)
+            .is_some_and(|(old, new)| old != new)
+            || retained_payout_block_data
+                .unstaking_block_txid
+                .zip(observed_payout_block_data.unstaking_block_txid)
+                .is_some_and(|(old, new)| old != new)
+        {
+            return Err(GSMError::rejected(
+                self.state.clone(),
+                event.into(),
+                "payout block already recorded with a different spending txid",
+            ));
+        }
+        retained_payout_block_data.admin_block_txid = retained_payout_block_data
+            .admin_block_txid
+            .or(observed_payout_block_data.admin_block_txid);
+        retained_payout_block_data.unstaking_block_txid = retained_payout_block_data
+            .unstaking_block_txid
+            .or(observed_payout_block_data.unstaking_block_txid);
+
+        // Keep the first raw connector spend used by the protocol. A later block of the
+        // other connector adds monitoring evidence without changing the phase or duties.
         if let Some(recorded) = self.state.payout_connector_spent_txid() {
-            if recorded == spending_txid {
+            if recorded == spending_txid
+                || (observed_payout_block_data.admin_block_txid.is_some()
+                    || observed_payout_block_data.unstaking_block_txid.is_some())
+                    && retained_payout_block_data == self.state.payout_block_data()
+            {
                 return Err(GSMError::duplicate(self.state().clone(), event.into()));
+            }
+            if retained_payout_block_data != self.state.payout_block_data() {
+                self.state.set_payout_block_data(retained_payout_block_data);
+                return Ok(GSMOutput::new());
             }
             return Err(GSMError::rejected(
                 self.state().clone(),
@@ -233,6 +267,7 @@ impl GraphSM {
         // the connector spend and stay. The GSM will react to a subsequent
         // stake spend.
         if self.state.set_payout_connector_spent(spending_txid) {
+            self.state.set_payout_block_data(retained_payout_block_data);
             return Ok(GSMOutput::new());
         }
 

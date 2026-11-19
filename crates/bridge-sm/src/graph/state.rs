@@ -80,6 +80,17 @@ pub struct CounterproofData {
     pub completed_signatures: CompletedSignatures,
 }
 
+/// Classified spends of the claim's two payout connectors.
+///
+/// Both paths may be used, in the same transaction or in separate transactions.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayoutBlockData {
+    /// Transaction ID of the admin connector script-path spend.
+    pub admin_block_txid: Option<Txid>,
+    /// Transaction ID of the unstaking connector script-path spend.
+    pub unstaking_block_txid: Option<Txid>,
+}
+
 /// The reimbursement payout path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PayoutKind {
@@ -271,6 +282,11 @@ pub enum GraphState {
         /// Set when the payout connector is consumed by something other than
         /// the legitimate payout.
         payout_connector_spent: Option<Txid>,
+
+        /// Confirmed admin and unstaking block transaction IDs.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_block_data: PayoutBlockData,
     },
     /// The contest transaction has been posted on chain.
     Contested {
@@ -304,6 +320,11 @@ pub enum GraphState {
         /// Set when the payout connector is consumed by something other than
         /// the legitimate payout.
         payout_connector_spent: Option<Txid>,
+
+        /// Confirmed admin and unstaking block transaction IDs.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_block_data: PayoutBlockData,
     },
     /// The bridge proof transaction has been posted on chain.
     BridgeProofPosted {
@@ -343,6 +364,11 @@ pub enum GraphState {
         /// Set when the payout connector is consumed by something other than
         /// the legitimate payout.
         payout_connector_spent: Option<Txid>,
+
+        /// Confirmed admin and unstaking block transaction IDs.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_block_data: PayoutBlockData,
     },
     /// The bridge proof timeout transaction has been posted on chain.
     BridgeProofTimedout {
@@ -371,6 +397,11 @@ pub enum GraphState {
 
         /// The txid of the claim transaction.
         claim_txid: Txid,
+
+        /// Confirmed admin and unstaking block transaction IDs.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_block_data: PayoutBlockData,
     },
     /// A counterproof transaction has been posted on chain.
     CounterProofPosted {
@@ -411,6 +442,11 @@ pub enum GraphState {
         /// Set when the payout connector is consumed by something other than
         /// the legitimate payout.
         payout_connector_spent: Option<Txid>,
+
+        /// Confirmed admin and unstaking block transaction IDs.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_block_data: PayoutBlockData,
     },
     /// All possible counterproof transactions have been NACK’d on chain.
     AllNackd {
@@ -473,6 +509,11 @@ pub enum GraphState {
         /// The txid of the fulfillment transaction (None in faulty claim cases).
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
         fulfillment_txid: Option<Txid>,
+
+        /// Confirmed admin and unstaking block transaction IDs.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection purposes.
+        #[serde(default)]
+        payout_block_data: PayoutBlockData,
     },
     /// The deposit output has been spent by either uncontested or contested payout.
     Withdrawn {
@@ -682,6 +723,31 @@ impl GraphState {
         }
     }
 
+    /// Returns classified payout blocks retained by this graph.
+    pub fn payout_block_data(&self) -> PayoutBlockData {
+        match self {
+            Self::Claimed {
+                payout_block_data, ..
+            }
+            | Self::Contested {
+                payout_block_data, ..
+            }
+            | Self::BridgeProofPosted {
+                payout_block_data, ..
+            }
+            | Self::BridgeProofTimedout {
+                payout_block_data, ..
+            }
+            | Self::CounterProofPosted {
+                payout_block_data, ..
+            }
+            | Self::Acked {
+                payout_block_data, ..
+            } => *payout_block_data,
+            _ => PayoutBlockData::default(),
+        }
+    }
+
     /// Returns the txid of the slash transaction that, if confirmed, would
     /// drive this graph to [`GraphState::Slashed`]. `None` for states from
     /// which slashing is not yet realizable.
@@ -723,6 +789,31 @@ impl GraphState {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Replaces retained payout-block evidence, if this state carries it.
+    pub const fn set_payout_block_data(&mut self, data: PayoutBlockData) {
+        match self {
+            Self::Claimed {
+                payout_block_data, ..
+            }
+            | Self::Contested {
+                payout_block_data, ..
+            }
+            | Self::BridgeProofPosted {
+                payout_block_data, ..
+            }
+            | Self::BridgeProofTimedout {
+                payout_block_data, ..
+            }
+            | Self::CounterProofPosted {
+                payout_block_data, ..
+            }
+            | Self::Acked {
+                payout_block_data, ..
+            } => *payout_block_data = data,
+            _ => {}
         }
     }
 

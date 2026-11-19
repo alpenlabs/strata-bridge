@@ -305,6 +305,7 @@ fn active_claim_from_state_returns_fulfilled_claim_in_claimed_state() {
         claim_block_height: 100,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
@@ -328,6 +329,7 @@ fn active_claim_from_state_returns_unfulfilled_claim_in_claimed_state() {
         claim_block_height: 100,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
@@ -368,6 +370,7 @@ fn active_claim_from_state_returns_contested_phase() {
         contest_block_height: 100,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
     let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
@@ -931,6 +934,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 claim_block_height: 100,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -949,6 +953,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 contest_block_height: 100,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -969,6 +974,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 proof: dummy_proof_receipt(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -986,6 +992,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 contest_block_height: 100,
                 expected_slash_txid: graph_summary.slash,
                 claim_txid,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -1006,6 +1013,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 counterproof_nacks: BTreeMap::new(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -1043,6 +1051,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 claim_txid,
                 contest_txid: Some(graph_summary.contest),
                 fulfillment_txid: Some(fulfillment_txid),
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,

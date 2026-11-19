@@ -18,7 +18,10 @@ use strata_bridge_tx_graph::{
 };
 use strata_l1_txfmt::{MagicBytes, ParseConfig};
 
-use crate::{graph::watchtower::watchtower_slot_to_operator_idx, state_machine::StateMachine};
+use crate::{
+    graph::{state::PayoutBlockData, watchtower::watchtower_slot_to_operator_idx},
+    state_machine::StateMachine,
+};
 
 /// Classifies raw Bitcoin transactions into typed State Machine Events.
 ///
@@ -176,6 +179,28 @@ pub fn is_payout_connector_spent(claim_txid: &Txid, tx: &Transaction) -> bool {
         input.previous_output == admin_payout_connector_outpoint
             || input.previous_output == unstaking_payout_connector_outpoint
     })
+}
+
+/// Classifies script-path spends of the claim's admin and unstaking payout connectors.
+///
+/// This is for transactions from validated Bitcoin blocks. Each connector has exactly one
+/// script leaf (its blocking path); payouts use the key path. Bitcoin validates the script
+/// commitment and witness. Missing witnesses and key-path spends remain unclassified.
+pub fn payout_block_data(claim_txid: Txid, tx: &Transaction) -> PayoutBlockData {
+    let mut data = PayoutBlockData::default();
+    let txid = tx.compute_txid();
+    for input in &tx.input {
+        if input.previous_output.txid != claim_txid || input.witness.taproot_leaf_script().is_none()
+        {
+            continue;
+        }
+        match input.previous_output.vout {
+            ClaimTx::ADMIN_PAYOUT_VOUT => data.admin_block_txid = Some(txid),
+            ClaimTx::UNSTAKING_PAYOUT_VOUT => data.unstaking_block_txid = Some(txid),
+            _ => {}
+        }
+    }
+    data
 }
 
 /// Check if `tx` consumes the operator's stake outpoint.

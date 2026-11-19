@@ -63,6 +63,7 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_state: GraphState::Withdrawn {
@@ -167,6 +168,7 @@ mod tests {
                 proof: dummy_proof_receipt(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             event: GraphEvent::PayoutConfirmed(PayoutConfirmedEvent { payout_txid }),
             expected_state: GraphState::Withdrawn {

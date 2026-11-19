@@ -1722,6 +1722,7 @@ mod tests {
             claim_block_height: INITIAL_BLOCK_HEIGHT,
             stake_spent: None,
             payout_connector_spent: None,
+            payout_block_data: Default::default(),
         };
     }
 

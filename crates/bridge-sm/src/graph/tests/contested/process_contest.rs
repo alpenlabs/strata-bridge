@@ -60,6 +60,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
                 contest_block_height: CONTEST_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![GraphDuty::GenerateAndPublishBridgeProof {
                 graph_idx: ctx.graph_idx(),
@@ -100,6 +101,7 @@ fn test_contest_from_claimed_nonpov_no_duty() {
                 contest_block_height: CONTEST_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -133,6 +135,7 @@ fn test_contest_state_fields() {
                 contest_block_height: CONTEST_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],

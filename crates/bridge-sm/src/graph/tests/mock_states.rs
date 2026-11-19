@@ -148,6 +148,7 @@ pub(super) fn claimed_state(
         claim_block_height: CLAIM_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -166,6 +167,7 @@ pub(super) fn faulty_claimed_state(
         claim_block_height: CLAIM_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -189,6 +191,7 @@ pub(super) fn contested_state_with(
         contest_block_height: LATER_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -215,6 +218,7 @@ pub(super) fn bridge_proof_posted_state_with(
         proof: dummy_proof_receipt(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -237,6 +241,7 @@ pub(super) fn bridge_proof_timedout_state_with(
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
         claim_txid: TEST_GRAPH_SUMMARY.claim,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -254,6 +259,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         counterproof_nacks: BTreeMap::new(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -271,6 +277,7 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         counterproof_nacks: BTreeMap::new(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -348,6 +355,7 @@ pub(super) fn counter_proof_posted_state_with(
             .collect(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -415,6 +423,7 @@ pub(super) fn acked_state() -> GraphState {
         claim_txid: graph_summary.claim,
         contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        payout_block_data: Default::default(),
     }
 }
 

@@ -6,7 +6,7 @@ use crate::{
     graph::{
         errors::GSMError,
         events::{CounterProofAckConfirmedEvent, GraphEvent},
-        state::{AbortReason, CounterproofData, GraphState},
+        state::{AbortReason, CounterproofData, GraphState, PayoutBlockData},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
             create_nonpov_sm, get_state,
@@ -65,6 +65,7 @@ fn event_accepted() {
             claim_txid: TEST_GRAPH_SUMMARY.claim,
             contest_txid: Some(TEST_GRAPH_SUMMARY.contest),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+            payout_block_data: Default::default(),
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -93,6 +94,7 @@ fn event_accepted_nonpov() {
                 claim_txid: TEST_GRAPH_SUMMARY.claim,
                 contest_txid: Some(TEST_GRAPH_SUMMARY.contest),
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -203,6 +205,11 @@ fn payout_connector_spent_alone_does_not_abort() {
     let connector_spending_txid = Txid::from_byte_array([0xcd; 32]);
     let mut from_state = counter_proof_posted_state();
     assert!(from_state.set_payout_connector_spent(connector_spending_txid));
+    let payout_block_data = PayoutBlockData {
+        admin_block_txid: Some(connector_spending_txid),
+        unstaking_block_txid: None,
+    };
+    from_state.set_payout_block_data(payout_block_data);
 
     test_graph_transition(GraphTransition {
         from_state,
@@ -220,6 +227,7 @@ fn payout_connector_spent_alone_does_not_abort() {
             claim_txid: TEST_GRAPH_SUMMARY.claim,
             contest_txid: Some(TEST_GRAPH_SUMMARY.contest),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+            payout_block_data,
         },
         expected_duties: vec![],
         expected_signals: vec![],

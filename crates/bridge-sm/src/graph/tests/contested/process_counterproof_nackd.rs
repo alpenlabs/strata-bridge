@@ -17,7 +17,7 @@ use crate::{
         errors::GSMError,
         events::{CounterProofNackConfirmedEvent, GraphEvent},
         machine::GraphSM,
-        state::{AbortReason, CounterproofData, GraphState},
+        state::{AbortReason, CounterproofData, GraphState, PayoutBlockData},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, NACK_TIMELOCK,
             TEST_NONPOV_IDX, TEST_POV_IDX, build_test_graph_summary, create_nonpov_sm, get_state,
@@ -126,6 +126,7 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
             .collect(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -169,6 +170,7 @@ fn first_nack_stays_in_counter_proof_posted() {
             counterproof_nacks: BTreeMap::from([(TEST_NONPOV_IDX, event.tx.compute_txid())]),
             stake_spent: None,
             payout_connector_spent: None,
+            payout_block_data: Default::default(),
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -240,6 +242,10 @@ fn final_nack_aborts_when_payout_connector_spent() {
         .claim_txid()
         .expect("counterproof posted state must have claim txid");
     assert!(from_state.set_payout_connector_spent(connector_spending_txid));
+    from_state.set_payout_block_data(PayoutBlockData {
+        admin_block_txid: Some(connector_spending_txid),
+        unstaking_block_txid: None,
+    });
 
     test_graph_transition(GraphTransition {
         from_state,
@@ -380,6 +386,7 @@ fn event_rejected_when_tx_is_counterproof_ack() {
         counterproof_nacks: BTreeMap::new(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
     let event = CounterProofNackConfirmedEvent {
