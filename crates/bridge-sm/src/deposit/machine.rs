@@ -29,6 +29,7 @@ use crate::{
         state::DepositState,
     },
     error_policy::soften_peer_event_error,
+    graph::context::GraphSMCtx,
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},
 };
@@ -55,6 +56,24 @@ impl StateMachine for DepositSM {
         cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
+        // A held deposit keeps observing Bitcoin. Peer events are dropped and recovered through
+        // nags once this node takes part; accepting them here must not start graph generation
+        // or signing.
+        if matches!(self.state, DepositState::ParticipationPending { .. }) {
+            return match event {
+                DepositEvent::NewBlock(block) => self.process_new_block(block),
+                DepositEvent::UserTakeBack(takeback) => self.process_drt_takeback(takeback),
+                DepositEvent::SafeHarbourAbort(abort) => self.process_safe_harbour_abort(abort),
+                DepositEvent::RetryTick(_) | DepositEvent::NagTick(_) => {
+                    Ok(DSMOutput::new().mark_unchanged())
+                }
+                event => Err(DSMError::rejected(
+                    self.state.clone(),
+                    event,
+                    "deposit participation pending",
+                )),
+            };
+        }
         match event {
             DepositEvent::UserTakeBack(takeback) => self.process_drt_takeback(takeback),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
@@ -139,6 +158,44 @@ pub(crate) fn has_all_payout_partials(
 }
 
 impl DepositSM {
+    /// Takes part in a deposit held in [`DepositState::ParticipationPending`].
+    ///
+    /// The state returns to [`DepositState::Created`], and the graph contexts frozen at
+    /// registration are returned for the caller to build this deposit's graphs from. The caller
+    /// must persist this machine and the new graphs atomically.
+    ///
+    /// Returns `None` and changes nothing unless the deposit is pending, so a late decision cannot
+    /// revive a deposit that was taken back, aborted or already decided.
+    pub fn participate(&mut self) -> Option<Vec<GraphSMCtx>> {
+        if !matches!(self.state, DepositState::ParticipationPending { .. }) {
+            return None;
+        }
+        // Move the pending fields out instead of cloning the graph contexts.
+        let DepositState::ParticipationPending {
+            deposit_transaction,
+            last_block_height,
+            graph_contexts,
+        } = std::mem::replace(&mut self.state, DepositState::ParticipationDeclined)
+        else {
+            unreachable!("checked above that the deposit is pending");
+        };
+        self.state = DepositState::new(deposit_transaction, last_block_height);
+        Some(graph_contexts)
+    }
+
+    /// Declines a deposit held in [`DepositState::ParticipationPending`].
+    ///
+    /// The state becomes the terminal [`DepositState::ParticipationDeclined`]: the deposit index
+    /// stays allocated and nothing is ever signed for it. Returns whether the state changed; a
+    /// late decision leaves any other state alone.
+    pub fn decline_participation(&mut self) -> bool {
+        if !matches!(self.state, DepositState::ParticipationPending { .. }) {
+            return false;
+        }
+        self.state = DepositState::ParticipationDeclined;
+        true
+    }
+
     /// Creates a new [`DepositSM`] using the provided configuration and deposit data.
     ///
     /// The state machine starts in [`DepositState::Created`] by constructing an initial
@@ -199,6 +256,40 @@ impl DepositSM {
         );
         DepositSM {
             state: DepositState::Skipped,
+            ..self
+        }
+    }
+
+    /// Holds this deposit request until the sidecar hook decides whether this node takes part.
+    ///
+    /// Meant for a machine fresh out of [`DepositSM::new`], like [`Self::into_skipped`]: the
+    /// context is kept, so the deposit index and outpoints still match every other operator's.
+    /// `graph_contexts` freezes the covenant and stake bindings that [`Self::participate`] later
+    /// hands back, so a delayed decision cannot bind the deposit to a newer covenant or stake.
+    ///
+    /// # Panics
+    ///
+    /// If the deposit is not freshly created: not in [`DepositState::Created`], or with graphs
+    /// already linked.
+    pub fn into_participation_pending(self, graph_contexts: Vec<GraphSMCtx>) -> Self {
+        let DepositState::Created {
+            deposit_transaction,
+            last_block_height,
+            claim_txids,
+        } = self.state
+        else {
+            panic!("only a freshly created deposit request can wait for a participation decision");
+        };
+        assert!(
+            claim_txids.is_empty(),
+            "a participation decision precedes any graph"
+        );
+        DepositSM {
+            state: DepositState::ParticipationPending {
+                deposit_transaction,
+                last_block_height,
+                graph_contexts,
+            },
             ..self
         }
     }

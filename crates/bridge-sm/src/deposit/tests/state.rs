@@ -9,7 +9,7 @@ mod tests {
     fn deposit_state_variant_indices_are_stable() {
         let desc = random_p2tr_desc();
 
-        let cases: [(u8, DepositState); 15] = [
+        let cases: [(u8, DepositState); 17] = [
             (
                 0,
                 DepositState::Created {
@@ -129,6 +129,15 @@ mod tests {
                 },
             ),
             (14, DepositState::Skipped),
+            (
+                15,
+                DepositState::ParticipationPending {
+                    deposit_transaction: test_deposit_txn(),
+                    last_block_height: INITIAL_BLOCK_HEIGHT,
+                    graph_contexts: vec![],
+                },
+            ),
+            (16, DepositState::ParticipationDeclined),
         ];
 
         for (expected_index, state) in cases {

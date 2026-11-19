@@ -192,7 +192,8 @@ pub(super) const fn duty_applies_to_operator(
 pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<RpcWithdrawalStatus> {
     match deposit_state {
         // Unassigned states
-        DepositState::Created { .. }
+        DepositState::ParticipationPending { .. }
+        | DepositState::Created { .. }
         | DepositState::GraphGenerated { .. }
         | DepositState::DepositNoncesCollected { .. }
         | DepositState::DepositPartialsCollected { .. }
@@ -231,7 +232,8 @@ pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<Rp
             ..
         }
         | DepositState::Aborted
-        | DepositState::Skipped => None,
+        | DepositState::Skipped
+        | DepositState::ParticipationDeclined => None,
     }
 }
 

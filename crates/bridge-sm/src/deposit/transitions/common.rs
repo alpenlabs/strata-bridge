@@ -22,7 +22,10 @@ impl DepositSM {
 
         let operator_idxs = self.context().operator_table().operator_idxs();
         match self.state_mut() {
-            DepositState::Created {
+            DepositState::ParticipationPending {
+                last_block_height, ..
+            }
+            | DepositState::Created {
                 last_block_height, ..
             }
             | DepositState::GraphGenerated {
@@ -154,13 +157,14 @@ impl DepositSM {
                 })
             }
 
-            DepositState::Spent { .. } | DepositState::Aborted | DepositState::Skipped => {
-                Err(DSMError::rejected(
-                    self.state().clone(),
-                    new_block.into(),
-                    "New blocks irrelevant in terminal state",
-                ))
-            }
+            DepositState::Spent { .. }
+            | DepositState::Aborted
+            | DepositState::Skipped
+            | DepositState::ParticipationDeclined => Err(DSMError::rejected(
+                self.state().clone(),
+                new_block.into(),
+                "New blocks irrelevant in terminal state",
+            )),
         }
     }
 }

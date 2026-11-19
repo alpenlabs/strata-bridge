@@ -16,6 +16,8 @@ use strata_bridge_tx_graph::transactions::{
     prelude::{CooperativePayoutTx, SweepTx},
 };
 
+use crate::graph::context::GraphSMCtx;
+
 /// The state of a Deposit.
 ///
 /// Postcard encodes variants by declaration index: append new ones, never reorder.
@@ -218,6 +220,24 @@ pub enum DepositState {
     /// stays aligned across operators, but no graph is generated and nothing is signed; the
     /// depositor takes the request back after the recovery delay.
     Skipped,
+    /// Registered request awaiting the sidecar hook's participation decision. No graphs or
+    /// signatures exist. Appended to preserve the postcard discriminants of existing states.
+    ParticipationPending {
+        /// Unsigned deposit transaction fixed at registration.
+        deposit_transaction: DepositTx,
+        /// Latest observed Bitcoin height; observation continues while no decision is available.
+        last_block_height: BitcoinBlockHeight,
+        /// Original covenant/stake bindings, retained while the decision is pending and across
+        /// restart.
+        ///
+        /// Persisted in the deposit row. A change to how [`GraphSMCtx`] encodes must migrate these
+        /// rows as well as the graph rows that already store it.
+        graph_contexts: Vec<GraphSMCtx>,
+    },
+    /// Terminal: the sidecar hook declined this node's participation in the deposit. Like
+    /// [`Self::Skipped`], the deposit index stays allocated and nothing is signed, but the reason
+    /// is the hook's decision, not the deposit cap.
+    ParticipationDeclined,
 }
 
 impl Display for DepositState {
@@ -238,6 +258,8 @@ impl Display for DepositState {
             DepositState::Spent { .. } => "Spent".to_string(),
             DepositState::Aborted => "Aborted".to_string(),
             DepositState::Skipped => "Skipped".to_string(),
+            DepositState::ParticipationPending { .. } => "ParticipationPending".to_string(),
+            DepositState::ParticipationDeclined => "ParticipationDeclined".to_string(),
         };
         write!(f, "{}", display_str)
     }
@@ -259,7 +281,11 @@ impl DepositState {
     /// Returns the height of the last processed Bitcoin block for this deposit state.
     pub const fn last_processed_block_height(&self) -> Option<&BitcoinBlockHeight> {
         match self {
-            DepositState::Created {
+            DepositState::ParticipationPending {
+                last_block_height: block_height,
+                ..
+            }
+            | DepositState::Created {
                 last_block_height: block_height,
                 ..
             }
@@ -307,7 +333,10 @@ impl DepositState {
                 last_block_height: block_height,
                 ..
             } => Some(block_height),
-            DepositState::Spent { .. } | DepositState::Aborted | DepositState::Skipped => {
+            DepositState::Spent { .. }
+            | DepositState::Aborted
+            | DepositState::Skipped
+            | DepositState::ParticipationDeclined => {
                 // Terminal states do not track block height
                 None
             }

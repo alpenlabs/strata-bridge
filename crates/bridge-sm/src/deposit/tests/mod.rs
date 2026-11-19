@@ -6,6 +6,7 @@
 mod deposit;
 mod duties;
 mod handlers;
+mod participation;
 mod payout;
 mod prop_tests;
 mod state;
