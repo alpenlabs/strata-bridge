@@ -1,9 +1,12 @@
 //! The duties that need to be performed in the Deposit State Machine in response to the state
 //! transitions.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
-use bitcoin::{Amount, OutPoint, Transaction, Txid, secp256k1::XOnlyPublicKey};
+use bitcoin::{OutPoint, Transaction, Txid, secp256k1::XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, secp256k1::Message};
 use strata_bridge_connectors::SigningInfo;
@@ -12,6 +15,8 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx, P2POperatorPubKey},
 };
 use strata_bridge_tx_graph::transactions::prelude::{CooperativePayoutTx, SweepTx};
+
+use crate::deposit::config::DepositSMCfg;
 
 /// The nag duties that can be emitted to remind operators of missing data.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,8 +202,8 @@ pub enum DepositDuty {
         deadline: BitcoinBlockHeight,
         /// The user's descriptor where funds are to be sent by the operator.
         recipient_desc: Descriptor,
-        /// The fixed deposit amount expected by the bridge protocol.
-        deposit_amount: Amount,
+        /// The configuration of the deposit that emitted this duty.
+        cfg: Arc<DepositSMCfg>,
     },
     /// Request pubnonces from all operators for cooperative payout.
     RequestPayoutNonces {
