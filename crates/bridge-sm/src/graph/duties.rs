@@ -1,7 +1,7 @@
 //! The duties that need to be performed in the Graph State Machine in response to the state
 //! transitions.
 
-use std::{collections::BTreeSet, num::NonZero};
+use std::{collections::BTreeSet, num::NonZero, sync::Arc};
 
 use bitcoin::{
     OutPoint, ScriptBuf, Transaction, Txid, XOnlyPublicKey, hashes::sha256, taproot::ControlBlock,
@@ -24,6 +24,8 @@ use strata_bridge_tx_graph::transactions::{
 };
 use strata_mosaic_client_api::types::CompletedSignatures;
 use zkaleido::ProofReceipt;
+
+use crate::graph::config::GraphSMCfg;
 
 /// Script-path CPFP material for a `MultiAnchor` anchor output.
 ///
@@ -134,6 +136,9 @@ pub enum GraphDuty {
 
         /// Operator table snapshot from the GraphSM that emitted this duty.
         operator_table: OperatorTable,
+
+        /// The configuration of the graph that emitted this duty.
+        cfg: Arc<GraphSMCfg>,
     },
 
     /// Verify the adaptor signatures for the generated graph.
@@ -307,6 +312,9 @@ pub enum GraphDuty {
 
         /// Operator table snapshot from the GraphSM that emitted this duty.
         operator_table: OperatorTable,
+
+        /// The configuration of the graph that emitted this duty.
+        cfg: Arc<GraphSMCfg>,
     },
 
     /// Publish a counterproof ACK transaction.

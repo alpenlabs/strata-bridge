@@ -145,6 +145,7 @@ impl GraphSM {
             stake_outpoint: sm.context().stake_outpoint(),
             unstaking_image: sm.context().unstaking_image(),
             operator_table: sm.context().operator_table().clone(),
+            cfg: sm.cfg.clone(),
         });
 
         (sm, duty)
@@ -219,7 +220,7 @@ impl GraphSM {
     #[expect(clippy::too_many_arguments)]
     pub(super) fn potential_counterproof_duty(
         &self,
-        cfg: &GraphSMCfg,
+        cfg: &Arc<GraphSMCfg>,
         graph_data: &DepositParams,
         signatures: &[Signature],
         last_block_height: BitcoinBlockHeight,
@@ -257,6 +258,7 @@ impl GraphSM {
             proof: proof.clone(),
             bridge_proof_tx: bridge_proof_tx.clone(),
             operator_table: self.context().operator_table().clone(),
+            cfg: cfg.clone(),
         })
     }
 }
