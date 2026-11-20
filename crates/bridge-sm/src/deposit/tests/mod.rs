@@ -335,6 +335,7 @@ pub(super) fn get_sweep_signing_info(
 pub(super) fn create_sm(state: DepositState) -> DepositSM {
     DepositSM {
         context: test_sm_ctx(),
+        cfg: test_deposit_sm_cfg(),
         state,
     }
 }

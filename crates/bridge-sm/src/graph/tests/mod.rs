@@ -356,6 +356,7 @@ pub(super) fn test_payout_connector_spent_tx() -> Transaction {
 pub(super) fn create_sm(state: GraphState) -> GraphSM {
     GraphSM {
         context: test_graph_sm_ctx(),
+        cfg: test_graph_sm_cfg(),
         state,
     }
 }
@@ -363,6 +364,7 @@ pub(super) fn create_sm(state: GraphState) -> GraphSM {
 /// Creates a GraphSM for a non-POV operator
 pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
     GraphSM {
+        cfg: test_graph_sm_cfg(),
         context: GraphSMCtx {
             covenant: test_graph_sm_ctx().covenant,
             graph_idx: GraphIdx {
@@ -471,7 +473,7 @@ pub(super) fn mock_game_signatures(game_graph: &GameGraph) -> Vec<Signature> {
 /// observed bridge proof. The GSM emits this for every observed proof regardless of validity —
 /// verification happens in the executor.
 pub(super) fn expected_potential_counterproof_duty(
-    cfg: &GraphSMCfg,
+    cfg: &Arc<GraphSMCfg>,
     sm: &GraphSM,
     signatures: &[Signature],
     last_block_height: BitcoinBlockHeight,
@@ -503,6 +505,7 @@ pub(super) fn expected_potential_counterproof_duty(
         proof: proof.clone(),
         bridge_proof_tx: bridge_proof_tx.clone(),
         operator_table: sm.context().operator_table().clone(),
+        cfg: cfg.clone(),
     }
 }
 

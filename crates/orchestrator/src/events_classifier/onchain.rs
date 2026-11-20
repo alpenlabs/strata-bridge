@@ -26,7 +26,6 @@ use strata_bridge_sm::{
         machine::DepositSM,
     },
     graph::{
-        config::GraphSMCfg,
         context::GraphSMCtx,
         events::{GraphEvent, NewBlockEvent as GraphNewBlockEvent},
         machine::GraphSM,
@@ -188,12 +187,10 @@ pub(crate) fn process_deposit_graph_pass(
         .collect();
 
     let deposit_cfg = applicator.registry().cfg().deposit.clone();
-    let graph_cfg = applicator.registry().cfg().graph.clone();
     for tx in &block_event.block.txdata {
-        let events =
-            classify_deposit_graph_tx(&deposit_cfg, &graph_cfg, applicator.registry(), tx, height)
-                .into_iter()
-                .filter(|(id, _)| !completed.contains(id));
+        let events = classify_deposit_graph_tx(applicator.registry(), tx, height)
+            .into_iter()
+            .filter(|(id, _)| !completed.contains(id));
         applicator.apply_batch(events)?;
 
         // Settle this transaction's spends before admission so a take-back rolled into
@@ -377,6 +374,7 @@ fn try_register_deposit(
     applicator.insert_deposit(deposit_idx, dsm)?;
 
     // Register one GraphSM per covenant member, collecting initial duties.
+    let graph_cfg = applicator.registry().cfg().graph.clone();
     let mut duties = Vec::new();
     for (&op_idx, binding) in &stakes {
         let graph_idx = GraphIdx {
@@ -393,7 +391,7 @@ fn try_register_deposit(
             operator_table: local_table.clone(),
         };
 
-        let (gsm, duty) = GraphSM::new(gsm_ctx, height);
+        let (gsm, duty) = GraphSM::new(graph_cfg.clone(), gsm_ctx, height);
 
         info!(%graph_idx, "registering new GraphSM for detected DRT");
         applicator.insert_graph(gsm.context().graph_idx(), gsm)?;
@@ -407,8 +405,6 @@ fn try_register_deposit(
 
 /// Returns the deposit and graph events recognized in a transaction.
 fn classify_deposit_graph_tx(
-    deposit_cfg: &Arc<DepositSMCfg>,
-    graph_cfg: &Arc<GraphSMCfg>,
     registry: &SMRegistry,
     tx: &Transaction,
     height: BitcoinBlockHeight,
@@ -416,11 +412,11 @@ fn classify_deposit_graph_tx(
     registry
         .deposits()
         .filter_map(|(&deposit_idx, sm)| {
-            sm.classify_tx(deposit_cfg, tx, height)
+            sm.classify_tx(sm.cfg(), tx, height)
                 .map(|ev| (SMId::Deposit(deposit_idx), ev.into()))
         })
         .chain(registry.graphs().filter_map(|(&graph_idx, sm)| {
-            sm.classify_tx(graph_cfg, tx, height)
+            sm.classify_tx(sm.cfg(), tx, height)
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))
         .collect()

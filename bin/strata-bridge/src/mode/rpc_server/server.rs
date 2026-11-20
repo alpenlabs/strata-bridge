@@ -535,11 +535,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 impl StrataBridgeDaApiServer for BridgeRpc {
     async fn get_graph_data(&self, graph_idx: GraphIdx) -> RpcResult<Option<RpcGraphData>> {
         let cached_registry = self.cached_registry.read().await;
-        let graph_cfg = cached_registry.cfg().graph.clone();
 
         Ok(cached_registry
             .get_graph(&graph_idx)
-            .and_then(|gsm| graph_data_response(gsm.context(), gsm.state(), &graph_cfg)))
+            .and_then(|gsm| graph_data_response(gsm.context(), gsm.state(), gsm.cfg())))
     }
 
     async fn get_aggregate_signatures(

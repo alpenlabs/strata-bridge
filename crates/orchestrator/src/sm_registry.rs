@@ -46,9 +46,9 @@ use crate::{
 /// Static configuration shared by all state machines.
 #[derive(Debug, Clone)]
 pub struct SMConfig {
-    /// Static configuration for all deposit state machines.
+    /// Configuration for new deposit state machines.
     pub deposit: Arc<DepositSMCfg>,
-    /// Static configuration for all graph state machines.
+    /// Configuration for new graph state machines.
     pub graph: Arc<GraphSMCfg>,
     /// Static configuration for all stake state machines.
     pub stake: Arc<StakeSMCfg>,
@@ -666,11 +666,12 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Deposit(deposit_event.clone());
-                sm.process_event(self.cfg.deposit.clone(), *deposit_event)
+                let cfg = sm.cfg().clone();
+                sm.process_event(cfg.clone(), *deposit_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Deposit)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -682,11 +683,12 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Graph(graph_event.clone());
-                sm.process_event(self.cfg.graph.clone(), *graph_event)
+                let cfg = sm.cfg().clone();
+                sm.process_event(cfg.clone(), *graph_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Graph)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -919,6 +921,94 @@ mod tests {
     };
 
     // ===== Basic CRUD tests =====
+
+    #[test]
+    fn fulfillment_assignment_and_retry_keep_the_deposits_fee_and_magic_bytes() {
+        use strata_bridge_sm::{
+            deposit::{
+                duties::DepositDuty,
+                events::{RetryTickEvent, WithdrawalAssignedEvent},
+            },
+            tx_classifier::{TxClassifier, is_fulfillment},
+        };
+        use strata_bridge_test_utils::bridge_fixtures::random_p2tr_desc;
+        use strata_bridge_tx_graph::transactions::prelude::{
+            WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
+        };
+
+        let original = test_populated_registry(1);
+        let mut deposit = original.get_deposit(&0).unwrap().clone();
+        let stored = deposit.cfg().clone();
+        deposit.state = DepositState::Deposited {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+        };
+        let mut startup = original.cfg().clone();
+        let startup_deposit = Arc::make_mut(&mut startup.deposit);
+        startup_deposit.operator_fee += Amount::from_sat(100);
+        startup_deposit.magic_bytes = [0x4e, 0x45, 0x57, 0x21].into();
+        let mut registry = SMRegistry::new(startup.clone());
+        registry.insert_deposit(0, deposit).unwrap();
+        let recipient = random_p2tr_desc();
+
+        for event in [
+            DepositEvent::WithdrawalAssigned(WithdrawalAssignedEvent {
+                assignee: TEST_POV_IDX,
+                deadline: INITIAL_BLOCK_HEIGHT + 100,
+                recipient_desc: recipient.clone(),
+            }),
+            DepositEvent::RetryTick(RetryTickEvent),
+        ] {
+            let ProcessOutcome::Applied(output) = registry
+                .process_event(&SMId::Deposit(0), event.into())
+                .unwrap()
+            else {
+                panic!("assignment and retry must apply");
+            };
+            let [
+                UnifiedDuty::Deposit(DepositDuty::FulfillWithdrawalRequest {
+                    deposit_idx,
+                    recipient_desc,
+                    cfg,
+                    ..
+                }),
+            ] = output.duties.as_slice()
+            else {
+                panic!("expected one fulfillment duty, got {:?}", output.duties);
+            };
+            assert_eq!(*cfg, stored);
+            let tx = WithdrawalFulfillmentTx::new(
+                WithdrawalFulfillmentData {
+                    deposit_idx: *deposit_idx,
+                    user_amount: cfg.deposit_amount() - cfg.operator_fee(),
+                    magic_bytes: cfg.magic_bytes(),
+                },
+                recipient_desc.clone(),
+            )
+            .into_unsigned_tx();
+            let sm = registry.get_deposit(&0).unwrap();
+            assert!(matches!(
+                sm.classify_tx(sm.cfg(), &tx, INITIAL_BLOCK_HEIGHT + 1),
+                Some(DepositEvent::FulfillmentConfirmed(_))
+            ));
+            // Either startup value would make this fulfillment unrecognizable.
+            assert!(!is_fulfillment(
+                cfg.magic_bytes(),
+                *deposit_idx,
+                cfg.deposit_amount(),
+                startup.deposit.operator_fee,
+                recipient_desc,
+                &tx,
+            ));
+            assert!(!is_fulfillment(
+                startup.deposit.magic_bytes,
+                *deposit_idx,
+                cfg.deposit_amount(),
+                cfg.operator_fee(),
+                recipient_desc,
+                &tx,
+            ));
+        }
+    }
 
     #[test]
     fn new_registry_is_empty() {

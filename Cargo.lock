@@ -12347,6 +12347,7 @@ dependencies = [
  "strata-bridge-sm",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
+ "strata-predicate",
  "terrors",
  "tokio",
 ]
@@ -12394,7 +12395,6 @@ dependencies = [
  "strata-bridge-tx-graph",
  "strata-crypto 0.6.0",
  "strata-identifiers 0.6.0",
- "strata-l1-txfmt",
  "strata-mosaic-client-api",
  "tempfile",
  "terrors",

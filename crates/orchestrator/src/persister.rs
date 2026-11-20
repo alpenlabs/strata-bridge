@@ -770,3 +770,140 @@ mod covenant_storage_tests {
         drop(guard);
     }
 }
+
+#[cfg(test)]
+mod sm_config_tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use bitcoin::{Amount, relative};
+    use strata_bridge_db::fdb::{cfg::Config, client::MustDrop};
+    use strata_bridge_p2p_types::NagRequestPayload;
+    use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
+    use strata_bridge_sm::graph::{
+        duties::GraphDuty,
+        events::{GraphEvent, NagReceivedEvent},
+    };
+
+    use super::*;
+    use crate::{
+        sm_registry::ProcessOutcome,
+        sm_types::UnifiedDuty,
+        testing::{
+            TEST_POV_IDX, insert_deposit_with_graphs, test_fdb_config, test_populated_registry,
+        },
+    };
+
+    async fn persister() -> (Persister, Arc<FdbClient>, MustDrop) {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let (client, guard) = FdbClient::setup(Config {
+            root_directory: format!("test-sm-config-{suffix}"),
+            ..test_fdb_config()
+        })
+        .await
+        .unwrap();
+        let db = Arc::new(client);
+        (Persister::new(db.clone()), db, guard)
+    }
+
+    async fn persist_all(persister: &Persister, registry: &SMRegistry) {
+        persister
+            .persist_batch(registry.get_all_ids().into_iter().collect(), registry)
+            .await
+            .unwrap();
+    }
+
+    /// The same config with a higher operator fee and a longer contest timelock.
+    fn with_changed_params(cfg: &SMConfig) -> SMConfig {
+        let mut deposit = (*cfg.deposit).clone();
+        deposit.operator_fee += Amount::from_sat(100);
+        let mut graph = (*cfg.graph).clone();
+        graph.game_graph_params.contest_timelock =
+            relative::Height::from_height(graph.game_graph_params.contest_timelock.value() + 10);
+        SMConfig {
+            deposit: Arc::new(deposit),
+            graph: Arc::new(graph),
+            ..cfg.clone()
+        }
+    }
+
+    fn graph(deposit: DepositIdx, operator: OperatorIdx) -> GraphIdx {
+        GraphIdx { deposit, operator }
+    }
+
+    #[tokio::test]
+    async fn deposits_keep_their_config_across_a_params_change() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(1);
+        persist_all(&persister, &registry).await;
+        let original = registry.cfg().clone();
+
+        let changed = with_changed_params(&original);
+        let mut restored = persister.recover_registry(changed.clone()).await.unwrap();
+        assert_eq!(restored.get_deposit(&0).unwrap().cfg(), &original.deposit);
+        assert_eq!(
+            restored.get_graph(&graph(0, 0)).unwrap().cfg(),
+            &original.graph
+        );
+
+        insert_deposit_with_graphs(&mut restored, 1);
+        assert_eq!(restored.get_deposit(&1).unwrap().cfg(), &changed.deposit);
+        assert_eq!(
+            restored.get_graph(&graph(1, 0)).unwrap().cfg(),
+            &changed.graph
+        );
+        persist_all(&persister, &restored).await;
+
+        // Restarting on the original params again moves neither deposit.
+        let again = persister.recover_registry(original.clone()).await.unwrap();
+        assert_eq!(again.get_deposit(&0).unwrap().cfg(), &original.deposit);
+        assert_eq!(again.get_deposit(&1).unwrap().cfg(), &changed.deposit);
+        assert_eq!(again.get_graph(&graph(1, 0)).unwrap().cfg(), &changed.graph);
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn graph_duties_carry_their_graphs_config_after_a_params_change() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(1);
+        persist_all(&persister, &registry).await;
+
+        let mut restored = persister
+            .recover_registry(with_changed_params(registry.cfg()))
+            .await
+            .unwrap();
+        let graph_idx = graph(0, TEST_POV_IDX);
+        let outcome = restored
+            .process_event(
+                &SMId::Graph(graph_idx),
+                GraphEvent::NagReceived(NagReceivedEvent {
+                    payload: NagRequestPayload::GraphData { graph_idx },
+                    sender_operator_idx: TEST_POV_IDX + 1,
+                })
+                .into(),
+            )
+            .unwrap();
+        let ProcessOutcome::Applied(output) = outcome else {
+            panic!("graph data nag must apply, got {outcome:?}");
+        };
+        let [UnifiedDuty::Graph(GraphDuty::GenerateGraphData { cfg, .. })] =
+            output.duties.as_slice()
+        else {
+            panic!(
+                "expected one GenerateGraphData duty, got {:?}",
+                output.duties
+            );
+        };
+        assert_eq!(*cfg, registry.cfg().graph);
+        assert_ne!(*cfg, restored.cfg().graph);
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+}
