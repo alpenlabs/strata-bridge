@@ -641,7 +641,13 @@ impl GameConnectors {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, transaction::Version, TxOut};
+    use bitcoin::{
+        hashes::Hash,
+        sighash::{Prevouts, SighashCache},
+        taproot::{LeafVersion, TapLeafHash},
+        transaction::Version,
+        TapSighashType, TxOut, Witness,
+    };
     use secp256k1::{rand::random, Keypair, SECP256K1};
     use strata_bridge_connectors::{
         prelude::{AdminSignature, ContestCounterproofWitness},
@@ -861,7 +867,7 @@ mod tests {
         /// The counterproof, counterproof nack and contested payout transactions are posted.
         Nack,
         /// The counterproof, counterproof ack and slash transactions are posted.
-        Ack,
+        Ack(TapSighashType),
     }
 
     fn test_scenario(scenario: Scenario) {
@@ -1110,30 +1116,74 @@ mod tests {
         // │                         Counterproof                              │
         // └───────────────────────────────────────────────────────────────────┘
         if scenario != CounterproofScenario::Timeout {
-            let operator_signatures = game.counterproofs[0]
-                .counterproof
-                .sighashes()
-                .into_iter()
-                .map(|msg| signer.operator_keypair.sign_schnorr(msg))
-                .collect();
-            let witness = ContestCounterproofWitness {
-                n_of_n_signature: presigned.watchtowers[0].counterproof[0],
-                operator_signatures,
+            let count = if matches!(scenario, CounterproofScenario::Ack(_)) {
+                N_WATCHTOWERS
+            } else {
+                1
             };
-            let counterproof = game.counterproofs[0]
-                .counterproof
-                .clone()
-                .finalize(&witness);
-            assert_eq!(counterproof.version, Version(3));
-            let child = node.create_keyed_cpfp_child(
-                &game.counterproofs[0].counterproof,
-                FEE * 2,
-                &signer.watchtower_keypairs[0],
-            );
-            assert_eq!(child.version, Version(3));
-            let package = [counterproof, child];
+            for slot in 0..count {
+                let operator_signatures = game.counterproofs[slot]
+                    .counterproof
+                    .sighashes()
+                    .into_iter()
+                    .map(|msg| signer.operator_keypair.sign_schnorr(msg))
+                    .collect();
+                let witness = ContestCounterproofWitness {
+                    n_of_n_signature: presigned.watchtowers[slot].counterproof[0],
+                    operator_signatures,
+                };
+                let mut counterproof = game.counterproofs[slot]
+                    .counterproof
+                    .clone()
+                    .finalize(&witness);
+                if let CounterproofScenario::Ack(hash_type) = scenario {
+                    let connector = &connectors.contest_counterproof[slot];
+                    let leaf_hash = TapLeafHash::from_script(
+                        &connector.leaf_scripts()[0],
+                        LeafVersion::TapScript,
+                    );
+                    let sighash = SighashCache::new(&counterproof)
+                        .taproot_signature_hash(
+                            0,
+                            &Prevouts::All(&[connector.tx_out()]),
+                            None,
+                            Some((
+                                leaf_hash,
+                                connector
+                                    .code_separator_positions(0)
+                                    .into_iter()
+                                    .next()
+                                    .unwrap(),
+                            )),
+                            hash_type,
+                        )
+                        .unwrap();
+                    let signature = bitcoin::taproot::Signature {
+                        signature: signer.operator_keypair.sign_schnorr(sighash.into()),
+                        sighash_type: hash_type,
+                    };
+                    let mut items = counterproof.input[0].witness.to_vec();
+                    items[connector.n_data().get() - 1] = signature.to_vec();
+                    counterproof.input[0].witness = Witness::from_slice(&items);
+                }
+                assert_eq!(
+                    counterproof.compute_txid(),
+                    game.counterproofs[slot]
+                        .counterproof
+                        .as_ref()
+                        .compute_txid()
+                );
+                assert_eq!(counterproof.version, Version(3));
+                let child = node.create_keyed_cpfp_child(
+                    &game.counterproofs[slot].counterproof,
+                    FEE * 2,
+                    &signer.watchtower_keypairs[slot],
+                );
+                assert_eq!(child.version, Version(3));
+                let package = [counterproof, child];
 
-            node.submit_package(&package);
+                node.submit_package(&package);
+            }
         }
 
         // ┌───────────────────────────────────────────────────────────────────┐
@@ -1166,7 +1216,7 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │          Counterproof ACK + Slash (test terminates here)          │
         // └───────────────────────────────────────────────────────────────────┘
-        if scenario == CounterproofScenario::Ack {
+        if matches!(scenario, CounterproofScenario::Ack(_)) {
             // ┌───────────────────────────────────────────────────────────────┐
             // │                       Counterproof ACK                        │
             // └───────────────────────────────────────────────────────────────┘
@@ -1207,6 +1257,10 @@ mod tests {
             node.submit_package_invalid(&package);
             node.mine_blocks(1);
             node.submit_package(&package);
+            node.mine_blocks(1);
+            let child = node.create_wallet_cpfp_child(&game.contested_payout, (), FEE * 2);
+            let payout = game.contested_payout.finalize(presigned.contested_payout);
+            node.submit_package_invalid(&[payout, child]);
             return;
         }
 
@@ -1263,7 +1317,14 @@ mod tests {
     #[test]
     fn counterproof_ack_slash() {
         test_scenario(Scenario::Contested(ProofScenario::Proof(
-            CounterproofScenario::Ack,
+            CounterproofScenario::Ack(TapSighashType::Default),
+        )));
+    }
+
+    #[test]
+    fn counterproof_ack_slash_with_explicit_sighash() {
+        test_scenario(Scenario::Contested(ProofScenario::Proof(
+            CounterproofScenario::Ack(TapSighashType::All),
         )));
     }
 }

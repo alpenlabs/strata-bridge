@@ -6,7 +6,6 @@ use bitcoin::{Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use serde::{Deserialize, Serialize};
-use serde_big_array::BigArray;
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 use strata_bridge_tx_graph::game_graph::{DepositParams, GameGraphSummary};
 use strata_mosaic_client_api::types::CompletedSignatures;
@@ -75,9 +74,9 @@ pub struct CounterproofData {
     pub txid: Txid,
     /// Bitcoin block height at which it confirmed.
     pub conf_height: BitcoinBlockHeight,
-    /// Per-byte operator signatures decoded from the counterproof witness.
-    #[serde(with = "BigArray")]
-    pub completed_signatures: CompletedSignatures,
+    /// Per-byte operator signatures, when the confirmed witness can be decoded for NACK.
+    #[serde(with = "super::completed_signatures")]
+    pub completed_signatures: Option<CompletedSignatures>,
 }
 
 /// The state of a pegout graph associated with a particular deposit.

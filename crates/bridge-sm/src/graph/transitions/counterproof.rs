@@ -1,11 +1,12 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use bitcoin::Transaction;
+use bitcoin::{Transaction, taproot};
 use strata_bridge_tx_graph::{
     game_graph::{DepositParams, GameConnectors, GameGraphSummary},
     transactions::prelude::{CounterproofNackData, CounterproofNackTx},
 };
-use strata_mosaic_client_api::types::{COUNTERPROOF_N_DATA, CompletedSignatures, Signature};
+use strata_mosaic_client_api::types::{COUNTERPROOF_N_DATA, CompletedSignatures};
+use tracing::warn;
 
 use crate::graph::{
     config::GraphSMCfg,
@@ -14,6 +15,7 @@ use crate::graph::{
     events::CounterProofConfirmedEvent,
     machine::{GSMOutput, GraphSM},
     state::{CounterproofData, GraphState},
+    watchtower::watchtower_slot_for_operator,
 };
 
 impl GraphSM {
@@ -156,34 +158,50 @@ impl GraphSM {
         }
     }
 
-    /// Validates the counterproof txid, decodes the per-byte operator signatures from its
-    /// witness, and builds a [`GraphDuty::PublishCounterProofNack`] duty if the current operator
-    /// is the POV. Returns the duties alongside the decoded signatures so the caller can persist
-    /// them on [`CounterproofData`].
+    /// Recognizes a confirmed slot and prepares a NACK when its signatures are available.
     fn validate_counterproof_and_nack(
         &self,
         cfg: &GraphSMCfg,
         event: &CounterProofConfirmedEvent,
         graph_data: &DepositParams,
         graph_summary: &GameGraphSummary,
-    ) -> GSMResult<(Vec<GraphDuty>, CompletedSignatures)> {
+    ) -> GSMResult<(Vec<GraphDuty>, Option<CompletedSignatures>)> {
         let counterproof_txid = event.tx.compute_txid();
 
         // Resolve the watchtower slot associated with the given counterproof transaction.
-        let (watchtower_slot, _) = graph_summary
-            .counterproofs
-            .iter()
-            .enumerate()
-            .find(|(_slot, summary)| summary.counterproof == counterproof_txid)
-            .ok_or_else(|| {
-                GSMError::rejected(
-                    self.state.clone(),
-                    event.clone().into(),
-                    "Invalid counterproof transaction",
-                )
-            })?;
+        let watchtower_slot = watchtower_slot_for_operator(
+            self.context().operator_table(),
+            self.context().operator_idx(),
+            event.counterprover_idx,
+        )
+        .filter(|slot| {
+            graph_summary
+                .counterproofs
+                .get(*slot)
+                .is_some_and(|summary| summary.counterproof == counterproof_txid)
+        })
+        .ok_or_else(|| {
+            GSMError::rejected(
+                self.state.clone(),
+                event.clone().into(),
+                "Invalid counterproof transaction",
+            )
+        })?;
 
-        let completed_signatures = self.decode_completed_sigs(&event.tx, event)?;
+        // Confirmation is authoritative even when the witness cannot supply NACK material.
+        let completed_signatures = match decode_completed_sigs(&event.tx) {
+            Ok(signatures) => signatures,
+            Err(reason) => {
+                warn!(
+                    graph_idx = ?self.context().graph_idx(),
+                    counterprover_idx = event.counterprover_idx,
+                    %counterproof_txid,
+                    reason,
+                    "confirmed counterproof signatures unavailable for NACK"
+                );
+                return Ok((Vec::new(), None));
+            }
+        };
 
         let pov_idx = self.context().operator_table().pov_idx();
         let duties = if self.context().operator_idx() == pov_idx {
@@ -219,54 +237,41 @@ impl GraphSM {
             Vec::new()
         };
 
-        Ok((duties, completed_signatures))
+        Ok((duties, Some(completed_signatures)))
+    }
+}
+
+/// Decodes the per-byte operator signatures from a confirmed witness in byte order.
+fn decode_completed_sigs(
+    counterproof_tx: &Transaction,
+) -> Result<CompletedSignatures, &'static str> {
+    // `+ 3` accounts for the trailing n-of-n signature, leaf script, and control block
+    // that follow the per-byte operator signatures in the counterproof witness.
+    const WANT: usize = COUNTERPROOF_N_DATA + 3;
+
+    let input = counterproof_tx
+        .input
+        .first()
+        .ok_or("missing counterproof input")?;
+    let mut items: Vec<_> = input.witness.iter().collect();
+    if items.len() >= 2 && items.last().is_some_and(|item| item.first() == Some(&0x50)) {
+        items.pop();
+    }
+    if items.len() != WANT {
+        return Err("unexpected counterproof witness length");
     }
 
-    /// Decodes the per-byte operator signatures from an on-chain Counterproof tx, in byte order.
-    fn decode_completed_sigs(
-        &self,
-        counterproof_tx: &Transaction,
-        event: &CounterProofConfirmedEvent,
-    ) -> GSMResult<CompletedSignatures> {
-        // `+ 3` accounts for the trailing n-of-n signature, leaf script, and control block
-        // that follow the per-byte operator signatures in the counterproof witness.
-        const WANT: usize = COUNTERPROOF_N_DATA + 3;
-
-        let witness_len = counterproof_tx.input[0].witness.len();
-        if witness_len != WANT {
-            return Err(GSMError::rejected(
-                self.state.clone(),
-                event.clone().into(),
-                format!("counterproof witness has {witness_len} elements, expected {WANT}"),
-            ));
-        }
-
-        // Witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]` —
-        // operator signatures pushed `.rev()`, then 3 trailing items. Reverse + skip(3) recovers
-        // `[sig_0, .., sig_{N-1}]`.
-        let mut items = counterproof_tx.input[0].witness.to_vec();
-        items.reverse();
-        let sigs: Vec<Signature> = items
-            .into_iter()
-            .skip(3)
-            .enumerate()
-            .map(|(idx, w)| {
-                Signature::from_slice(&w).map_err(|_| {
-                    GSMError::rejected(
-                        self.state.clone(),
-                        event.clone().into(),
-                        format!("counterproof witness signature {idx} is malformed"),
-                    )
-                })
-            })
-            .collect::<GSMResult<Vec<_>>>()?;
-
-        sigs.try_into().map_err(|_| {
-            GSMError::rejected(
-                self.state.clone(),
-                event.clone().into(),
-                "counterproof witness has an invalid signature count",
-            )
-        })
+    // Witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]` —
+    // Reversing the signature prefix recovers `[sig_0, .., sig_{N-1}]`.
+    let mut signatures = Vec::with_capacity(COUNTERPROOF_N_DATA);
+    for item in items[..COUNTERPROOF_N_DATA].iter().rev() {
+        signatures.push(
+            taproot::Signature::from_slice(item)
+                .map_err(|_| "malformed counterproof signature")?
+                .signature,
+        );
     }
+    signatures
+        .try_into()
+        .map_err(|_| "unexpected counterproof signature count")
 }

@@ -1,4 +1,5 @@
 //! The state machine for managing the lifecycle of a graph
+mod completed_signatures;
 pub mod config;
 pub mod context;
 pub mod duties;
