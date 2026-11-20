@@ -30,7 +30,7 @@ impl DepositSM {
                     watchtowers: self.context().watchtower_idxs(*assignee),
                     deadline: *deadline,
                     recipient_desc: recipient_desc.clone(),
-                    deposit_amount: cfg.deposit_amount(),
+                    cfg: cfg.clone(),
                 }]
             }
             DepositState::Fulfilled { assignee, .. }

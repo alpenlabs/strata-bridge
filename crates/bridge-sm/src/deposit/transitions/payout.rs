@@ -118,7 +118,7 @@ impl DepositSM {
                     watchtowers: self.context.watchtower_idxs(assignment.assignee),
                     deadline: assignment.deadline,
                     recipient_desc: assignment.recipient_desc,
-                    deposit_amount: cfg.deposit_amount(),
+                    cfg,
                 },
             ]))
         } else {
