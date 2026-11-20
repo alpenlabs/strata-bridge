@@ -182,7 +182,7 @@ pub(crate) fn insert_deposit_activated_at(
 ) -> CovenantId {
     let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
     let covenant = CovenantId::from_operator_table(&operator_table, activation_height).unwrap();
-    let cfg = test_deposit_sm_cfg();
+    let cfg = registry.cfg().deposit.clone();
     let depositor_pubkey = operator_table.pov_btc_key().x_only_public_key().0;
 
     let data = DepositData {
