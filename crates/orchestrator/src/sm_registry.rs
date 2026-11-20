@@ -46,9 +46,9 @@ use crate::{
 /// Static configuration shared by all state machines.
 #[derive(Debug, Clone)]
 pub struct SMConfig {
-    /// Static configuration for all deposit state machines.
+    /// Configuration for new deposit state machines.
     pub deposit: Arc<DepositSMCfg>,
-    /// Static configuration for all graph state machines.
+    /// Configuration for new graph state machines.
     pub graph: Arc<GraphSMCfg>,
     /// Static configuration for all stake state machines.
     pub stake: Arc<StakeSMCfg>,
@@ -666,11 +666,12 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Deposit(deposit_event.clone());
-                sm.process_event(self.cfg.deposit.clone(), *deposit_event)
+                let cfg = sm.cfg().clone();
+                sm.process_event(cfg.clone(), *deposit_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.deposit, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Deposit)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -682,11 +683,12 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Graph(graph_event.clone());
-                sm.process_event(self.cfg.graph.clone(), *graph_event)
+                let cfg = sm.cfg().clone();
+                sm.process_event(cfg.clone(), *graph_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.graph, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&cfg, &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Graph)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
