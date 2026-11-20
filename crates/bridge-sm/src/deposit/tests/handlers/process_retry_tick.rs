@@ -45,7 +45,7 @@ mod tests {
                 watchtowers: BTreeSet::from([1, 2]),
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc,
-                deposit_amount: TEST_DEPOSIT_AMOUNT,
+                cfg: test_deposit_sm_cfg(),
             }],
         });
     }
