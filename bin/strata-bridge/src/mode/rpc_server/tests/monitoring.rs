@@ -193,6 +193,7 @@ fn test_deposit_sm(deposit_idx: DepositIdx, operator_table: OperatorTable) -> De
             deposit_outpoint: OutPoint::new(Txid::all_zeros(), 2),
             operator_table,
         },
+        cfg: test_sm_config().deposit,
         state: DepositState::Deposited {
             last_block_height: 100,
         },

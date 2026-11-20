@@ -356,6 +356,7 @@ pub(super) fn test_payout_connector_spent_tx() -> Transaction {
 pub(super) fn create_sm(state: GraphState) -> GraphSM {
     GraphSM {
         context: test_graph_sm_ctx(),
+        cfg: test_graph_sm_cfg(),
         state,
     }
 }
@@ -363,6 +364,7 @@ pub(super) fn create_sm(state: GraphState) -> GraphSM {
 /// Creates a GraphSM for a non-POV operator
 pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
     GraphSM {
+        cfg: test_graph_sm_cfg(),
         context: GraphSMCtx {
             covenant: test_graph_sm_ctx().covenant,
             graph_idx: GraphIdx {

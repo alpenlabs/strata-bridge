@@ -456,12 +456,17 @@ impl FdbClient {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, num::NonZero, sync::OnceLock, time::Instant};
+    use std::{
+        collections::BTreeMap,
+        num::NonZero,
+        sync::{Arc, OnceLock},
+        time::Instant,
+    };
 
     use bitcoin::{
         Amount, Network, ScriptBuf, TapSighashType, TxOut,
         hashes::{Hash, sha256},
-        taproot,
+        relative, taproot,
     };
     use foundationdb::options::ConflictRangeType;
     use libp2p_identity::Keypair as P2pKeypair;
@@ -478,8 +483,9 @@ mod tests {
         types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
     };
     use strata_bridge_sm::{
-        deposit::{context::DepositSMCtx, state::DepositState},
+        deposit::{config::DepositSMCfg, context::DepositSMCtx, state::DepositState},
         graph::{
+            config::GraphSMCfg,
             context::GraphSMCtx,
             state::{AbortReason, GraphState},
         },
@@ -502,10 +508,14 @@ mod tests {
         prelude::generate_txid,
     };
     use strata_bridge_tx_graph::{
-        game_graph::{CounterproofGraphSummary, DepositParams, GameGraphSummary},
+        game_graph::{
+            AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraphSummary,
+            ProtocolParams as GameProtocolParams,
+        },
         stake_graph::StakeGraphSummary,
         transactions::sweep::{SweepData, SweepTx},
     };
+    use strata_predicate::PredicateKey;
 
     use super::*;
     use crate::fdb::{cfg::Config, client::MustDrop};
@@ -558,6 +568,45 @@ mod tests {
         })
     }
 
+    /// Builds the deposit config the test state machines are created under.
+    fn test_deposit_cfg() -> Arc<DepositSMCfg> {
+        Arc::new(DepositSMCfg {
+            network: Network::Regtest,
+            cooperative_payout_timeout_blocks: 144,
+            deposit_amount: Amount::from_sat(1_000_000_000),
+            operator_fee: Amount::from_sat(1_000),
+            magic_bytes: [0x54, 0x45, 0x53, 0x54].into(),
+            recovery_delay: 1_008,
+            sweep_fee_rate: TEST_SWEEP_FEE_RATE,
+        })
+    }
+
+    /// Builds the graph config the test state machines are created under.
+    fn test_graph_cfg() -> Arc<GraphSMCfg> {
+        Arc::new(GraphSMCfg {
+            game_graph_params: GameProtocolParams {
+                network: Network::Regtest,
+                magic_bytes: [0x54, 0x45, 0x53, 0x54].into(),
+                contest_timelock: relative::Height::from_height(45),
+                proof_timelock: relative::Height::from_height(15),
+                ack_timelock: relative::Height::from_height(35),
+                nack_timelock: relative::Height::from_height(30),
+                contested_payout_timelock: relative::Height::from_height(60),
+                counterproof_n_data: NonZero::new(128 + 4).unwrap(),
+                deposit_amount: Amount::from_sat(1_000_000_000),
+                stake_amount: Amount::from_sat(100_000_000),
+            },
+            operator_fee: Amount::from_sat(1_000),
+            admin: AdminMultisig {
+                pubkeys: vec![generate_xonly_pubkey()],
+                threshold: 1,
+            },
+            payout_descs: BTreeMap::from([(0, random_p2tr_desc())]),
+            bridge_proof_predicate: PredicateKey::always_accept(),
+            counterproof_predicate: PredicateKey::always_accept(),
+        })
+    }
+
     /// Builds a [`DepositSM`] from the given components.
     fn make_deposit_sm(
         deposit_idx: DepositIdx,
@@ -573,6 +622,7 @@ mod tests {
                 deposit_outpoint: outpoint,
                 operator_table,
             },
+            cfg: test_deposit_cfg(),
             state,
         }
     }
@@ -1198,6 +1248,7 @@ mod tests {
                 unstaking_image: sha256::Hash::from_slice(outpoint.txid.as_ref()).unwrap(),
                 operator_table,
             },
+            cfg: test_graph_cfg(),
             state,
         }
     }

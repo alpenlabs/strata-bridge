@@ -184,6 +184,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             move |state| GraphSM {
                 context: context.clone(),
+                cfg: cfg.clone(),
                 state,
             },
             get_state,
