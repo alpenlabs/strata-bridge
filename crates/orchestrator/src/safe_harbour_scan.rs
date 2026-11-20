@@ -82,8 +82,8 @@ mod tests {
     use super::*;
     use crate::testing::{
         INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES,
-        TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry, test_operator_table,
-        test_safe_harbour_address,
+        TEST_POV_IDX, insert_deposit_with_graphs, test_deposit_sm_cfg, test_empty_registry,
+        test_operator_table, test_safe_harbour_address,
     };
 
     /// Inserts a deposit SM pinned to `state` (no graph SMs; the scan only reads deposits).
@@ -102,7 +102,14 @@ mod tests {
             operator_table,
         };
         registry
-            .insert_deposit(deposit_idx, DepositSM { context, state })
+            .insert_deposit(
+                deposit_idx,
+                DepositSM {
+                    context,
+                    cfg: test_deposit_sm_cfg(),
+                    state,
+                },
+            )
             .expect("test deposit indices must be unique");
     }
 

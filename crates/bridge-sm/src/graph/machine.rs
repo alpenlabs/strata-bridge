@@ -34,6 +34,8 @@ use crate::{
 pub struct GraphSM {
     /// Context associated with this Graph State Machine instance.
     pub context: GraphSMCtx,
+    /// Configuration of this Graph State Machine instance.
+    pub cfg: Arc<GraphSMCfg>,
     /// The current state of the Graph State Machine.
     pub state: GraphState,
 }
@@ -120,13 +122,18 @@ impl StateMachine for GraphSM {
 pub type GSMOutput = SMOutput<GraphDuty, GraphSignal>;
 
 impl GraphSM {
-    /// Creates a new [`GraphSM`] using the provided context and initial block height.
+    /// Creates a new [`GraphSM`] using the provided config, context and initial block height.
     ///
     /// The state machine starts in [`GraphState::Created`] by constructing the
     /// initial [`GraphState`] via [`GraphState::new`].
-    pub fn new(context: GraphSMCtx, block_height: BitcoinBlockHeight) -> (Self, Option<GraphDuty>) {
+    pub fn new(
+        cfg: Arc<GraphSMCfg>,
+        context: GraphSMCtx,
+        block_height: BitcoinBlockHeight,
+    ) -> (Self, Option<GraphDuty>) {
         let sm = Self {
             context,
+            cfg,
             state: GraphState::new(block_height),
         };
 
@@ -146,6 +153,11 @@ impl GraphSM {
     /// Returns a reference to the context of the Graph State Machine.
     pub const fn context(&self) -> &GraphSMCtx {
         &self.context
+    }
+
+    /// Returns a reference to the configuration of the Graph State Machine.
+    pub const fn cfg(&self) -> &Arc<GraphSMCfg> {
+        &self.cfg
     }
 
     /// Returns a reference to the current state of the Graph State Machine.
