@@ -7,9 +7,10 @@ install step.
 
 Subcommands:
     validate    Verify workflow_dispatch inputs before any network/build work.
-    fetch       Download the selected network's ASM guest and the Moho guest,
-                check Moho's SHA256SUMS, write asm-vk.json / moho-vk.json from the
-                published predicates, and fetch asm-params.json into $OUTPUT_DIR.
+    fetch       Download the ASM guest (the selected network's, when the release
+                ships one per network) and the Moho guest, check each file against
+                the digest GitHub records for it, write asm-vk.json / moho-vk.json
+                from the published predicates, and fetch asm-params.json into $OUTPUT_DIR.
                 The workflow checks both predicates against the ELFs before building.
     summarize   Verify built artifacts, write the bridge manifest, and append a
                 traceability block to $GITHUB_STEP_SUMMARY.
@@ -127,19 +128,28 @@ def cmd_validate() -> None:
 # ---- fetch -----------------------------------------------------------------
 
 SHA1_RE = re.compile(r"^[0-9a-f]{40}$")
-SHA256SUMS = "SHA256SUMS"
-# ASM release assets have a network prefix; local filenames stay uniform.
 GUESTS = ("asm", "moho")
 # Release provenance of the guest ELFs, written by `fetch` into OUTPUT_DIR.
 GUESTS_FILE = "guests.json"
 
 
-def parse_sha256sums(path: Path) -> dict[str, str]:
-    """Parse a `sha256sum` listing (text or `*` binary mode) into {file name: digest}."""
-    pairs = (
-        line.split(maxsplit=1) for line in path.read_text().splitlines() if line.strip()
+def release_assets(repo: str, tag: str) -> dict[str, str | None]:
+    """Map each asset of the release to the sha256 digest GitHub records for it."""
+    result = subprocess.run(
+        ["gh", "release", "view", tag, "--repo", repo, "--json", "assets"],
+        check=True,
+        capture_output=True,
+        text=True,
     )
-    return {name.lstrip("*"): digest for digest, name in pairs}
+    return {a["name"]: a.get("digest") for a in json.loads(result.stdout)["assets"]}
+
+
+def asset_stem(guest: str, assets: dict[str, str | None], network: str) -> str:
+    """Name stem of the guest's assets: `<network>-asm` when the release ships one ASM
+    guest per network, otherwise the guest name (Moho, and ASM releases before v0.6)."""
+    if guest == "asm" and any(name.endswith("-asm.elf") for name in assets):
+        return f"{validate_asm_network(network)}-asm"
+    return guest
 
 
 def fetch_release(
@@ -147,15 +157,22 @@ def fetch_release(
 ) -> dict[str, str]:
     """Download a guest and predicate via `gh` and return the release metadata.
 
-    ASM requires a network; Moho still ships SHA256SUMS. The workflow checks
-    both published predicates against their ELFs before building bridge guests.
+    The asset names come from the release itself, so ASM releases with one guest per
+    network and those with a single `asm.elf` both resolve. Each download is checked
+    against the digest GitHub records for the asset; the workflow then checks both
+    published predicates against their ELFs before building bridge guests.
 
     Assumes the repo is public. If this 404s on a tag known to exist, the repo is
     likely private: route a token with `Contents: read` on it via GH_TOKEN.
     """
     repo = f"alpenlabs/{guest}"
-    asset = f"{validate_asm_network(network)}-asm" if guest == "asm" else guest
-    elf, predicate_file = f"{asset}.elf", f"{asset}-predicate.txt"
+    assets = release_assets(repo, tag)
+    stem = asset_stem(guest, assets, network)
+    elf, predicate_file = f"{stem}.elf", f"{stem}-predicate.txt"
+    missing = [name for name in (elf, predicate_file) if name not in assets]
+    if missing:
+        fail(f"{repo} {tag} has no {', '.join(missing)}; its assets: {sorted(assets)}")
+
     release_dir = output_dir / guest
     release_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
@@ -169,22 +186,14 @@ def fetch_release(
         "--dir",
         str(release_dir),
     ]
-    assets = (
-        (elf, predicate_file) if guest == "asm" else (elf, predicate_file, SHA256SUMS)
-    )
-    for name in assets:
+    for name in (elf, predicate_file):
         cmd += ["--pattern", name]
     subprocess.run(cmd, check=True)
 
-    published = parse_sha256sums(release_dir / SHA256SUMS) if guest == "moho" else {}
     for name in (elf, predicate_file):
-        if not (release_dir / name).is_file():
-            fail(f"missing {name} in {repo} release {tag}")
-        actual = sha256_hex(release_dir / name)
-        if guest == "moho" and published.get(name) != actual:
-            fail(
-                f"{repo} {tag}: {name} sha256 {actual} does not match SHA256SUMS ({published.get(name)})"
-            )
+        actual = f"sha256:{sha256_hex(release_dir / name)}"
+        if assets[name] != actual:
+            fail(f"{repo} {tag}: {name} is {actual}, the release records {assets[name]}")
 
     shutil.copyfile(release_dir / elf, output_dir / f"{guest}.elf")
     predicate = (release_dir / predicate_file).read_text().strip()
@@ -195,8 +204,15 @@ def fetch_release(
     elf_sha256 = sha256_hex(release_dir / elf)
     print(f"{elf}: sha256 {elf_sha256} ({repo} {tag} @ {rev})")
     print(f"{guest} predicate: {predicate}")
-    metadata = {"repo": repo, "tag": tag, "rev": rev, "elf_sha256": elf_sha256}
-    if guest == "asm":
+    metadata = {
+        "repo": repo,
+        "tag": tag,
+        "rev": rev,
+        "asset": elf,
+        "elf_sha256": elf_sha256,
+    }
+    # Only a release with one ASM guest per network has a network to record.
+    if stem != guest:
         metadata["network"] = network
     return metadata
 
@@ -359,10 +375,10 @@ def cmd_summarize() -> None:
         f"- env: `{env}`",
         f"- version: `{version}`",
         *(
-            f"- {name}.elf: `{g['elf_sha256']}` ({g['repo']} `{g['tag']}` @ `{g['rev']}`)"
+            f"- {name}.elf: `{g['elf_sha256']}` (`{g['asset']}` from {g['repo']} `{g['tag']}` @ `{g['rev']}`)"
             for name, g in guests.items()
         ),
-        f"- asm network: `{guests['asm']['network']}`",
+        f"- asm network: `{guests['asm'].get('network', 'none (single guest for every network)')}`",
         f"- asm-params source: `{asm_params_url}`",
         f"- asm genesis spec: `{asm_genesis_spec_id}`",
         f"- strata-bridge ref: `{bridge_ref}` @ `{bridge_sha}`",

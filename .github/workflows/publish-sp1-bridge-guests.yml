@@ -12,11 +12,11 @@ on:
           - staging
           - prod
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships network-specific guests (e.g. v0.6.0-rc.2).
+        description: Tag in alpenlabs/asm whose release ships the ASM guest, either one per network (v0.6.1+) or a single asm.elf (e.g. v0.4.0).
         required: true
         type: string
       asm_network:
-        description: Network whose ASM guest to use; independent of the deployment environment.
+        description: Network whose ASM guest to use when the release ships one per network; ignored for a single asm.elf. Independent of the deployment environment.
         required: true
         type: choice
         options:
@@ -48,11 +48,11 @@ on:
         required: true
         type: string
       asm_tag:
-        description: Tag in alpenlabs/asm whose release ships network-specific guests.
+        description: Tag in alpenlabs/asm whose release ships the ASM guest (one per network, or a single asm.elf).
         required: true
         type: string
       asm_network:
-        description: Network whose ASM guest to use (mainnet | staging | testnet).
+        description: Network whose ASM guest to use when the release ships one per network (mainnet | staging | testnet); ignored for a single asm.elf.
         required: true
         type: string
       moho_tag:
