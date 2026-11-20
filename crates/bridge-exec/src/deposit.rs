@@ -6,7 +6,7 @@ use std::{
 };
 
 use bitcoin::{
-    Amount, OutPoint, Transaction, Txid,
+    OutPoint, Transaction, Txid,
     secp256k1::{Message, PublicKey, XOnlyPublicKey, schnorr},
 };
 use bitcoin_bosd::Descriptor;
@@ -23,7 +23,10 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootTweak,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
-use strata_bridge_sm::deposit::duties::{DepositDuty, NagDuty};
+use strata_bridge_sm::deposit::{
+    config::DepositSMCfg,
+    duties::{DepositDuty, NagDuty},
+};
 use strata_bridge_tx_graph::transactions::prelude::{
     CooperativePayoutTx, SweepTx, WithdrawalFulfillmentData, WithdrawalFulfillmentTx,
 };
@@ -92,7 +95,7 @@ pub async fn execute_deposit_duty(
             watchtowers,
             deadline,
             recipient_desc,
-            deposit_amount,
+            cfg: deposit_cfg,
         } => {
             fulfill_withdrawal(
                 &cfg,
@@ -101,7 +104,7 @@ pub async fn execute_deposit_duty(
                 watchtowers,
                 *deadline,
                 recipient_desc.clone(),
-                *deposit_amount,
+                deposit_cfg,
             )
             .await
         }
@@ -478,20 +481,21 @@ async fn fulfill_withdrawal(
     watchtowers: &BTreeSet<OperatorIdx>,
     deadline: BitcoinBlockHeight,
     recipient_desc: Descriptor,
-    deposit_amount: Amount,
+    deposit_cfg: &DepositSMCfg,
 ) -> Result<(), ExecutorError> {
     info!(%deposit_idx, %deadline, dest=%recipient_desc, "checking withdrawal fulfillment conditions");
 
     // Calculate the amount to send to user (deposit_amount - operator_fee)
-    let amount = deposit_amount
-        .checked_sub(cfg.operator_fee)
+    let amount = deposit_cfg
+        .deposit_amount()
+        .checked_sub(deposit_cfg.operator_fee())
         .expect("deposit amount must be greater than operator fee");
 
     // Create unfunded WithdrawalFulfillmentTx with outputs only
     let wft_data = WithdrawalFulfillmentData {
         deposit_idx,
         user_amount: amount,
-        magic_bytes: cfg.magic_bytes,
+        magic_bytes: deposit_cfg.magic_bytes(),
     };
     let wft = WithdrawalFulfillmentTx::new(wft_data, recipient_desc);
     let unfunded_tx = wft.into_unsigned_tx();

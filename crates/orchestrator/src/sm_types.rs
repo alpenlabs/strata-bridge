@@ -176,11 +176,11 @@ impl From<GraphDuty> for UnifiedDuty {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{Amount, Transaction, absolute, transaction};
+    use bitcoin::{Transaction, absolute, transaction};
     use strata_bridge_sm::stake::context::StakeSMCtx;
 
     use super::*;
-    use crate::testing::test_operator_table;
+    use crate::testing::{test_deposit_sm_cfg, test_operator_table};
 
     fn dummy_tx() -> Transaction {
         Transaction {
@@ -202,7 +202,7 @@ mod tests {
             watchtowers: Default::default(),
             deadline: 100,
             recipient_desc: random_p2tr_desc(),
-            deposit_amount: Amount::from_sat(1_000_000),
+            cfg: test_deposit_sm_cfg(),
         }
         .into();
         assert!(fulfill.should_suppress_under_safe_harbour());

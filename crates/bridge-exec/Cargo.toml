@@ -29,7 +29,6 @@ strata-asm-proto-bridge.workspace = true
 strata-asm-proto-bridge-txs.workspace = true
 strata-asm-rpc = { workspace = true, features = ["client"] }
 strata-identifiers.workspace = true
-strata-l1-txfmt.workspace = true
 strata-mosaic-client-api.workspace = true
 zkaleido.workspace = true
 zkaleido-sp1-groth16-verifier = { workspace = true, optional = true }

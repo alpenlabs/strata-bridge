@@ -12395,7 +12395,6 @@ dependencies = [
  "strata-bridge-tx-graph",
  "strata-crypto 0.6.0",
  "strata-identifiers 0.6.0",
- "strata-l1-txfmt",
  "strata-mosaic-client-api",
  "tempfile",
  "terrors",

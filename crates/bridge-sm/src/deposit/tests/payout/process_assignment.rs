@@ -41,7 +41,7 @@ mod tests {
                 watchtowers: BTreeSet::from([1, 2]),
                 deadline: LATER_BLOCK_HEIGHT,
                 recipient_desc: desc,
-                deposit_amount: TEST_DEPOSIT_AMOUNT,
+                cfg: test_deposit_sm_cfg(),
             }],
             expected_signals: vec![],
         });
@@ -106,7 +106,7 @@ mod tests {
                 watchtowers: BTreeSet::from([1, 2]),
                 deadline: REASSIGNMENT_DEADLINE,
                 recipient_desc: desc,
-                deposit_amount: TEST_DEPOSIT_AMOUNT,
+                cfg: test_deposit_sm_cfg(),
             }],
             expected_signals: vec![],
         });
