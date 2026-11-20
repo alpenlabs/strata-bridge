@@ -89,7 +89,8 @@ impl DepositSM {
     /// Valid from every state holding a live deposit UTXO: the deposit outpoint is a fixed
     /// N-of-N key-path output that withdrawal progress never touches, so the sweep transaction
     /// is built identically from any source state and whatever withdrawal-progress the source
-    /// carried (assignee, fulfillment txid, in-flight payout session) is discarded.
+    /// carried is discarded except the agreed cooperative payout and its withdrawal identity,
+    /// retained only to recognize a racing confirmation. Signing sessions are discarded.
     ///
     /// Builds the sweep transaction and transitions to [`DepositState::SweepNoncesPending`],
     /// emitting a [`DepositDuty::PublishSweepNonce`] duty for every operator.
@@ -98,6 +99,7 @@ impl DepositSM {
         cfg: Arc<DepositSMCfg>,
         sweep_request: SweepRequestedEvent,
     ) -> DSMResult<DSMOutput> {
+        let cooperative_payout_data = self.state().cooperative_payout_data();
         // Extract values before the match to avoid borrow conflicts
         let n_of_n_pubkey = self.context.operator_table().aggregated_btc_key().into();
         let deposit_outpoint = self.context.deposit_outpoint();
@@ -175,6 +177,7 @@ impl DepositSM {
             last_block_height,
             sweep_tx,
             sweep_nonces: BTreeMap::new(),
+            cooperative_payout_data,
         };
 
         // Dispatch the duty to publish the sweep nonce
@@ -202,6 +205,7 @@ impl DepositSM {
         // Validate operator_idx is in the operator table
         self.check_operator_idx(sweep_nonce.operator_idx, &sweep_nonce)?;
 
+        let cooperative_payout_data = self.state().cooperative_payout_data();
         let operator_table_cardinality = self.context.operator_table().cardinality();
 
         match self.state_mut() {
@@ -209,6 +213,7 @@ impl DepositSM {
                 last_block_height,
                 sweep_tx,
                 sweep_nonces,
+                ..
             } => {
                 // Check for duplicate nonce submission. If an entry from the same operator exists,
                 // return with an error.
@@ -241,6 +246,7 @@ impl DepositSM {
                         sweep_agg_nonce: agg_nonce.clone(),
                         sweep_nonces: sweep_nonces.clone(),
                         sweep_partials: BTreeMap::new(),
+                        cooperative_payout_data,
                     };
 
                     // Unlike the cooperative payout, the sweep round is symmetric: *every*

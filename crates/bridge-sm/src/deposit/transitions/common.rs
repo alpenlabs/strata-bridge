@@ -20,6 +20,8 @@ impl DepositSM {
             return Err(DSMError::duplicate(self.state().clone(), new_block.into()));
         }
 
+        let expected_cooperative_payout_txid =
+            self.state().cooperative_payout_data().map(|data| data.txid);
         let operator_idxs = self.context().operator_table().operator_idxs();
         match self.state_mut() {
             DepositState::Created {
@@ -124,9 +126,10 @@ impl DepositSM {
                 if has_cooperative_payout_timed_out {
                     // Transition to CooperativePathFailed state
                     self.state = DepositState::CooperativePathFailed {
-                        last_block_height: new_block.block_height,
                         assignee,
                         fulfillment_txid: *fulfillment_txid,
+                        last_block_height: new_block.block_height,
+                        expected_cooperative_payout_txid,
                     };
 
                     // activate the graph if the cooperative payout path has failed

@@ -21,15 +21,16 @@ use zkaleido::ProofReceipt;
 
 use super::{
     CLAIM_BLOCK_HEIGHT, FULFILLMENT_BLOCK_HEIGHT, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
-    N_TEST_OPERATORS, TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, build_test_graph_summary,
-    create_nonpov_sm, dummy_proof_receipt, test_completed_signatures, test_deposit_params,
-    test_graph_data, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_recipient_desc,
+    N_TEST_OPERATORS, NACK_TIMELOCK, TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX,
+    build_test_graph_summary, create_nonpov_sm, dummy_proof_receipt, test_completed_signatures,
+    test_deposit_params, test_graph_data, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary,
+    test_recipient_desc,
     utils::{NonceContext, build_nonce_context},
 };
 use crate::graph::{
     config::GraphSMCfg,
     machine::generate_game_graph,
-    state::{AbortReason, CounterproofData, GraphState},
+    state::{AbortReason, CounterproofData, GraphState, PayoutKind},
     watchtower::watchtower_slot_for_operator,
 };
 
@@ -147,6 +148,7 @@ pub(super) fn claimed_state(
         claim_block_height: CLAIM_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -165,6 +167,7 @@ pub(super) fn faulty_claimed_state(
         claim_block_height: CLAIM_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -188,6 +191,7 @@ pub(super) fn contested_state_with(
         contest_block_height: LATER_BLOCK_HEIGHT,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -214,6 +218,7 @@ pub(super) fn bridge_proof_posted_state_with(
         proof: dummy_proof_receipt(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -236,6 +241,7 @@ pub(super) fn bridge_proof_timedout_state_with(
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
         claim_txid: TEST_GRAPH_SUMMARY.claim,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -253,6 +259,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         counterproof_nacks: BTreeMap::new(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -270,6 +277,7 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         counterproof_nacks: BTreeMap::new(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -347,6 +355,7 @@ pub(super) fn counter_proof_posted_state_with(
             .collect(),
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     }
 }
 
@@ -370,10 +379,11 @@ pub(super) fn counter_proof_posted_state_with_signatures(
 pub(super) fn all_nackd_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::AllNackd {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height: LATER_BLOCK_HEIGHT + 1 + u64::from(NACK_TIMELOCK.value()),
         graph_data: test_deposit_params(),
         signatures: Default::default(),
         claim_txid: graph_summary.claim,
+        contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_payout_txid: graph_summary.contested_payout,
@@ -393,6 +403,7 @@ pub(super) fn all_nackd_state_with(
         graph_data: test_deposit_params(),
         signatures,
         claim_txid: graph_summary.claim,
+        contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height,
         expected_payout_txid: graph_summary.contested_payout,
@@ -404,13 +415,15 @@ pub(super) fn all_nackd_state_with(
 pub(super) fn acked_state() -> GraphState {
     let graph_summary = TEST_GRAPH_SUMMARY.clone();
     GraphState::Acked {
-        last_block_height: LATER_BLOCK_HEIGHT,
+        last_block_height: LATER_BLOCK_HEIGHT + 1 + u64::from(NACK_TIMELOCK.value()),
         graph_data: test_deposit_params(),
         signatures: Default::default(),
         contest_block_height: LATER_BLOCK_HEIGHT,
         expected_slash_txid: graph_summary.slash,
         claim_txid: graph_summary.claim,
+        contest_txid: Some(graph_summary.contest),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+        payout_block_data: Default::default(),
     }
 }
 
@@ -458,9 +471,11 @@ pub(super) fn terminal_states() -> Vec<GraphState> {
         GraphState::Withdrawn {
             claim_txid: graph_summary.claim,
             payout_txid: graph_summary.uncontested_payout,
+            payout_kind: Some(PayoutKind::Uncontested),
         },
         GraphState::Slashed {
             claim_txid: graph_summary.claim,
+            contest_txid: graph_summary.contest,
             slash_txid: graph_summary.slash,
         },
         GraphState::Aborted {

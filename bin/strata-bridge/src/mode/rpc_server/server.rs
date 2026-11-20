@@ -47,9 +47,9 @@ use tracing::{debug, info, warn};
 
 use super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    bridge_duties_for_operator_pk, current_covenant_response, get_pending_assigned_operator,
-    get_reimbursement_operator, graph_data_response, reimbursement_status, stake_state_to_rpc,
-    withdrawal_status,
+    bridge_duties_for_operator_pk, cooperative_reimbursement_status, current_covenant_response,
+    get_pending_assigned_operator, get_reimbursement_operator, graph_data_response,
+    reimbursement_status, stake_state_to_rpc, withdrawal_status,
 };
 use crate::{
     config::{Config, RpcConfig},
@@ -335,10 +335,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. } => RpcDepositStatus::InProgress,
-            DepositState::Aborted => RpcDepositStatus::Failed {
-                reason: "Deposit request spent elsewhere".to_string(),
+            DepositState::Aborted => RpcDepositStatus::Reclaimable {
+                reason: "Deposit processing aborted".to_string(),
             },
-            DepositState::Skipped => RpcDepositStatus::Failed {
+            DepositState::Skipped => RpcDepositStatus::Reclaimable {
                 reason: "Deposit cap reached".to_string(),
             },
             _ => RpcDepositStatus::Complete {
@@ -414,6 +414,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             return Ok(None);
         };
 
+        if let Some(status) = cooperative_reimbursement_status(deposit_state) {
+            return Ok(Some(status));
+        }
+
         let Some(assignee) = get_reimbursement_operator(deposit_state) else {
             return Err(rpc_error(
                 ErrorCode::InvalidRequest,
@@ -434,7 +438,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             ));
         };
 
-        Ok(Some(reimbursement_status(gsm.state())))
+        reimbursement_status(gsm.state())
+            .map(Some)
+            .map_err(monitoring_error)
     }
 
     async fn get_pending_withdrawals(&self) -> RpcResult<Vec<DepositIdx>> {
@@ -469,20 +475,20 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let mut assigned_claim = None;
         let mut competing_claims = Vec::new();
 
-        cached_registry
+        for (graph_idx, gsm) in cached_registry
             .graphs()
-            .filter(|(graph_idx, _gsm)| graph_idx.deposit == deposit_idx)
-            .filter_map(|(graph_idx, gsm)| {
-                active_claim_from_state(graph_idx.operator, gsm.state())
-                    .map(|claim| (graph_idx.operator, claim))
-            })
-            .for_each(|(operator_idx, claim)| {
-                if operator_idx == assignee {
+            .filter(|(idx, _)| idx.deposit == deposit_idx)
+        {
+            if let Some(claim) = active_claim_from_state(graph_idx.operator, gsm.state())
+                .map_err(monitoring_error)?
+            {
+                if graph_idx.operator == assignee {
                     assigned_claim = Some(claim);
                 } else {
                     competing_claims.push(claim);
                 }
-            });
+            }
+        }
 
         let info = RpcPendingWithdrawalInfo {
             assigned_operator: assignee,
@@ -603,4 +609,13 @@ fn rpc_error<T: fmt::Display + Serialize>(
     data: T,
 ) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(err_code.code(), message, Some(data))
+}
+
+/// Reports retained monitoring evidence that cannot satisfy the RPC contract.
+fn monitoring_error(error: anyhow::Error) -> ErrorObjectOwned {
+    rpc_error(
+        ErrorCode::InternalError,
+        "Invalid reimbursement evidence",
+        error.to_string(),
+    )
 }

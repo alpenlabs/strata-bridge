@@ -801,6 +801,7 @@ impl GraphSM {
                     claim_block_height: claim.claim_block_height,
                     stake_spent: *stake_spent,
                     payout_connector_spent: None,
+                    payout_block_data: Default::default(),
                 };
 
                 Ok(GSMOutput::new())
@@ -848,6 +849,7 @@ impl GraphSM {
                     claim_block_height: claim.claim_block_height,
                     stake_spent: *stake_spent,
                     payout_connector_spent: None,
+                    payout_block_data: Default::default(),
                 };
 
                 Ok(GSMOutput::with_duties(duties))

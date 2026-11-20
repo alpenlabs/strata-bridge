@@ -118,6 +118,7 @@ mod tests {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
         ];
 

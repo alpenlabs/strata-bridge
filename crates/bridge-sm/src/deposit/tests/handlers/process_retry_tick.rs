@@ -100,8 +100,7 @@ mod tests {
     fn test_retry_tick_noop_in_payout_nonces_collected_when_pov_is_not_assignee() {
         let operator_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_aggregated_nonce = AggNonce::sum(test_operator_nonces().values().cloned());
 
         test_handler_output(DepositHandlerOutput {
             state: DepositState::PayoutNoncesCollected {
@@ -110,7 +109,7 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces: test_operator_nonces(),
                 payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                 payout_partial_signatures: BTreeMap::new(),
             },
@@ -217,8 +216,7 @@ mod tests {
     fn test_retry_tick_emits_publish_payout_in_payout_nonces_collected_when_condn_met() {
         let operator_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_aggregated_nonce = AggNonce::sum(test_operator_nonces().values().cloned());
         let ordered_pubkeys = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
             .btc_keys()
             .into_iter()
@@ -239,7 +237,7 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces: test_operator_nonces(),
                 payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                 payout_partial_signatures: payout_partial_signatures.clone(),
             },
@@ -259,8 +257,7 @@ mod tests {
     fn test_retry_tick_noop_in_payout_nonces_collected_when_pov_is_assignee_and_missing_partials() {
         let operator_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_aggregated_nonce = AggNonce::sum(test_operator_nonces().values().cloned());
 
         test_handler_output(DepositHandlerOutput {
             state: DepositState::PayoutNoncesCollected {
@@ -269,7 +266,7 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces: test_operator_nonces(),
                 payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
@@ -306,13 +303,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
             DepositState::Skipped,
@@ -334,7 +333,7 @@ mod tests {
     fn test_retry_tick_emits_publish_sweep_when_all_partials_collected() {
         let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let sweep_tx = test_sweep_txn(random_p2tr_desc());
-        let sweep_agg_nonce = generate_agg_nonce();
+        let sweep_agg_nonce = AggNonce::sum(test_operator_nonces().values().cloned());
         let sweep_partials: BTreeMap<_, _> = operator_table
             .operator_idxs()
             .iter()
@@ -359,8 +358,9 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx,
                 sweep_agg_nonce,
-                sweep_nonces: BTreeMap::new(),
+                sweep_nonces: test_operator_nonces(),
                 sweep_partials,
+                cooperative_payout_data: None,
             },
             event: DepositEvent::RetryTick(RetryTickEvent),
             expected_duties: vec![expected_duty],
@@ -374,13 +374,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
+                sweep_nonces: test_operator_nonces(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ];
 

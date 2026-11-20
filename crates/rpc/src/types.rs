@@ -33,9 +33,9 @@ pub enum RpcDepositStatus {
     /// Deposit exists, but minting hasn't happened yet.
     InProgress,
 
-    /// Deposit exists, but was never completed (can be reclaimed).
-    Failed {
-        /// Reason for the failure.
+    /// Deposit was not completed and can be reclaimed.
+    Reclaimable {
+        /// Reason the deposit was not completed.
         reason: String,
     },
 
@@ -80,6 +80,12 @@ pub enum RpcReimbursementStatus {
     Slashed {
         /// Transaction ID of the slashed reimbursement claim transaction.
         claim_txid: Txid,
+
+        /// Transaction ID of the contest transaction.
+        contest_txid: Txid,
+
+        /// Transaction ID of the slash transaction.
+        slash_txid: Txid,
     },
 
     /// Reimbursement claim path was aborted before payout or slashing completed.
@@ -88,14 +94,27 @@ pub enum RpcReimbursementStatus {
         claim_txid: Txid,
     },
 
-    /// Reimbursement claim completed and paid out.
+    /// Reimbursement completed and paid out.
     Complete {
-        /// Transaction ID of the reimbursed claim transaction.
-        claim_txid: Txid,
+        /// Reimbursed claim transaction, absent for a cooperative payout.
+        claim_txid: Option<Txid>,
 
         /// Transaction ID of the reimbursement payout transaction.
         payout_txid: Txid,
+
+        /// Claim payout path, absent for a cooperative payout.
+        payout_kind: Option<RpcPayoutKind>,
     },
+}
+
+/// The payout path for a reimbursement claim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpcPayoutKind {
+    /// Payout through the uncontested claim path.
+    Uncontested,
+    /// Payout through the contested claim path.
+    Contested,
 }
 
 /// Represents deposit transaction details
@@ -166,28 +185,59 @@ pub struct RpcActiveClaim {
 
 /// Where an active claim sits in the challenge-response game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "phase", rename_all = "snake_case")]
 pub enum RpcClaimPhase {
     /// Claim transaction confirmed on chain.
     Claimed,
-
     /// Contest transaction confirmed on chain.
-    Contested,
-
+    Contested {
+        /// Transaction ID of the contest.
+        contest_txid: Txid,
+    },
     /// Operator's bridge proof posted on chain.
-    BridgeProofPosted,
+    BridgeProofPosted {
+        /// Transaction ID of the contest.
+        contest_txid: Txid,
+    },
+    /// Bridge proof timeout confirmed on chain.
+    BridgeProofTimedout {
+        /// Transaction ID of the contest.
+        contest_txid: Txid,
+    },
+    /// Counterproofs posted while responses remain unresolved.
+    CounterProofPosted {
+        /// Transaction ID of the contest.
+        contest_txid: Txid,
+    },
+    /// Every expected counterproof has been NACKed.
+    AllNackd {
+        /// Transaction ID of the contest.
+        contest_txid: Txid,
+    },
+    /// A counterproof ACK confirmed on chain.
+    Acked {
+        /// Transaction ID of the contest.
+        contest_txid: Txid,
+    },
+    /// An admin or unstaking spend prevents payout.
+    Blocked {
+        /// Transaction ID of the contest, if one has been observed.
+        contest_txid: Option<Txid>,
+        /// The classified payout-blocking paths.
+        reason: RpcPayoutBlock,
+    },
+}
 
-    /// Bridge proof timed out without valid proof.
-    BridgeProofTimedout,
-
-    /// Counter-proof posted by watchtowers.
-    CounterProofPosted,
-
-    /// All counter-proofs NACK'd on chain.
-    AllNackd,
-
-    /// A counter-proof ACK'd on chain.
-    Acked,
+/// The classified paths that prevent a reimbursement payout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RpcPayoutBlock {
+    /// Admin payout connector was spent.
+    Admin,
+    /// Unstaking payout connector was spent.
+    Unstaking,
+    /// Both payout connectors were spent.
+    AdminAndUnstaking,
 }
 
 /// Graph data needed to reconstruct a game graph for a graph instance.

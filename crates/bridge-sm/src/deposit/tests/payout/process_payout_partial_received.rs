@@ -412,13 +412,15 @@ mod tests {
                 payout_nonces: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];

@@ -48,9 +48,10 @@ mod tests {
         assert_eq!(
             seq.state(),
             &DepositState::CooperativePathFailed {
-                last_block_height: timeout_height,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
+                last_block_height: timeout_height,
+                expected_cooperative_payout_txid: None,
             }
         );
 

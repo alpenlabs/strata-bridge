@@ -6,22 +6,46 @@ use crate::{
     graph::{
         errors::GSMError,
         events::{CounterProofAckConfirmedEvent, GraphEvent},
-        state::{AbortReason, GraphState},
+        state::{AbortReason, CounterproofData, GraphState, PayoutBlockData},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
             create_nonpov_sm, get_state,
             mock_states::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, acked_state, all_state_variants,
-                counter_proof_posted_state,
+                counter_proof_posted_state as mock_counter_proof_posted_state,
             },
-            test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-            test_graph_transition,
+            test_completed_signatures, test_deposit_params, test_graph_invalid_transition,
+            test_graph_sm_cfg, test_graph_transition,
         },
     },
     testing::test_transition,
 };
 
 const ACK_BLOCK_HEIGHT: u64 = LATER_BLOCK_HEIGHT + 100;
+
+fn counter_proof_posted_state() -> GraphState {
+    let mut state = mock_counter_proof_posted_state();
+    let GraphState::CounterProofPosted {
+        last_block_height,
+        refuted_bridge_proof,
+        counterproofs_and_confs,
+        ..
+    } = &mut state
+    else {
+        unreachable!();
+    };
+    *last_block_height = LATER_BLOCK_HEIGHT + 1;
+    *refuted_bridge_proof = None;
+    counterproofs_and_confs.insert(
+        TEST_NONPOV_IDX,
+        CounterproofData {
+            txid: TEST_GRAPH_SUMMARY.counterproofs[0].counterproof,
+            conf_height: LATER_BLOCK_HEIGHT + 1,
+            completed_signatures: test_completed_signatures(),
+        },
+    );
+    state
+}
 
 #[test]
 fn event_accepted() {
@@ -39,7 +63,9 @@ fn event_accepted() {
             contest_block_height: LATER_BLOCK_HEIGHT,
             expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
             claim_txid: TEST_GRAPH_SUMMARY.claim,
+            contest_txid: Some(TEST_GRAPH_SUMMARY.contest),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+            payout_block_data: Default::default(),
         },
         expected_duties: vec![],
         expected_signals: vec![],
@@ -66,7 +92,9 @@ fn event_accepted_nonpov() {
                 contest_block_height: LATER_BLOCK_HEIGHT,
                 expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
                 claim_txid: TEST_GRAPH_SUMMARY.claim,
+                contest_txid: Some(TEST_GRAPH_SUMMARY.contest),
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -177,6 +205,11 @@ fn payout_connector_spent_alone_does_not_abort() {
     let connector_spending_txid = Txid::from_byte_array([0xcd; 32]);
     let mut from_state = counter_proof_posted_state();
     assert!(from_state.set_payout_connector_spent(connector_spending_txid));
+    let blocks = PayoutBlockData {
+        admin_block_txid: Some(connector_spending_txid),
+        unstaking_block_txid: None,
+    };
+    from_state.set_payout_block_data(blocks);
 
     test_graph_transition(GraphTransition {
         from_state,
@@ -192,7 +225,9 @@ fn payout_connector_spent_alone_does_not_abort() {
             contest_block_height: LATER_BLOCK_HEIGHT,
             expected_slash_txid: TEST_GRAPH_SUMMARY.slash,
             claim_txid: TEST_GRAPH_SUMMARY.claim,
+            contest_txid: Some(TEST_GRAPH_SUMMARY.contest),
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+            payout_block_data: blocks,
         },
         expected_duties: vec![],
         expected_signals: vec![],

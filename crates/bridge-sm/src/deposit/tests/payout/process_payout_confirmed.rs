@@ -3,7 +3,7 @@
 mod tests {
     use std::collections::BTreeMap;
 
-    use bitcoin::OutPoint;
+    use bitcoin::{OutPoint, Transaction, Txid};
 
     use crate::deposit::{
         errors::DSMError,
@@ -18,6 +18,64 @@ mod tests {
         })
     }
 
+    fn agreed_payout_states(
+        fulfillment_txid: Txid,
+        payout: CooperativePayoutTx,
+    ) -> Vec<DepositState> {
+        let deadline =
+            INITIAL_BLOCK_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
+        let descriptor_received = DepositState::PayoutDescriptorReceived {
+            last_block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            fulfillment_txid,
+            cooperative_payment_deadline: deadline,
+            cooperative_payout_tx: payout.clone(),
+            payout_nonces: BTreeMap::new(),
+        };
+        let data = descriptor_received.cooperative_payout_data();
+        let payout_nonces: BTreeMap<_, _> = (0..N_TEST_OPERATORS)
+            .map(|idx| (idx as u32, generate_pubnonce()))
+            .collect();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
+        let sweep_nonces: BTreeMap<_, _> = (0..N_TEST_OPERATORS)
+            .map(|idx| (idx as u32, generate_pubnonce()))
+            .collect();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
+        vec![
+            descriptor_received,
+            DepositState::PayoutNoncesCollected {
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                cooperative_payout_tx: payout.clone(),
+                cooperative_payment_deadline: deadline,
+                payout_nonces,
+                payout_aggregated_nonce,
+                payout_partial_signatures: BTreeMap::new(),
+            },
+            DepositState::CooperativePathFailed {
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                last_block_height: deadline,
+                expected_cooperative_payout_txid: Some(payout.as_ref().compute_txid()),
+            },
+            DepositState::SweepNoncesPending {
+                last_block_height: deadline,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: data,
+            },
+            DepositState::SweepNoncesCollected {
+                last_block_height: deadline,
+                sweep_tx: test_sweep_txn(random_p2tr_desc()),
+                sweep_agg_nonce,
+                sweep_nonces,
+                sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: data,
+            },
+        ]
+    }
+
     /// Tests correct transition from Deposited to Spent with unknown fulfillment txid.
     #[test]
     fn test_payout_confirmed_from_deposited_records_unknown_fulfillment_txid() {
@@ -29,6 +87,7 @@ mod tests {
             expected_state: DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -47,15 +106,17 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
                 cooperative_payout_tx: test_cooperative_payout_txn(desc),
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
-                payout_aggregated_nonce: generate_agg_nonce(),
+                cooperative_payment_deadline: INITIAL_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+                payout_nonces: test_operator_nonces(),
+                payout_aggregated_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
                 payout_partial_signatures: BTreeMap::new(),
             },
             event: payout_confirmed_event(test_deposit_outpoint()),
             expected_state: DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -77,6 +138,7 @@ mod tests {
             expected_state: DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -93,14 +155,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
-                fulfillment_height: LATER_BLOCK_HEIGHT,
-                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payout_deadline: INITIAL_BLOCK_HEIGHT
                     + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
             },
             event: payout_confirmed_event(test_deposit_outpoint()),
             expected_state: DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -118,7 +181,8 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                cooperative_payment_deadline: INITIAL_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
                 cooperative_payout_tx: test_cooperative_payout_txn(random_p2tr_desc()),
                 payout_nonces: BTreeMap::new(),
             },
@@ -126,6 +190,7 @@ mod tests {
             expected_state: DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -139,14 +204,16 @@ mod tests {
 
         test_deposit_transition(DepositTransition {
             from_state: DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             event: payout_confirmed_event(test_deposit_outpoint()),
             expected_state: DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -162,13 +229,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
+                sweep_nonces: test_operator_nonces(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ];
 
@@ -179,6 +248,7 @@ mod tests {
                 expected_state: DepositState::Spent {
                     fulfillment_txid: None,
                     assignee: None,
+                    cooperative_payout_txid: None,
                 },
                 expected_duties: vec![],
                 expected_signals: vec![],
@@ -210,15 +280,16 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
-                fulfillment_height: LATER_BLOCK_HEIGHT,
-                cooperative_payout_deadline: LATER_BLOCK_HEIGHT
+                fulfillment_height: INITIAL_BLOCK_HEIGHT,
+                cooperative_payout_deadline: INITIAL_BLOCK_HEIGHT
                     + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
             },
             DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                cooperative_payment_deadline: INITIAL_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 payout_nonces: BTreeMap::new(),
             },
@@ -227,27 +298,31 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
                 cooperative_payout_tx: test_cooperative_payout_txn(desc),
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
-                payout_aggregated_nonce: generate_agg_nonce(),
+                cooperative_payment_deadline: INITIAL_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+                payout_nonces: test_operator_nonces(),
+                payout_aggregated_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::SweepNoncesPending {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
+                sweep_nonces: test_operator_nonces(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ];
 
@@ -267,10 +342,12 @@ mod tests {
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
         ];
 
@@ -322,5 +399,133 @@ mod tests {
                 expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
             });
         }
+    }
+
+    #[test]
+    fn test_matching_cooperative_payout_retains_txid_and_withdrawal() {
+        let fulfillment_txid = generate_txid();
+        let payout = test_cooperative_payout_txn(random_p2tr_desc());
+        let tx = payout.as_ref().clone();
+        for state in agreed_payout_states(fulfillment_txid, payout) {
+            let encoded = postcard::to_allocvec(&state).unwrap();
+            let state: DepositState = postcard::from_bytes(&encoded).unwrap();
+            test_deposit_transition(DepositTransition {
+                from_state: state,
+                event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx: tx.clone() }),
+                expected_state: DepositState::Spent {
+                    fulfillment_txid: Some(fulfillment_txid),
+                    assignee: Some(TEST_ASSIGNEE),
+                    cooperative_payout_txid: Some(tx.compute_txid()),
+                },
+                expected_duties: vec![],
+                expected_signals: vec![],
+            });
+        }
+    }
+
+    #[test]
+    fn test_other_spends_do_not_report_cooperative_payout() {
+        let payout = test_cooperative_payout_txn(random_p2tr_desc());
+        let other_transactions: [Transaction; 3] = [
+            test_sweep_txn(random_p2tr_desc()).as_ref().clone(),
+            test_cooperative_payout_txn(random_p2tr_desc())
+                .as_ref()
+                .clone(),
+            test_payout_tx(test_deposit_outpoint()),
+        ];
+        let fulfillment_txid = generate_txid();
+        for tx in other_transactions {
+            for state in agreed_payout_states(fulfillment_txid, payout.clone()) {
+                let is_sweeping = matches!(
+                    state,
+                    DepositState::SweepNoncesPending { .. }
+                        | DepositState::SweepNoncesCollected { .. }
+                );
+                test_deposit_transition(DepositTransition {
+                    from_state: state,
+                    event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx: tx.clone() }),
+                    expected_state: DepositState::Spent {
+                        fulfillment_txid: (!is_sweeping).then_some(fulfillment_txid),
+                        assignee: (!is_sweeping).then_some(TEST_ASSIGNEE),
+                        cooperative_payout_txid: None,
+                    },
+                    expected_duties: vec![],
+                    expected_signals: vec![],
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn test_late_cooperative_payout_survives_timeout_and_roundtrip() {
+        let deadline =
+            INITIAL_BLOCK_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
+        let fulfillment_txid = generate_txid();
+        let payout = test_cooperative_payout_txn(random_p2tr_desc());
+        let tx = payout.as_ref().clone();
+        // Both signing phases retain the expected TXID when the cooperative deadline expires.
+        for state in agreed_payout_states(fulfillment_txid, payout)
+            .into_iter()
+            .take(2)
+        {
+            let mut sm = create_sm(state);
+            sm.process_new_block(NewBlockEvent {
+                block_height: deadline,
+            })
+            .unwrap();
+            assert_eq!(
+                sm.state(),
+                &DepositState::CooperativePathFailed {
+                    assignee: TEST_ASSIGNEE,
+                    fulfillment_txid,
+                    last_block_height: deadline,
+                    expected_cooperative_payout_txid: Some(tx.compute_txid()),
+                }
+            );
+            let encoded = postcard::to_allocvec(&sm).unwrap();
+            let mut recovered: DepositSM = postcard::from_bytes(&encoded).unwrap();
+            recovered
+                .process_payout_confirmed(&PayoutConfirmedEvent { tx: tx.clone() })
+                .unwrap();
+            let expected = DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: Some(tx.compute_txid()),
+            };
+            assert_eq!(recovered.state(), &expected);
+            let encoded = postcard::to_allocvec(&recovered).unwrap();
+            let mut recovered: DepositSM = postcard::from_bytes(&encoded).unwrap();
+            assert_eq!(recovered.state(), &expected);
+            assert!(matches!(
+                recovered.process_payout_confirmed(&PayoutConfirmedEvent { tx: tx.clone() }),
+                Err(DSMError::Duplicate { .. })
+            ));
+            assert_eq!(recovered.state(), &expected);
+        }
+    }
+
+    #[test]
+    fn test_payout_without_agreement_is_unclassified() {
+        let payout = test_cooperative_payout_txn(random_p2tr_desc());
+        let fulfillment_txid = generate_txid();
+        test_deposit_transition(DepositTransition {
+            from_state: DepositState::CooperativePathFailed {
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid,
+                last_block_height: INITIAL_BLOCK_HEIGHT
+                    + test_deposit_sm_cfg().cooperative_payout_timeout_blocks(),
+                expected_cooperative_payout_txid: None,
+            },
+            event: DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
+                tx: payout.as_ref().clone(),
+            }),
+            expected_state: DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
+            },
+            expected_duties: vec![],
+            expected_signals: vec![],
+        });
     }
 }

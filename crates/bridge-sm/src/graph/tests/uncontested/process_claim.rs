@@ -20,7 +20,7 @@ mod tests {
             errors::GSMError,
             events::{ClaimConfirmedEvent, GraphEvent},
             machine::{GraphSM, generate_game_graph},
-            state::GraphState,
+            state::{GraphState, PayoutKind},
             tests::{
                 ASSIGNMENT_DEADLINE, FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition,
                 GraphTransition, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_DEPOSIT_IDX,
@@ -63,6 +63,7 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -211,6 +212,7 @@ mod tests {
                     claim_block_height: CLAIM_BLOCK_HEIGHT,
                     stake_spent: None,
                     payout_connector_spent: None,
+                    payout_block_data: Default::default(),
                 },
                 expected_duties: vec![GraphDuty::PublishContest {
                     contest_tx: game_graph.contest,
@@ -243,6 +245,7 @@ mod tests {
                 claim_block_height: CLAIM_BLOCK_HEIGHT,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             };
 
             test_transition::<GraphSM, _, _, _, _, _, _, _>(
@@ -327,8 +330,9 @@ mod tests {
     fn test_claim_invalid_from_other_states() {
         test_graph_invalid_transition(GraphInvalidTransition {
             from_state: GraphState::Withdrawn {
-                claim_txid: generate_txid(),
-                payout_txid: generate_txid(),
+                claim_txid: test_graph_summary().claim,
+                payout_txid: test_graph_summary().uncontested_payout,
+                payout_kind: Some(PayoutKind::Uncontested),
             },
             event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                 claim_txid: test_graph_summary().claim,

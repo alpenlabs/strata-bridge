@@ -585,18 +585,23 @@ impl DepositSM {
     /// - A sweep transaction under safe harbour.
     ///
     /// The spend is terminal from every state holding a live deposit UTXO, regardless of which
-    /// of these transactions won; assignee/fulfillment info is preserved where the source state
-    /// carries it, for monitoring only.
+    /// of these transactions won. Withdrawal states preserve assignee/fulfillment info;
+    /// sweep states preserve it only for a matching cooperative payout.
     pub(crate) fn process_payout_confirmed(
         &mut self,
         payout_confirmed: &PayoutConfirmedEvent,
     ) -> DSMResult<DSMOutput> {
+        let cooperative_payout = self
+            .state()
+            .cooperative_payout_data()
+            .filter(|data| data.txid == payout_confirmed.tx.compute_txid());
         let (fulfillment_txid, assignee) = match self.state() {
-            // It must be the sweep transaction in case of a hard upgrade. The sweep states
-            // observe either their own sweep transaction or a racing payout confirming.
+            // Preserve the withdrawal identity when an agreed cooperative payout wins the sweep race.
             DepositState::Deposited { .. }
             | DepositState::SweepNoncesPending { .. }
-            | DepositState::SweepNoncesCollected { .. } => (None, None),
+            | DepositState::SweepNoncesCollected { .. } => cooperative_payout
+                .map(|data| (Some(data.fulfillment_txid), Some(data.assignee)))
+                .unwrap_or((None, None)),
             // No fulfillment has happened yet; only a sweep (or a rogue pre-signed payout)
             // can have spent the outpoint here.
             DepositState::Assigned { assignee, .. } => (None, Some(*assignee)),
@@ -611,10 +616,8 @@ impl DepositSM {
                 assignee,
                 ..
             }
-            // It must be a cooperative payout transaction.
-            // The assignee withholds their own partial and broadcasts the payout tx themselves,
-            // In this case, we still want other nodes' state machines to transition from
-            // `PayoutNoncesCollected` to `Spent`. This can also happen if there are network delays.
+            // The assignee can broadcast the cooperative payout before other operators receive
+            // all partial signatures. Sweeps can also spend the deposit in this state.
             | DepositState::PayoutNoncesCollected {
                 fulfillment_txid,
                 assignee,
@@ -625,8 +628,8 @@ impl DepositSM {
             // transaction on-chain or because each operator has a different configuration for how
             // long to wait till the cooperative payout path is considered failed.
             | DepositState::CooperativePathFailed {
-                fulfillment_txid,
                 assignee,
+                fulfillment_txid,
                 ..
             } => (Some(*fulfillment_txid), Some(*assignee)),
             DepositState::Spent { .. } => {
@@ -670,6 +673,7 @@ impl DepositSM {
         self.state = DepositState::Spent {
             fulfillment_txid,
             assignee,
+            cooperative_payout_txid: cooperative_payout.map(|data| data.txid),
         };
 
         // This is a terminal state

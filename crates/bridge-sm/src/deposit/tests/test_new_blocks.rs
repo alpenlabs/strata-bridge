@@ -1,8 +1,6 @@
 //! Unit Tests for process_new_block
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use crate::{
         deposit::{errors::DSMError, events::NewBlockEvent, state::DepositState, tests::*},
         signals::{DepositSignal, DepositToGraph},
@@ -16,8 +14,8 @@ mod tests {
             fulfillment_txid: generate_txid(),
             cooperative_payout_tx: test_cooperative_payout_txn(random_p2tr_desc()),
             cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-            payout_nonces: BTreeMap::new(),
-            payout_aggregated_nonce: generate_agg_nonce(),
+            payout_nonces: test_operator_nonces(),
+            payout_aggregated_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
             payout_partial_signatures: signers
                 .iter()
                 .map(|&idx| (idx, generate_partial_signature()))
@@ -68,9 +66,10 @@ mod tests {
         assert_eq!(
             sm.state(),
             &DepositState::CooperativePathFailed {
-                last_block_height: block_height,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid,
+                last_block_height: block_height,
+                expected_cooperative_payout_txid: None,
             }
         );
 
@@ -97,8 +96,8 @@ mod tests {
             assert!(matches!(
                 sm.state(),
                 DepositState::CooperativePathFailed {
-                    last_block_height: LATER_BLOCK_HEIGHT,
                     assignee: TEST_ASSIGNEE,
+                    last_block_height: LATER_BLOCK_HEIGHT,
                     ..
                 }
             ));
@@ -221,6 +220,7 @@ mod tests {
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
             DepositState::Skipped,

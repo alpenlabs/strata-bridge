@@ -285,18 +285,20 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces: test_operator_nonces(),
+                payout_aggregated_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
         ];
 
@@ -325,13 +327,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(desc.clone()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(desc.clone()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: AggNonce::sum(test_operator_nonces().values().cloned()),
+                sweep_nonces: test_operator_nonces(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ];
 

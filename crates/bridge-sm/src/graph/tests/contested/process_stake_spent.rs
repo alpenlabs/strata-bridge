@@ -12,9 +12,13 @@ use strata_bridge_test_utils::{bitcoin::generate_spending_tx, prelude::generate_
 use crate::graph::{
     errors::{GSMError, GSMResult},
     events::StakeSpentEvent,
-    machine::GSMOutput,
+    machine::{GSMOutput, GraphSM},
     state::{AbortReason, GraphState},
-    tests::{TestGraphTxKind, create_sm, mock_states::all_state_variants, test_stake_outpoint},
+    tests::{
+        CLAIM_BLOCK_HEIGHT, TestGraphTxKind, create_sm,
+        mock_states::{all_state_variants, faulty_claimed_state},
+        test_graph_data, test_graph_sm_cfg, test_graph_summary, test_stake_outpoint,
+    },
 };
 
 // ===== Tx helpers =====
@@ -175,7 +179,17 @@ fn outcome_of(initial: &GraphState, result: GSMResult<(GraphState, GSMOutput)>) 
     match result {
         Ok((state, _)) => {
             match state {
-                GraphState::Slashed { .. } => Outcome::Slashed,
+                GraphState::Slashed {
+                    claim_txid,
+                    contest_txid,
+                    slash_txid,
+                } => {
+                    let summary = test_graph_summary();
+                    assert_eq!(Some(claim_txid), initial.claim_txid());
+                    assert_eq!(contest_txid, summary.contest);
+                    assert_eq!(slash_txid, summary.slash);
+                    Outcome::Slashed
+                }
                 GraphState::Aborted {
                     reason: AbortReason::StakeSpent { .. },
                     ..
@@ -318,4 +332,39 @@ fn rejects_event_whose_tx_does_not_spend_stake_outpoint() {
             "expected Rejected for non-stake-spending tx in state {variant}"
         );
     }
+}
+
+#[test]
+fn direct_slash_records_contest_txid_and_roundtrips() {
+    let cfg = test_graph_sm_cfg();
+    let (params, graph) = test_graph_data(&cfg);
+    let summary = graph.summarize();
+    let mut state = faulty_claimed_state(CLAIM_BLOCK_HEIGHT, vec![]);
+    let GraphState::Claimed {
+        graph_data,
+        graph_summary,
+        ..
+    } = &mut state
+    else {
+        unreachable!();
+    };
+    *graph_data = params;
+    *graph_summary = summary.clone();
+    let mut sm = create_sm(state);
+    let output = sm
+        .process_stake_spent(StakeSpentEvent {
+            tx: graph.slash.as_ref().clone(),
+        })
+        .unwrap();
+    assert!(output.duties.is_empty());
+    assert!(output.signals.is_empty());
+    let expected = GraphState::Slashed {
+        claim_txid: summary.claim,
+        contest_txid: summary.contest,
+        slash_txid: summary.slash,
+    };
+    assert_eq!(sm.state, expected);
+    let bytes = postcard::to_allocvec(&sm).unwrap();
+    let recovered: GraphSM = postcard::from_bytes(&bytes).unwrap();
+    assert_eq!(recovered.state, expected);
 }
