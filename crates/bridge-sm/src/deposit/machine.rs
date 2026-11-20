@@ -39,6 +39,8 @@ use crate::{
 pub struct DepositSM {
     /// Context associated with this Deposit State Machine instance.
     pub context: DepositSMCtx,
+    /// Configuration of this Deposit State Machine instance.
+    pub cfg: Arc<DepositSMCfg>,
     /// The current state of the Deposit State Machine.
     pub state: DepositState,
 }
@@ -183,6 +185,7 @@ impl DepositSM {
 
         DepositSM {
             context,
+            cfg: bridge_cfg,
             state: DepositState::new(deposit_tx, block_height),
         }
     }
@@ -206,6 +209,11 @@ impl DepositSM {
     /// Returns a reference to the Deposit State Machine params.
     pub const fn context(&self) -> &DepositSMCtx {
         &self.context
+    }
+
+    /// Returns a reference to the configuration of the Deposit State Machine.
+    pub const fn cfg(&self) -> &Arc<DepositSMCfg> {
+        &self.cfg
     }
 
     /// Returns a reference to the current state of the Deposit State Machine.

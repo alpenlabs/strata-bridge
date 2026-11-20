@@ -101,6 +101,7 @@ mod tests {
         pov_idx: OperatorIdx,
     ) -> GraphSM {
         GraphSM {
+            cfg: test_graph_sm_cfg(),
             context: GraphSMCtx {
                 covenant: test_graph_sm_ctx().covenant,
                 graph_idx: GraphIdx {

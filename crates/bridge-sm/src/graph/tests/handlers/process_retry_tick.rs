@@ -439,6 +439,7 @@ mod tests {
                 for state in from_states {
                     let mut sm = GraphSM {
                         context: context.clone(),
+                        cfg: cfg.clone(),
                         state,
                     };
 
