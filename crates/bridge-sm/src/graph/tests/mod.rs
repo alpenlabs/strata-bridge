@@ -473,7 +473,7 @@ pub(super) fn mock_game_signatures(game_graph: &GameGraph) -> Vec<Signature> {
 /// observed bridge proof. The GSM emits this for every observed proof regardless of validity —
 /// verification happens in the executor.
 pub(super) fn expected_potential_counterproof_duty(
-    cfg: &GraphSMCfg,
+    cfg: &Arc<GraphSMCfg>,
     sm: &GraphSM,
     signatures: &[Signature],
     last_block_height: BitcoinBlockHeight,
@@ -505,6 +505,7 @@ pub(super) fn expected_potential_counterproof_duty(
         proof: proof.clone(),
         bridge_proof_tx: bridge_proof_tx.clone(),
         operator_table: sm.context().operator_table().clone(),
+        cfg: cfg.clone(),
     }
 }
 

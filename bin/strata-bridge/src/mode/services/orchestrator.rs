@@ -198,13 +198,7 @@ where
         min_package_fee_rate: fee_limits.min_package_fee_rate,
         max_fee_rate: fee_limits.max_fee_rate,
     };
-    let exec_cfg = build_exec_config(
-        params,
-        config,
-        fee_limits.max_fee_rate,
-        &sm_config,
-        fee_quotes.clone(),
-    );
+    let exec_cfg = build_exec_config(params, config, fee_limits.max_fee_rate, fee_quotes.clone());
 
     // CPFP wiring: bundle the wallet / shared fee-source / mempool / anchor-signer
     // adapters into a `CpfpContext` the tx-driver consumes for its bumps.
@@ -422,7 +416,6 @@ fn build_exec_config(
     params: &Params,
     config: &Config,
     maximum_fee_rate: FeeRate,
-    sm_config: &SMConfig,
     fee_quotes: Arc<FeeQuoteMemo>,
 ) -> ExecutionConfig {
     ExecutionConfig {
@@ -434,7 +427,6 @@ fn build_exec_config(
         stake_amount: params.protocol.stake_amount,
         funding_uxto_pool_size: config.operator_wallet.claim_funding_pool_size,
         bury_depth: u32::try_from(params.protocol.bury_depth).expect("bury depth fits in u32"),
-        graph_sm_cfg: sm_config.graph.clone(),
         fee_quotes,
     }
 }
