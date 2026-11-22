@@ -178,6 +178,15 @@ pub(super) fn contested_state_with(
     last_block_height: u64,
     signatures: Vec<schnorr::Signature>,
 ) -> GraphState {
+    contested_state_with_heights(last_block_height, LATER_BLOCK_HEIGHT, signatures)
+}
+
+/// Builds a mock `Contested` state with explicit last and contest block heights.
+pub(super) fn contested_state_with_heights(
+    last_block_height: u64,
+    contest_block_height: u64,
+    signatures: Vec<schnorr::Signature>,
+) -> GraphState {
     GraphState::Contested {
         last_block_height,
         graph_data: test_deposit_params(),
@@ -185,7 +194,8 @@ pub(super) fn contested_state_with(
         signatures,
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         fulfillment_block_height: Some(LATER_BLOCK_HEIGHT),
-        contest_block_height: LATER_BLOCK_HEIGHT,
+        contest_block_height,
+        last_bridge_proof_attempt_height: None,
         stake_spent: None,
         payout_connector_spent: None,
     }
@@ -248,6 +258,7 @@ pub(super) fn counter_proof_posted_state() -> GraphState {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        last_bridge_proof_attempt_height: None,
         refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
@@ -265,6 +276,7 @@ pub(super) fn counter_proof_posted_without_refuted_proof_state() -> GraphState {
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        last_bridge_proof_attempt_height: None,
         refuted_bridge_proof: None,
         counterproofs_and_confs: BTreeMap::new(),
         counterproof_nacks: BTreeMap::new(),
@@ -282,6 +294,46 @@ fn override_signatures(mut state: GraphState, signatures: Vec<Signature>) -> Gra
         panic!("expected CounterProofPosted state");
     };
     *slot = signatures;
+    state
+}
+
+/// Overrides `last_block_height` and `contest_block_height` on a mock `CounterProofPosted` state.
+pub(super) fn with_counter_proof_posted_heights(
+    mut state: GraphState,
+    last_block_height: u64,
+    contest_block_height: u64,
+) -> GraphState {
+    let GraphState::CounterProofPosted {
+        last_block_height: last_slot,
+        contest_block_height: contest_slot,
+        ..
+    } = &mut state
+    else {
+        panic!("expected CounterProofPosted state");
+    };
+    *last_slot = last_block_height;
+    *contest_slot = contest_block_height;
+    state
+}
+
+/// Overrides `last_bridge_proof_attempt_height` on a mock `Contested` or `CounterProofPosted`
+/// state.
+pub(super) fn with_last_bridge_proof_attempt(
+    mut state: GraphState,
+    attempt_height: Option<u64>,
+) -> GraphState {
+    let (GraphState::Contested {
+        last_bridge_proof_attempt_height: slot,
+        ..
+    }
+    | GraphState::CounterProofPosted {
+        last_bridge_proof_attempt_height: slot,
+        ..
+    }) = &mut state
+    else {
+        panic!("expected Contested or CounterProofPosted state");
+    };
+    *slot = attempt_height;
     state
 }
 
@@ -339,6 +391,7 @@ pub(super) fn counter_proof_posted_state_with(
         signatures: Default::default(),
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        last_bridge_proof_attempt_height: None,
         refuted_bridge_proof,
         counterproofs_and_confs,
         counterproof_nacks: nacked_idxs

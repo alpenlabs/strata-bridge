@@ -1,11 +1,9 @@
 //! Unit tests for processing of the contest confirmation.
 
 use bitcoin::{Txid, hashes::Hash};
-use strata_bridge_tx_graph::game_graph::GameConnectors;
 
 use crate::{
     graph::{
-        duties::GraphDuty,
         errors::GSMError,
         events::{ContestConfirmedEvent, GraphEvent},
         machine::GraphSM,
@@ -14,8 +12,7 @@ use crate::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, create_nonpov_sm,
             create_sm, get_state,
             mock_states::{TEST_GRAPH_SUMMARY, all_state_variants, claimed_state, contested_state},
-            test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-            test_graph_sm_ctx,
+            test_deposit_params, test_graph_invalid_transition,
         },
     },
     testing::test_transition,
@@ -25,17 +22,7 @@ use crate::{
 const CONTEST_BLOCK_HEIGHT: u64 = 200;
 
 #[test]
-fn test_contest_from_claimed_pov_emits_duty() {
-    let cfg = test_graph_sm_cfg();
-    let ctx = test_graph_sm_ctx();
-    let deposit_params = test_deposit_params();
-    let setup_params = ctx.generate_setup_params(&cfg, &deposit_params);
-    let connectors = GameConnectors::new(
-        deposit_params.game_index,
-        &cfg.game_graph_params,
-        &setup_params,
-    );
-
+fn test_contest_from_claimed_pov_no_duty() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_sm,
         get_state,
@@ -52,23 +39,17 @@ fn test_contest_from_claimed_pov_emits_duty() {
             }),
             expected_state: GraphState::Contested {
                 last_block_height: LATER_BLOCK_HEIGHT,
-                graph_data: deposit_params.clone(),
+                graph_data: test_deposit_params(),
                 graph_summary: TEST_GRAPH_SUMMARY.clone(),
                 signatures: Default::default(),
                 fulfillment_txid: Some(TEST_GRAPH_SUMMARY.claim),
                 fulfillment_block_height: Some(140),
                 contest_block_height: CONTEST_BLOCK_HEIGHT,
+                last_bridge_proof_attempt_height: None,
                 stake_spent: None,
                 payout_connector_spent: None,
             },
-            expected_duties: vec![GraphDuty::GenerateAndPublishBridgeProof {
-                graph_idx: ctx.graph_idx(),
-                anchor_height: LATER_BLOCK_HEIGHT,
-                contest_txid: TEST_GRAPH_SUMMARY.contest,
-                game_index: deposit_params.game_index,
-                contest_proof_connector: connectors.contest_proof,
-                operator_pubkey: ctx.owner_btc_x_only_key(),
-            }],
+            expected_duties: vec![],
             expected_signals: vec![],
         },
     );
@@ -98,6 +79,7 @@ fn test_contest_from_claimed_nonpov_no_duty() {
                 fulfillment_txid: Some(TEST_GRAPH_SUMMARY.claim),
                 fulfillment_block_height: Some(140),
                 contest_block_height: CONTEST_BLOCK_HEIGHT,
+                last_bridge_proof_attempt_height: None,
                 stake_spent: None,
                 payout_connector_spent: None,
             },
@@ -131,6 +113,7 @@ fn test_contest_state_fields() {
                 fulfillment_txid: Some(TEST_GRAPH_SUMMARY.claim),
                 fulfillment_block_height: Some(140),
                 contest_block_height: CONTEST_BLOCK_HEIGHT,
+                last_bridge_proof_attempt_height: None,
                 stake_spent: None,
                 payout_connector_spent: None,
             },

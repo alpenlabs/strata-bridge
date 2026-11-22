@@ -110,6 +110,8 @@ fn test_graph_cfg() -> GraphSMCfg {
         payout_descs: (0..3).map(|idx| (idx, random_p2tr_desc())).collect(),
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),
+        bridge_proof_delay_blocks: 0,
+        bridge_proof_retry_blocks: NonZero::new(6).expect("non-zero"),
     }
 }
 
@@ -366,6 +368,7 @@ fn active_claim_from_state_returns_contested_phase() {
         fulfillment_txid: Some(generate_txid()),
         fulfillment_block_height: Some(90),
         contest_block_height: 100,
+        last_bridge_proof_attempt_height: None,
         stake_spent: None,
         payout_connector_spent: None,
     };
@@ -949,6 +952,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 fulfillment_txid: Some(fulfillment_txid),
                 fulfillment_block_height: Some(95),
                 contest_block_height: 100,
+                last_bridge_proof_attempt_height: None,
                 stake_spent: None,
                 payout_connector_spent: None,
             },
@@ -1003,6 +1007,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 signatures: signatures.clone(),
                 fulfillment_txid: Some(fulfillment_txid),
                 contest_block_height: 100,
+                last_bridge_proof_attempt_height: None,
                 refuted_bridge_proof: None,
                 counterproofs_and_confs: BTreeMap::new(),
                 counterproof_nacks: BTreeMap::new(),

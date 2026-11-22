@@ -16,18 +16,21 @@ mod tests {
             machine::{GraphSM, generate_game_graph},
             state::{CounterproofData, GraphState},
             tests::{
-                CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
-                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-                TEST_POV_IDX, create_nonpov_sm, create_sm, get_state, mock_game_signatures,
+                BRIDGE_PROOF_RETRY_BLOCKS, CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS,
+                GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
+                TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm,
+                expected_bridge_proof_duty_at, get_state, mock_game_signatures,
                 mock_states::{
                     TEST_FULFILLMENT_TXID, acked_state, all_nackd_state, all_nackd_state_with,
                     assigned_state, bridge_proof_posted_state_with,
                     bridge_proof_timedout_state_with, claimed_state, contested_state_with,
-                    counter_proof_posted_state, counter_proof_posted_without_refuted_proof_state,
+                    contested_state_with_heights, counter_proof_posted_state,
+                    counter_proof_posted_without_refuted_proof_state,
+                    with_counter_proof_posted_heights, with_last_bridge_proof_attempt,
                 },
                 test_completed_signatures, test_deposit_params, test_graph_invalid_transition,
-                test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary, test_graph_transition,
-                test_recipient_desc,
+                test_graph_sm_cfg, test_graph_sm_cfg_with_delay, test_graph_sm_ctx,
+                test_graph_summary, test_graph_transition, test_recipient_desc, with_cfg,
             },
             watchtower::{multi_anchor_spend_for_pov, watchtower_slot_for_operator},
         },
@@ -259,12 +262,14 @@ mod tests {
         let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
         let new_height = contest_height + proof_timelock;
 
+        let attempted = |state| with_last_bridge_proof_attempt(state, Some(new_height - 1));
+
         test_graph_transition(GraphTransition {
-            from_state: contested_state_with(contest_height, vec![]),
+            from_state: attempted(contested_state_with(contest_height, vec![])),
             event: GraphEvent::NewBlock(NewBlockEvent {
                 block_height: new_height,
             }),
-            expected_state: contested_state_with(new_height, vec![]),
+            expected_state: attempted(contested_state_with(new_height, vec![])),
             expected_duties: vec![],
             expected_signals: vec![],
         });
@@ -326,17 +331,19 @@ mod tests {
 
         let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
+        // Mid-retry, so the owner's proof attempt does not fire on this block.
+        let attempted = |state| with_last_bridge_proof_attempt(state, Some(new_height - 1));
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
             (),
             GraphTransition {
-                from_state: contested_state_with(contest_height, signatures.clone()),
+                from_state: attempted(contested_state_with(contest_height, signatures.clone())),
                 event: GraphEvent::NewBlock(NewBlockEvent {
                     block_height: new_height,
                 }),
-                expected_state: contested_state_with(new_height, signatures),
+                expected_state: attempted(contested_state_with(new_height, signatures)),
                 expected_duties: vec![],
                 expected_signals: vec![],
             },
@@ -374,6 +381,177 @@ mod tests {
         );
     }
 
+    fn contested_at(last_height: u64, contest_height: u64) -> GraphState {
+        contested_state_with_heights(last_height, contest_height, vec![])
+    }
+
+    /// A `CounterProofPosted` graph whose owner has not posted a bridge proof yet.
+    fn counter_proof_posted_at(last_height: u64, contest_height: u64) -> GraphState {
+        with_counter_proof_posted_heights(
+            counter_proof_posted_without_refuted_proof_state(),
+            last_height,
+            contest_height,
+        )
+    }
+
+    /// Runs a `NewBlock` on a PoV-owned graph built by `state_at`, whose last bridge proof attempt
+    /// was at `last_attempt`, and asserts whether an attempt anchored at `new_height` is emitted
+    /// and recorded.
+    fn owner_attempt_transition(
+        state_at: fn(u64, u64) -> GraphState,
+        delay: u16,
+        (last_height, contest_height): (u64, u64),
+        last_attempt: Option<u64>,
+        new_height: u64,
+        attempts: bool,
+    ) {
+        let cfg = test_graph_sm_cfg_with_delay(delay);
+        let (expected_duties, expected_attempt) = if attempts {
+            (
+                vec![expected_bridge_proof_duty_at(&cfg, new_height)],
+                Some(new_height),
+            )
+        } else {
+            (vec![], last_attempt)
+        };
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            with_cfg(create_sm, cfg),
+            get_state,
+            (),
+            GraphTransition {
+                from_state: with_last_bridge_proof_attempt(
+                    state_at(last_height, contest_height),
+                    last_attempt,
+                ),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: with_last_bridge_proof_attempt(
+                    state_at(new_height, contest_height),
+                    expected_attempt,
+                ),
+                expected_duties,
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    const C: u64 = LATER_BLOCK_HEIGHT;
+    // Retry cases attempt first at `C + 1` so the retry lands before the test `proof_timelock`.
+    const RETRY: u64 = BRIDGE_PROOF_RETRY_BLOCKS as u64;
+
+    #[test]
+    fn contested_delay_not_elapsed_no_duty() {
+        owner_attempt_transition(contested_at, 3, (C, C), None, C + 2, false);
+    }
+
+    #[test]
+    fn contested_first_attempt_when_delay_ends() {
+        owner_attempt_transition(contested_at, 3, (C + 2, C), None, C + 3, true);
+    }
+
+    #[test]
+    fn contested_first_attempt_from_pre_contest_height() {
+        owner_attempt_transition(contested_at, 3, (C - 1, C), None, C + 3, true);
+    }
+
+    #[test]
+    fn contested_first_attempt_after_delay_already_elapsed() {
+        // No attempt recorded past the delay, e.g. the delay was lowered across a restart.
+        owner_attempt_transition(contested_at, 3, (C + 3, C), None, C + 4, true);
+    }
+
+    #[test]
+    fn contested_delay_zero_emits_on_contest_block() {
+        // The contest event carries over a pre-contest height, so the contest block's own
+        // `NewBlock` ends a zero delay.
+        owner_attempt_transition(contested_at, 0, (C - 1, C), None, C, true);
+    }
+
+    #[test]
+    fn contested_retry_not_due_no_duty() {
+        let attempt = C + 1;
+        owner_attempt_transition(
+            contested_at,
+            1,
+            (attempt + RETRY - 2, C),
+            Some(attempt),
+            attempt + RETRY - 1,
+            false,
+        );
+    }
+
+    #[test]
+    fn contested_retry_due_reattempts() {
+        let attempt = C + 1;
+        owner_attempt_transition(
+            contested_at,
+            1,
+            (attempt + RETRY - 1, C),
+            Some(attempt),
+            attempt + RETRY,
+            true,
+        );
+    }
+
+    #[test]
+    fn contested_delay_nonpov_no_duty() {
+        let contest_height = LATER_BLOCK_HEIGHT;
+        let new_height = contest_height + 3;
+
+        test_transition::<GraphSM, _, _, _, _, _, _, _>(
+            with_cfg(create_nonpov_sm, test_graph_sm_cfg_with_delay(3)),
+            get_state,
+            (),
+            GraphTransition {
+                from_state: contested_at(contest_height + 2, contest_height),
+                event: GraphEvent::NewBlock(NewBlockEvent {
+                    block_height: new_height,
+                }),
+                expected_state: contested_at(new_height, contest_height),
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn counter_proof_posted_first_attempt_when_delay_ends() {
+        owner_attempt_transition(counter_proof_posted_at, 3, (C + 2, C), None, C + 3, true);
+    }
+
+    #[test]
+    fn counter_proof_posted_delay_not_elapsed_no_duty() {
+        owner_attempt_transition(counter_proof_posted_at, 3, (C + 1, C), None, C + 2, false);
+    }
+
+    #[test]
+    fn counter_proof_posted_retry_not_due_no_duty() {
+        let attempt = C + 1;
+        owner_attempt_transition(
+            counter_proof_posted_at,
+            1,
+            (attempt + RETRY - 2, C),
+            Some(attempt),
+            attempt + RETRY - 1,
+            false,
+        );
+    }
+
+    #[test]
+    fn counter_proof_posted_retry_due_reattempts() {
+        let attempt = C + 1;
+        owner_attempt_transition(
+            counter_proof_posted_at,
+            1,
+            (attempt + RETRY - 1, C),
+            Some(attempt),
+            attempt + RETRY,
+            true,
+        );
+    }
+
     #[test]
     fn contested_pov_no_slash() {
         let cfg = test_graph_sm_cfg();
@@ -384,17 +562,19 @@ mod tests {
 
         let game_graph = generate_game_graph(&cfg, &ctx, &test_deposit_params());
         let signatures = mock_game_signatures(&game_graph);
+        // Mid-retry, so the owner's proof attempt does not fire on this block.
+        let attempted = |state| with_last_bridge_proof_attempt(state, Some(new_height - 1));
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
             (),
             GraphTransition {
-                from_state: contested_state_with(contest_height, signatures.clone()),
+                from_state: attempted(contested_state_with(contest_height, signatures.clone())),
                 event: GraphEvent::NewBlock(NewBlockEvent {
                     block_height: new_height,
                 }),
-                expected_state: contested_state_with(new_height, signatures),
+                expected_state: attempted(contested_state_with(new_height, signatures)),
                 expected_duties: vec![],
                 expected_signals: vec![],
             },
@@ -855,29 +1035,31 @@ mod tests {
         let contest_height = LATER_BLOCK_HEIGHT;
         let proof_timelock = u64::from(cfg.game_graph_params.proof_timelock.value());
         let new_height = contest_height + proof_timelock + 1;
+        // The owner's last attempt is recent, so only the timeout path is in play.
+        let attempted = |state| with_last_bridge_proof_attempt(state, Some(new_height - 1));
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
             (),
             GraphTransition {
-                from_state: counter_proof_posted_without_refuted_proof_state_with(
+                from_state: attempted(counter_proof_posted_without_refuted_proof_state_with(
                     contest_height,
                     contest_height,
                     None,
                     Default::default(),
                     BTreeMap::new(),
-                ),
+                )),
                 event: GraphEvent::NewBlock(NewBlockEvent {
                     block_height: new_height,
                 }),
-                expected_state: counter_proof_posted_without_refuted_proof_state_with(
+                expected_state: attempted(counter_proof_posted_without_refuted_proof_state_with(
                     new_height,
                     contest_height,
                     None,
                     Default::default(),
                     BTreeMap::new(),
-                ),
+                )),
                 expected_duties: vec![],
                 expected_signals: vec![],
             },

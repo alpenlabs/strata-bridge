@@ -605,6 +605,8 @@ mod tests {
             payout_descs: BTreeMap::from([(0, random_p2tr_desc())]),
             bridge_proof_predicate: PredicateKey::always_accept(),
             counterproof_predicate: PredicateKey::always_accept(),
+            bridge_proof_delay_blocks: 0,
+            bridge_proof_retry_blocks: NonZero::new(6).unwrap(),
         })
     }
 
