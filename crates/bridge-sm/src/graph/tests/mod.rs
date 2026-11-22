@@ -39,8 +39,8 @@ use strata_bridge_test_utils::{
 };
 use strata_bridge_tx_graph::{
     game_graph::{
-        AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraph, GameGraphSummary,
-        ProtocolParams,
+        AdminMultisig, CounterproofGraphSummary, DepositParams, GameConnectors, GameGraph,
+        GameGraphSummary, ProtocolParams,
     },
     musig_functor::GameFunctor,
     transactions::prelude::{ClaimTx, ContestTx, CounterproofTx},
@@ -108,6 +108,7 @@ const ACK_TIMELOCK: relative::Height = relative::Height::from_height(10);
 const NACK_TIMELOCK: relative::Height = relative::Height::from_height(5);
 const CONTESTED_PAYOUT_TIMELOCK: relative::Height = relative::Height::from_height(15);
 const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
+pub(super) const BRIDGE_PROOF_RETRY_BLOCKS: u16 = 3;
 
 // ===== Configuration Helpers =====
 
@@ -139,10 +140,20 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             payout_descs,
             bridge_proof_predicate: PredicateKey::always_accept(),
             counterproof_predicate: PredicateKey::always_accept(),
+            bridge_proof_delay_blocks: 0,
+            bridge_proof_retry_blocks: NonZero::new(BRIDGE_PROOF_RETRY_BLOCKS).unwrap(),
         })
     });
 
     CFG.clone()
+}
+
+/// Creates a test GSM configuration with the given bridge proof delay.
+pub(super) fn test_graph_sm_cfg_with_delay(bridge_proof_delay_blocks: u16) -> Arc<GraphSMCfg> {
+    Arc::new(GraphSMCfg {
+        bridge_proof_delay_blocks,
+        ..(*test_graph_sm_cfg()).clone()
+    })
 }
 
 /// Creates a GraphSM for a POV operator.
@@ -384,6 +395,17 @@ pub(super) fn create_nonpov_sm(state: GraphState) -> GraphSM {
     }
 }
 
+/// Returns a GraphSM constructor that swaps in the given config.
+pub(super) fn with_cfg(
+    create: fn(GraphState) -> GraphSM,
+    cfg: Arc<GraphSMCfg>,
+) -> impl Fn(GraphState) -> GraphSM {
+    move |state| GraphSM {
+        cfg: cfg.clone(),
+        ..create(state)
+    }
+}
+
 /// Gets the state from a GraphSM.
 pub(super) const fn get_state(sm: &GraphSM) -> &GraphState {
     sm.state()
@@ -511,6 +533,31 @@ pub(super) fn expected_potential_counterproof_duty(
         bridge_proof_tx: bridge_proof_tx.clone(),
         operator_table: sm.context().operator_table().clone(),
         cfg: cfg.clone(),
+    }
+}
+
+/// The [`GraphDuty::GenerateAndPublishBridgeProof`] the PoV graph owner is expected to emit
+/// for the test graph, anchored at `anchor_height`.
+pub(super) fn expected_bridge_proof_duty_at(
+    cfg: &GraphSMCfg,
+    anchor_height: BitcoinBlockHeight,
+) -> GraphDuty {
+    let ctx = test_graph_sm_ctx();
+    let deposit_params = test_deposit_params();
+    let setup_params = ctx.generate_setup_params(cfg, &deposit_params);
+    let connectors = GameConnectors::new(
+        deposit_params.game_index,
+        &cfg.game_graph_params,
+        &setup_params,
+    );
+
+    GraphDuty::GenerateAndPublishBridgeProof {
+        graph_idx: ctx.graph_idx(),
+        anchor_height,
+        contest_txid: mock_states::TEST_GRAPH_SUMMARY.contest,
+        game_index: deposit_params.game_index,
+        contest_proof_connector: connectors.contest_proof,
+        operator_pubkey: ctx.owner_btc_x_only_key(),
     }
 }
 

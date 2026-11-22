@@ -18,14 +18,16 @@ use crate::{
         state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            TEST_POV_IDX, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, get_state,
+            TEST_POV_IDX, TestGraphTxKind, create_nonpov_sm, create_sm, dummy_proof_receipt,
+            expected_bridge_proof_duty_at, get_state,
             mock_states::{
                 TEST_BRIDGE_PROOF_TX, TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY,
                 all_state_variants, bridge_proof_posted_state, contested_state,
+                contested_state_with_heights, with_last_bridge_proof_attempt,
             },
             test_completed_signatures, test_counterproof_tx, test_deposit_params,
             test_graph_invalid_transition, test_graph_invalid_transition_with, test_graph_sm_cfg,
-            test_graph_sm_ctx, test_graph_transition,
+            test_graph_sm_cfg_with_delay, test_graph_sm_ctx, test_graph_transition, with_cfg,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -90,6 +92,8 @@ fn expected_nack_duty(counterprover_idx: u32) -> GraphDuty {
 #[test]
 fn event_accepted_from_contested_pov() {
     let event = counterproof_event(TEST_NONPOV_IDX);
+    // A recent attempt means none is due at the counterproof's block; it carries over unchanged.
+    let last_attempt = Some(COUNTERPROOF_BLOCK_HEIGHT - 1);
 
     let mut expected_counterproofs = BTreeMap::new();
     expected_counterproofs.insert(
@@ -102,7 +106,7 @@ fn event_accepted_from_contested_pov() {
     );
 
     test_graph_transition(GraphTransition {
-        from_state: contested_state(),
+        from_state: with_last_bridge_proof_attempt(contested_state(), last_attempt),
         event: GraphEvent::CounterProofConfirmed(event.clone()),
         expected_state: GraphState::CounterProofPosted {
             last_block_height: COUNTERPROOF_BLOCK_HEIGHT,
@@ -111,6 +115,7 @@ fn event_accepted_from_contested_pov() {
             signatures: vec![],
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
+            last_bridge_proof_attempt_height: last_attempt,
             refuted_bridge_proof: None,
             counterproofs_and_confs: expected_counterproofs,
             counterproof_nacks: BTreeMap::new(),
@@ -120,6 +125,72 @@ fn event_accepted_from_contested_pov() {
         expected_duties: vec![expected_nack_duty(TEST_NONPOV_IDX)],
         expected_signals: vec![],
     });
+}
+
+#[test]
+fn event_from_contested_pov_at_delay_end_emits_bridge_proof() {
+    let contest_height = LATER_BLOCK_HEIGHT;
+    counterproof_ends_delay(3, contest_height + 2, contest_height, contest_height + 3);
+}
+
+#[test]
+fn event_in_contest_block_without_delay_emits_bridge_proof() {
+    let contest_height = LATER_BLOCK_HEIGHT;
+    counterproof_ends_delay(0, contest_height - 1, contest_height, contest_height);
+}
+
+/// The counterproof's block is the one that ends the delay. This transition absorbs that block, so
+/// it must attempt the bridge proof alongside the NACK and record the attempt.
+fn counterproof_ends_delay(
+    delay: u16,
+    last_block_height: u64,
+    contest_height: u64,
+    counterproof_height: u64,
+) {
+    let cfg = test_graph_sm_cfg_with_delay(delay);
+    let event = CounterProofConfirmedEvent {
+        counterproof_block_height: counterproof_height,
+        ..counterproof_event(TEST_NONPOV_IDX)
+    };
+
+    let mut expected_counterproofs = BTreeMap::new();
+    expected_counterproofs.insert(
+        event.counterprover_idx,
+        CounterproofData {
+            txid: event.tx.compute_txid(),
+            conf_height: counterproof_height,
+            completed_signatures: test_completed_signatures(),
+        },
+    );
+
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        with_cfg(create_sm, cfg.clone()),
+        get_state,
+        (),
+        GraphTransition {
+            from_state: contested_state_with_heights(last_block_height, contest_height, vec![]),
+            event: GraphEvent::CounterProofConfirmed(event),
+            expected_state: GraphState::CounterProofPosted {
+                last_block_height: counterproof_height,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures: vec![],
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: contest_height,
+                last_bridge_proof_attempt_height: Some(counterproof_height),
+                refuted_bridge_proof: None,
+                counterproofs_and_confs: expected_counterproofs,
+                counterproof_nacks: BTreeMap::new(),
+                stake_spent: None,
+                payout_connector_spent: None,
+            },
+            expected_duties: vec![
+                expected_nack_duty(TEST_NONPOV_IDX),
+                expected_bridge_proof_duty_at(&cfg, counterproof_height),
+            ],
+            expected_signals: vec![],
+        },
+    );
 }
 
 #[test]
@@ -150,6 +221,7 @@ fn event_accepted_from_contested_nonpov() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
+                last_bridge_proof_attempt_height: None,
                 refuted_bridge_proof: None,
                 counterproofs_and_confs: expected_counterproofs,
                 counterproof_nacks: BTreeMap::new(),
@@ -188,6 +260,7 @@ fn event_accepted_from_bridge_proof_posted_pov() {
             signatures: vec![],
             fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
             contest_block_height: LATER_BLOCK_HEIGHT,
+            last_bridge_proof_attempt_height: None,
             refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
             counterproofs_and_confs: expected_counterproofs,
             counterproof_nacks: BTreeMap::new(),
@@ -227,6 +300,7 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
                 signatures: vec![],
                 fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
                 contest_block_height: LATER_BLOCK_HEIGHT,
+                last_bridge_proof_attempt_height: None,
                 refuted_bridge_proof: Some((TEST_BRIDGE_PROOF_TX.clone(), dummy_proof_receipt())),
                 counterproofs_and_confs: expected_counterproofs,
                 counterproof_nacks: BTreeMap::new(),
@@ -243,6 +317,18 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
 
 #[test]
 fn event_accepted_from_counter_proof_posted_pov() {
+    counterproof_accumulates(Some(COUNTERPROOF_BLOCK_HEIGHT - 1), false);
+}
+
+#[test]
+fn event_from_counter_proof_posted_pov_due_emits_bridge_proof() {
+    counterproof_accumulates(None, true);
+}
+
+/// A later counterproof is NACK'd, and also absorbs its block, so a due bridge proof attempt fires
+/// with it.
+fn counterproof_accumulates(last_attempt: Option<u64>, attempt_due: bool) {
+    let cfg = test_graph_sm_cfg();
     let event = counterproof_event(TEST_NONPOV_IDX);
 
     let mut expected_counterproofs = BTreeMap::new();
@@ -255,40 +341,50 @@ fn event_accepted_from_counter_proof_posted_pov() {
         },
     );
 
-    // Start from an empty CounterProofPosted state (no prior counterproofs).
-    let from_state = GraphState::CounterProofPosted {
-        last_block_height: LATER_BLOCK_HEIGHT,
-        graph_data: test_deposit_params(),
-        graph_summary: TEST_GRAPH_SUMMARY.clone(),
-        signatures: vec![],
-        fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
-        contest_block_height: LATER_BLOCK_HEIGHT,
-        refuted_bridge_proof: None,
-        counterproofs_and_confs: BTreeMap::new(),
-        counterproof_nacks: BTreeMap::new(),
-        stake_spent: None,
-        payout_connector_spent: None,
-    };
+    let counter_proof_posted =
+        |last_block_height, last_bridge_proof_attempt_height, counterproofs_and_confs| {
+            GraphState::CounterProofPosted {
+                last_block_height,
+                graph_data: test_deposit_params(),
+                graph_summary: TEST_GRAPH_SUMMARY.clone(),
+                signatures: vec![],
+                fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
+                contest_block_height: LATER_BLOCK_HEIGHT,
+                last_bridge_proof_attempt_height,
+                refuted_bridge_proof: None,
+                counterproofs_and_confs,
+                counterproof_nacks: BTreeMap::new(),
+                stake_spent: None,
+                payout_connector_spent: None,
+            }
+        };
 
-    test_graph_transition(GraphTransition {
-        from_state,
-        event: GraphEvent::CounterProofConfirmed(event.clone()),
-        expected_state: GraphState::CounterProofPosted {
-            last_block_height: COUNTERPROOF_BLOCK_HEIGHT,
-            graph_data: test_deposit_params(),
-            graph_summary: TEST_GRAPH_SUMMARY.clone(),
-            signatures: vec![],
-            fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
-            contest_block_height: LATER_BLOCK_HEIGHT,
-            refuted_bridge_proof: None,
-            counterproofs_and_confs: expected_counterproofs,
-            counterproof_nacks: BTreeMap::new(),
-            stake_spent: None,
-            payout_connector_spent: None,
+    let mut expected_duties = vec![expected_nack_duty(TEST_NONPOV_IDX)];
+    let mut expected_attempt = last_attempt;
+    if attempt_due {
+        expected_duties.push(expected_bridge_proof_duty_at(
+            &cfg,
+            COUNTERPROOF_BLOCK_HEIGHT,
+        ));
+        expected_attempt = Some(COUNTERPROOF_BLOCK_HEIGHT);
+    }
+
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        with_cfg(create_sm, cfg),
+        get_state,
+        (),
+        GraphTransition {
+            from_state: counter_proof_posted(LATER_BLOCK_HEIGHT, last_attempt, BTreeMap::new()),
+            event: GraphEvent::CounterProofConfirmed(event),
+            expected_state: counter_proof_posted(
+                COUNTERPROOF_BLOCK_HEIGHT,
+                expected_attempt,
+                expected_counterproofs,
+            ),
+            expected_duties,
+            expected_signals: vec![],
         },
-        expected_duties: vec![expected_nack_duty(TEST_NONPOV_IDX)],
-        expected_signals: vec![],
-    });
+    );
 }
 
 // ===== Error Cases =====
@@ -314,6 +410,7 @@ fn event_duplicate() {
         signatures: vec![],
         fulfillment_txid: Some(*TEST_FULFILLMENT_TXID),
         contest_block_height: LATER_BLOCK_HEIGHT,
+        last_bridge_proof_attempt_height: None,
         refuted_bridge_proof: None,
         counterproofs_and_confs: existing_counterproofs,
         counterproof_nacks: BTreeMap::new(),

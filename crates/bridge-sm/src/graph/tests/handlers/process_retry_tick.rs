@@ -128,23 +128,18 @@ mod tests {
 
     // ===== Contested retry tick tests =====
     //
-    //   graph owner: PoV     -> [bridge_proof]
+    //   graph owner: PoV     -> []
     //   graph owner: non-PoV -> []
 
-    // (graph owner: PoV)      -> [bridge_proof]
+    // (graph owner: PoV)      -> []
     #[test]
-    fn test_retry_tick_emits_bridge_proof_in_contested_for_pov_graph() {
-        let cfg = test_graph_sm_cfg();
-        let state = contested_state();
-        let sm = create_sm(state.clone());
-        let expected_duty = expected_bridge_proof_duty(&cfg, &sm, &state);
-
+    fn test_retry_tick_noop_in_contested_for_pov_graph() {
         test_pov_owned_handler_output(
-            cfg,
+            test_graph_sm_cfg(),
             GraphHandlerOutput {
-                state,
+                state: contested_state(),
                 event: GraphEvent::RetryTick(RetryTickEvent),
-                expected_duties: vec![expected_duty],
+                expected_duties: vec![],
             },
         );
     }
@@ -543,10 +538,10 @@ mod tests {
     // ===== CounterProofPosted retry tick tests =====
     //
     // Graph owner (PoV) — refuted_proof × NACK queue
-    //   None,    empty                  -> [bridge_proof]
-    //   None,    one pending            -> [bridge_proof, nack]
-    //   None,    multiple pending       -> [bridge_proof, nack×N]
-    //   None,    all already NACK'd     -> [bridge_proof]
+    //   None,    empty                  -> []
+    //   None,    one pending            -> [nack]
+    //   None,    multiple pending       -> [nack×N]
+    //   None,    all already NACK'd     -> []
     //   Some(_), empty                  -> []
     //   Some(_), one pending            -> [nack]
     //   Some(_), multiple pending       -> [nack×N]
@@ -559,41 +554,6 @@ mod tests {
     //   Some, valid,    yes             -> []
     //   Some, invalid,  no              -> [counterproof]
     //   Some, invalid,  yes             -> []
-
-    fn expected_bridge_proof_duty(
-        cfg: &Arc<crate::graph::config::GraphSMCfg>,
-        sm: &GraphSM,
-        state: &GraphState,
-    ) -> GraphDuty {
-        let (last_block_height, graph_data, graph_summary) = match state {
-            GraphState::Contested {
-                last_block_height,
-                graph_data,
-                graph_summary,
-                ..
-            }
-            | GraphState::CounterProofPosted {
-                last_block_height,
-                graph_data,
-                graph_summary,
-                ..
-            } => (*last_block_height, graph_data, graph_summary),
-            _ => panic!("expected Contested or CounterProofPosted state"),
-        };
-
-        let setup_params = sm.context().generate_setup_params(cfg, graph_data);
-        let connectors =
-            GameConnectors::new(graph_data.game_index, &cfg.game_graph_params, &setup_params);
-
-        GraphDuty::GenerateAndPublishBridgeProof {
-            graph_idx: sm.context().graph_idx(),
-            anchor_height: last_block_height,
-            contest_txid: graph_summary.contest,
-            game_index: graph_data.game_index,
-            contest_proof_connector: connectors.contest_proof,
-            operator_pubkey: sm.context().owner_btc_x_only_key(),
-        }
-    }
 
     fn expected_counterproof_duty(
         cfg: &Arc<crate::graph::config::GraphSMCfg>,
@@ -672,35 +632,32 @@ mod tests {
 
     // ---- Graph owner is PoV operator ----
 
-    // (refuted_proof: None,    NACK queue: empty)               -> [bridge_proof]
+    // (refuted_proof: None,    NACK queue: empty)               -> []
     #[test]
-    fn test_retry_tick_emits_bridge_proof_in_counter_proof_posted_for_pov_graph_when_no_refuted_proof()
-     {
-        let cfg = test_graph_sm_cfg();
-        let state = counter_proof_posted_without_refuted_proof_state();
-        let sm = create_sm(state.clone());
-        let expected_duty = expected_bridge_proof_duty(&cfg, &sm, &state);
-
+    fn test_retry_tick_noop_in_counter_proof_posted_for_pov_graph_when_no_refuted_proof() {
         test_pov_owned_handler_output(
-            cfg,
+            test_graph_sm_cfg(),
             GraphHandlerOutput {
-                state,
+                state: counter_proof_posted_without_refuted_proof_state(),
                 event: GraphEvent::RetryTick(RetryTickEvent),
-                expected_duties: vec![expected_duty],
+                expected_duties: vec![],
             },
         );
     }
 
-    // (refuted_proof: None,    NACK queue: one pending)         -> [bridge_proof, nack]
+    // (refuted_proof: None,    NACK queue: one pending)         -> [nack]
     #[test]
-    fn test_retry_tick_emits_bridge_proof_and_nack_in_counter_proof_posted_for_pov_graph() {
+    fn test_retry_tick_emits_only_nack_in_counter_proof_posted_for_pov_graph_when_no_refuted_proof()
+    {
         let cfg = test_graph_sm_cfg();
         let state = counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX], &[]);
         let sm = create_sm(state.clone());
-        let expected_duties = vec![
-            expected_bridge_proof_duty(&cfg, &sm, &state),
-            expected_counterproof_nack_duty(&cfg, &sm, &state, TEST_NONPOV_IDX),
-        ];
+        let expected_duties = vec![expected_counterproof_nack_duty(
+            &cfg,
+            &sm,
+            &state,
+            TEST_NONPOV_IDX,
+        )];
 
         test_pov_owned_handler_output(
             cfg,
@@ -712,9 +669,9 @@ mod tests {
         );
     }
 
-    // (refuted_proof: None,    NACK queue: multiple pending)    -> [bridge_proof, nack×N]
+    // (refuted_proof: None,    NACK queue: multiple pending)    -> [nack×N]
     #[test]
-    fn test_retry_tick_emits_bridge_proof_and_nacks_for_multiple_pending_counterproofs() {
+    fn test_retry_tick_emits_only_nacks_for_multiple_pending_counterproofs_when_no_refuted_proof() {
         const SECOND_NONPOV_IDX: OperatorIdx = 2;
 
         let cfg = test_graph_sm_cfg();
@@ -722,7 +679,6 @@ mod tests {
             counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX, SECOND_NONPOV_IDX], &[]);
         let sm = create_sm(state.clone());
         let expected_duties = vec![
-            expected_bridge_proof_duty(&cfg, &sm, &state),
             expected_counterproof_nack_duty(&cfg, &sm, &state, TEST_NONPOV_IDX),
             expected_counterproof_nack_duty(&cfg, &sm, &state, SECOND_NONPOV_IDX),
         ];
@@ -737,20 +693,19 @@ mod tests {
         );
     }
 
-    // (refuted_proof: None,    NACK queue: all already NACK'd)  -> [bridge_proof]
+    // (refuted_proof: None,    NACK queue: all already NACK'd)  -> []
     #[test]
-    fn test_retry_tick_emits_only_bridge_proof_when_counterproof_already_nacked() {
-        let cfg = test_graph_sm_cfg();
-        let state = counter_proof_posted_state_with(None, &[TEST_NONPOV_IDX], &[TEST_NONPOV_IDX]);
-        let sm = create_sm(state.clone());
-        let expected_duty = expected_bridge_proof_duty(&cfg, &sm, &state);
-
+    fn test_retry_tick_noop_when_counterproof_already_nacked_and_no_refuted_proof() {
         test_pov_owned_handler_output(
-            cfg,
+            test_graph_sm_cfg(),
             GraphHandlerOutput {
-                state,
+                state: counter_proof_posted_state_with(
+                    None,
+                    &[TEST_NONPOV_IDX],
+                    &[TEST_NONPOV_IDX],
+                ),
                 event: GraphEvent::RetryTick(RetryTickEvent),
-                expected_duties: vec![expected_duty],
+                expected_duties: vec![],
             },
         );
     }
