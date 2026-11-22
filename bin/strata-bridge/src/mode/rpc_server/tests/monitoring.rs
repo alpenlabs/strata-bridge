@@ -112,6 +112,7 @@ fn test_graph_cfg() -> GraphSMCfg {
         counterproof_predicate: PredicateKey::always_accept(),
         proof_delay_blocks: 0,
         proof_retry_blocks: NonZero::new(6).expect("non-zero"),
+        counterproof_delay_blocks: 0,
     }
 }
 

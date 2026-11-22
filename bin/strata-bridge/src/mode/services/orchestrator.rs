@@ -394,6 +394,7 @@ pub(in crate::mode) fn build_sm_config(config: &Config, params: &Params) -> SMCo
         counterproof_predicate: params.protocol.counterproof_predicate.clone(),
         proof_delay_blocks: config.proof_delay_blocks,
         proof_retry_blocks: config.proof_retry_blocks,
+        counterproof_delay_blocks: config.counterproof_delay_blocks,
     };
 
     let stake_config = StakeSMCfg {

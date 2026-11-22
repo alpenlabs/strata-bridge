@@ -95,6 +95,14 @@ pub(crate) struct Config {
     #[serde(default = "default_proof_retry_blocks")]
     pub proof_retry_blocks: NonZeroU16,
 
+    /// Blocks a watchtower waits after a bridge proof confirms before checking it against a
+    /// heavier chain. An invalid bridge proof is countered at once.
+    ///
+    /// Must stay well below `ack_timelock - proof_timelock`, or the counterproof misses the
+    /// contested payout.
+    #[serde(default)]
+    pub counterproof_delay_blocks: u16,
+
     /// The maximum fee rate for any transaction (in sats/vb). A wallet-funded duty refuses a
     /// market rate above it, and a CPFP bump clamps its target to it. The startup checks warn
     /// on a cap below a fixed `fee_source` rate.

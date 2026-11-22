@@ -15,6 +15,10 @@ max_fee_rate = 10
 # Blocks the graph owner waits after a bridge proof attempt before generating a fresh one, while
 # none has confirmed. Absent means 6; 0 is rejected.
 # proof_retry_blocks = 6
+# Blocks a watchtower waits after a bridge proof confirms before checking it against a heavier
+# chain. Must stay well below ack_timelock - proof_timelock, or the counterproof misses the
+# contested payout.
+# counterproof_delay_blocks = 0
 
 [secret_service_client]
 server_addr = "secret-service-3:69"

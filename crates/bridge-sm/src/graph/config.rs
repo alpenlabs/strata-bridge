@@ -40,6 +40,10 @@ pub struct GraphSMCfg {
 
     /// Blocks between the owner's bridge proof attempts until one confirms.
     pub proof_retry_blocks: NonZeroU16,
+
+    /// Blocks a watchtower waits after a bridge proof confirms before checking it against a
+    /// heavier chain. An invalid bridge proof is countered at once.
+    pub counterproof_delay_blocks: u16,
 }
 
 #[cfg(test)]
@@ -85,6 +89,7 @@ mod tests {
             counterproof_predicate: PredicateKey::always_accept(),
             proof_delay_blocks: 2,
             proof_retry_blocks: NonZeroU16::new(6).unwrap(),
+            counterproof_delay_blocks: 3,
         };
 
         let bytes = postcard::to_allocvec(&cfg).expect("config must serialize");
