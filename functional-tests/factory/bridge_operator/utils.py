@@ -83,6 +83,7 @@ def generate_config_toml(
         cooperative_payout_timeout=bridge_config_params.cooperative_payout_timeout,
         proof_delay_blocks=bridge_config_params.proof_delay_blocks,
         proof_retry_blocks=bridge_config_params.proof_retry_blocks,
+        counterproof_delay_blocks=bridge_config_params.counterproof_delay_blocks,
         max_fee_rate=bridge_config_params.max_fee_rate,
         max_active_deposits=bridge_config_params.max_active_deposits,
         dev=bridge_config_params.dev or _dev_mode_from_env(),

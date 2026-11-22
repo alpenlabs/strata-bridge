@@ -607,6 +607,7 @@ mod tests {
             counterproof_predicate: PredicateKey::always_accept(),
             proof_delay_blocks: 0,
             proof_retry_blocks: NonZero::new(6).unwrap(),
+            counterproof_delay_blocks: 0,
         })
     }
 

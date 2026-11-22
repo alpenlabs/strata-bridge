@@ -262,11 +262,12 @@ impl Persister {
     }
 }
 
-/// Returns `stored` with its operator-local bridge proof fields taken from `live`.
+/// Returns `stored` with its operator-local proof pacing fields taken from `live`.
 fn with_local_proof_cfg(stored: &GraphSMCfg, live: &GraphSMCfg) -> Arc<GraphSMCfg> {
     Arc::new(GraphSMCfg {
         proof_delay_blocks: live.proof_delay_blocks,
         proof_retry_blocks: live.proof_retry_blocks,
+        counterproof_delay_blocks: live.counterproof_delay_blocks,
         ..stored.clone()
     })
 }
@@ -932,6 +933,7 @@ mod sm_config_tests {
         let mut graph_cfg = (*with_changed_params(&original).graph).clone();
         graph_cfg.proof_delay_blocks += 3;
         graph_cfg.proof_retry_blocks = graph_cfg.proof_retry_blocks.saturating_add(2);
+        graph_cfg.counterproof_delay_blocks += 4;
         let changed = SMConfig {
             graph: Arc::new(graph_cfg.clone()),
             ..original.clone()
@@ -941,6 +943,7 @@ mod sm_config_tests {
         let expected = GraphSMCfg {
             proof_delay_blocks: graph_cfg.proof_delay_blocks,
             proof_retry_blocks: graph_cfg.proof_retry_blocks,
+            counterproof_delay_blocks: graph_cfg.counterproof_delay_blocks,
             ..(*original.graph).clone()
         };
         assert_ne!(expected, *original.graph);

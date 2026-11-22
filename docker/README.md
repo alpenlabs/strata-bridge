@@ -370,6 +370,15 @@ every `proof_retry_blocks` blocks after the last attempt (absent means `6`, `0` 
 rejected). Retry ticks do not regenerate the proof, so a node that restarts mid-proof waits out the
 rest of that interval.
 
+### Counterproof delay
+
+Each node can delay its own counterproofs with the optional top-level `counterproof_delay_blocks`
+key in its `config.toml`, placed before the first `[table]` like `max_active_deposits`. A watchtower
+then waits that many blocks after a bridge proof confirms before checking it against a heavier
+chain; an invalid bridge proof is countered at once. Absent or `0` does not wait. Keep it well
+below `ack_timelock - proof_timelock`, or the counterproof misses the contested payout and this
+node stops disputing.
+
 ### Deposit cap
 
 Each node can cap how many deposits it takes part in at once with the optional top-level
