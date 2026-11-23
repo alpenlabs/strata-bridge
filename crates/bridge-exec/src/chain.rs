@@ -278,6 +278,30 @@ pub(crate) async fn tx_confirmations(
     }
 }
 
+/// Returns the height of the active-chain block that confirms `txid`, or `None` while the
+/// transaction is unknown, in the mempool, or in a block a reorg removed.
+pub(crate) async fn tx_block_height(
+    bitcoind_rpc_client: &BitcoinClient,
+    txid: &Txid,
+) -> Result<Option<u64>, ClientError> {
+    let tx = match bitcoind_rpc_client
+        .get_raw_transaction_verbosity_one(txid)
+        .await
+    {
+        Ok(tx) => tx,
+        Err(e) if e.is_tx_not_found() => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let Some(block_hash) = tx.block_hash.filter(|_| tx.confirmations.unwrap_or(0) > 0) else {
+        return Ok(None);
+    };
+
+    bitcoind_rpc_client
+        .get_block_height(&block_hash)
+        .await
+        .map(Some)
+}
+
 /// Returns whether `txid` is in the mempool or in a block of the active chain.
 ///
 /// `txindex` keeps a transaction of a block that a reorg removed. The node then reports it with a
