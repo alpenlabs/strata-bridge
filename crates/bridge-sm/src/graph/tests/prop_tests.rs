@@ -3,7 +3,7 @@
 use proptest::prelude::*;
 use strata_bridge_test_utils::prelude::generate_txid;
 
-use super::{get_state, mock_states::TEST_GRAPH_SUMMARY, test_graph_sm_cfg};
+use super::{get_state, mock_states::TEST_GRAPH_SUMMARY};
 use crate::graph::{
     events::{GraphEvent, NagTickEvent, RetryTickEvent},
     state::{AbortReason, GraphState},
@@ -64,7 +64,7 @@ mod pov {
         crate::graph::machine::GraphSM,
         create_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         arb_terminal_state(),
         arb_tick_events()
     );
@@ -79,7 +79,7 @@ mod nonpov {
         crate::graph::machine::GraphSM,
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         arb_terminal_state(),
         arb_tick_events()
     );

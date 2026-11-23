@@ -24,7 +24,7 @@ prop_deterministic!(
     StakeSM,
     create_state_machine,
     get_state,
-    TEST_CFG.clone(),
+    (),
     any::<StakeState>(),
     any_event()
 );
@@ -34,7 +34,7 @@ prop_no_silent_acceptance!(
     StakeSM,
     create_state_machine,
     get_state,
-    TEST_CFG.clone(),
+    (),
     any::<StakeState>(),
     any_event()
 );
@@ -44,7 +44,7 @@ prop_terminal_states_reject!(
     StakeSM,
     create_state_machine,
     get_state,
-    TEST_CFG.clone(),
+    (),
     any_terminal_state(),
     any_event()
 );
@@ -54,7 +54,7 @@ prop_terminal_states_ignore_ticks!(
     StakeSM,
     create_state_machine,
     get_state,
-    TEST_CFG.clone(),
+    (),
     any_terminal_state(),
     any_tick_event()
 );

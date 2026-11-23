@@ -173,7 +173,7 @@ mod tests {
         let wrong_tx = test_takeback_tx(wrong_outpoint);
         let wrong_tx_event = DepositEvent::UserTakeBack(UserTakeBackEvent { tx: wrong_tx });
 
-        sequence.process(test_deposit_sm_cfg(), wrong_tx_event);
+        sequence.process((), wrong_tx_event);
 
         // Run STF with a takeback transaction that is identical to the deposit request (should
         // also be rejected)
@@ -181,7 +181,7 @@ mod tests {
         let wrong_spend_path_event = DepositEvent::UserTakeBack(UserTakeBackEvent {
             tx: duplicate_deposit_txn,
         });
-        sequence.process(test_deposit_sm_cfg(), wrong_spend_path_event);
+        sequence.process((), wrong_spend_path_event);
 
         sequence.assert_final_state(&initial_state);
 

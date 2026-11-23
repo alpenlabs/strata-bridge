@@ -35,7 +35,7 @@ mod tests {
             FULFILLMENT_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
             seq.process(
-                test_deposit_sm_cfg(),
+                (),
                 DepositEvent::NewBlock(NewBlockEvent {
                     block_height: height,
                 }),
@@ -71,18 +71,15 @@ mod tests {
         let mut seq = EventSequence::new(create_sm(initial_state), get_state);
 
         for partial in partials {
-            seq.process(test_deposit_sm_cfg(), partial);
+            seq.process((), partial);
         }
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::NewBlock(NewBlockEvent {
                 block_height: LATER_BLOCK_HEIGHT,
             }),
         );
-        seq.process(
-            test_deposit_sm_cfg(),
-            DepositEvent::RetryTick(RetryTickEvent),
-        );
+        seq.process((), DepositEvent::RetryTick(RetryTickEvent));
 
         seq.assert_no_errors();
         assert!(matches!(
@@ -106,18 +103,15 @@ mod tests {
         let [first_partial, last_partial] = partials.try_into().expect("two non-assignees");
         let mut seq = EventSequence::new(create_sm(initial_state), get_state);
 
-        seq.process(test_deposit_sm_cfg(), first_partial);
+        seq.process((), first_partial);
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::NewBlock(NewBlockEvent {
                 block_height: LATER_BLOCK_HEIGHT,
             }),
         );
-        seq.process(test_deposit_sm_cfg(), last_partial);
-        seq.process(
-            test_deposit_sm_cfg(),
-            DepositEvent::RetryTick(RetryTickEvent),
-        );
+        seq.process((), last_partial);
+        seq.process((), DepositEvent::RetryTick(RetryTickEvent));
 
         assert!(matches!(
             seq.state(),

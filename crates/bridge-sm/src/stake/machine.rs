@@ -22,12 +22,14 @@ use crate::{
 pub struct StakeSM {
     /// The context of the state machine.
     pub context: StakeSMCtx,
+    /// Configuration of this Stake State Machine instance.
+    pub cfg: Arc<StakeSMCfg>,
     /// The current state.
     pub state: StakeState,
 }
 
 impl StateMachine for StakeSM {
-    type Config = Arc<StakeSMCfg>;
+    type Config = ();
     type Duty = StakeDuty;
     type OutgoingSignal = Signal;
     type Event = StakeEvent;
@@ -35,9 +37,10 @@ impl StateMachine for StakeSM {
 
     fn process_event(
         &mut self,
-        cfg: Self::Config,
+        _cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
+        let cfg = self.cfg.clone();
         match event {
             StakeEvent::StakeDataReceived(event) => self.process_stake_data(&cfg, event),
             StakeEvent::UnstakingNoncesReceived(event) => {
@@ -66,9 +69,14 @@ impl StakeSM {
     ///
     /// Returns an optional initial duty. If this node tracks its own stake instance,
     /// then it should publish stake data.
-    pub fn new(context: StakeSMCtx, block_height: u64) -> (Self, Option<StakeDuty>) {
+    pub fn new(
+        cfg: Arc<StakeSMCfg>,
+        context: StakeSMCtx,
+        block_height: u64,
+    ) -> (Self, Option<StakeDuty>) {
         let sm = Self {
             context,
+            cfg,
             state: StakeState::new(block_height),
         };
 
@@ -83,6 +91,11 @@ impl StakeSM {
     /// Returns a reference to the context of the state machine.
     pub const fn context(&self) -> &StakeSMCtx {
         &self.context
+    }
+
+    /// Returns a reference to the configuration of this state machine.
+    pub const fn cfg(&self) -> &Arc<StakeSMCfg> {
+        &self.cfg
     }
 
     /// Returns a reference to the current state.

@@ -356,12 +356,7 @@ pub(super) type DepositInvalidTransition = InvalidTransition<DepositState, Depos
 
 /// Test a valid DepositSM transition with pre-configured test helpers.
 pub(super) fn test_deposit_transition(transition: DepositTransition) {
-    test_transition::<DepositSM, _, _, _, _, _, _, _>(
-        create_sm,
-        get_state,
-        test_deposit_sm_cfg(),
-        transition,
-    );
+    test_transition::<DepositSM, _, _, _, _, _, _, _>(create_sm, get_state, (), transition);
 }
 
 /// Test a valid DepositSM transition with a custom configuration.
@@ -369,16 +364,20 @@ pub(super) fn test_deposit_transition_with_cfg(
     cfg: Arc<DepositSMCfg>,
     transition: DepositTransition,
 ) {
-    test_transition::<DepositSM, _, _, _, _, _, _, _>(create_sm, get_state, cfg, transition);
+    test_transition::<DepositSM, _, _, _, _, _, _, _>(
+        |state| DepositSM {
+            cfg: cfg.clone(),
+            ..create_sm(state)
+        },
+        get_state,
+        (),
+        transition,
+    );
 }
 
 /// Test an invalid DepositSM transition with pre-configured test helpers.
 pub(super) fn test_deposit_invalid_transition(invalid: DepositInvalidTransition) {
-    test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
-        create_sm,
-        test_deposit_sm_cfg(),
-        invalid,
-    );
+    test_invalid_transition::<DepositSM, _, _, _, _, _, _>(create_sm, (), invalid);
 }
 
 /// Configuration for testing handlers that don't mutate state.

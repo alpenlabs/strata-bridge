@@ -38,7 +38,7 @@ mod tests {
 
         // Seed the sweep with the injected safe-harbour descriptor.
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::SweepRequested(SweepRequestedEvent {
                 safe_harbour_desc: desc.clone(),
             }),
@@ -51,7 +51,7 @@ mod tests {
             .collect();
         for (operator_idx, sweep_nonce) in &nonces {
             seq.process(
-                test_deposit_sm_cfg(),
+                (),
                 DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
                     sweep_nonce: sweep_nonce.clone(),
                     operator_idx: *operator_idx,
@@ -64,7 +64,7 @@ mod tests {
         for signer in &signers {
             let partial = signer.sign(&key_agg_ctx, nonce_counter, &agg_nonce, message);
             seq.process(
-                test_deposit_sm_cfg(),
+                (),
                 DepositEvent::SweepPartialReceived(SweepPartialReceivedEvent {
                     partial_signature: partial,
                     operator_idx: signer.operator_idx(),
@@ -123,7 +123,7 @@ mod tests {
 
         // Observing the sweep confirm on chain lands the deposit in Spent.
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx: finalized }),
         );
         seq.assert_no_errors()

@@ -10,7 +10,7 @@ use crate::{
     graph::{
         errors::GSMError,
         events::{BridgeProofConfirmedEvent, GraphEvent},
-        machine::generate_game_graph,
+        machine::{GraphSM, generate_game_graph},
         state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
@@ -88,10 +88,10 @@ fn watchtower_emits_potential_counterproof_when_proof_valid() {
         &event.tx,
     );
 
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: contested_state_with(LATER_BLOCK_HEIGHT, signatures.clone()),
             event: GraphEvent::BridgeProofConfirmed(event.clone()),
@@ -130,10 +130,13 @@ fn watchtower_emits_potential_counterproof_even_when_proof_invalid() {
         &event.tx,
     );
 
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
-        create_nonpov_sm,
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_nonpov_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: contested_state_with(LATER_BLOCK_HEIGHT, signatures.clone()),
             event: GraphEvent::BridgeProofConfirmed(event.clone()),
@@ -173,10 +176,10 @@ fn accepts_bridge_proof_posted_after_counterproof() {
         &event_tx,
     );
 
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: counter_proof_posted_without_refuted_proof_state_with_signatures(
                 signatures.clone(),
@@ -231,10 +234,13 @@ fn watchtower_emits_potential_counterproof_on_late_proof_even_when_invalid() {
         payout_connector_spent: None,
     };
 
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
-        create_nonpov_sm,
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_nonpov_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state,
             event: GraphEvent::BridgeProofConfirmed(event.clone()),
@@ -262,10 +268,13 @@ fn pov_watchtower_skips_counterproof_even_when_proof_invalid() {
     let cfg = cfg_with_reject_predicate();
     let event = bridge_proof_event();
 
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
-        create_sm,
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: contested_state(),
             event: GraphEvent::BridgeProofConfirmed(event.clone()),
@@ -319,10 +328,13 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
     };
 
     let event_tx = event.tx.clone();
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
-        create_nonpov_sm,
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_nonpov_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state,
             event: GraphEvent::BridgeProofConfirmed(event),
@@ -351,10 +363,13 @@ fn pov_skips_counterproof_on_late_invalid_proof() {
     let event = bridge_proof_event();
     let event_tx = event.tx.clone();
 
-    test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
-        create_sm,
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: counter_proof_posted_without_refuted_proof_state(),
             event: GraphEvent::BridgeProofConfirmed(event),

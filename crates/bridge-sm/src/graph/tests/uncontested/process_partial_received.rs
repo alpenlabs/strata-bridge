@@ -48,7 +48,7 @@ mod tests {
         let sm = create_sm(state);
         let mut seq = EventSequence::new(sm, get_state);
         seq.process(
-            cfg,
+            (),
             GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                 operator_idx: TEST_POV_IDX,
                 partial_signatures: operator_partials,
@@ -95,7 +95,7 @@ mod tests {
                 .expect("operator partial signatures missing")
                 .clone();
             seq.process(
-                cfg.clone(),
+                (),
                 GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     partial_signatures: sigs,
@@ -158,7 +158,7 @@ mod tests {
                 .expect("operator partial signatures missing")
                 .clone();
             seq.process(
-                cfg.clone(),
+                (),
                 GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     partial_signatures: sigs,
@@ -211,7 +211,7 @@ mod tests {
                 .expect("operator partial signatures missing")
                 .clone();
             seq.process(
-                cfg.clone(),
+                (),
                 GraphEvent::PartialsReceived(GraphPartialsReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     partial_signatures: sigs,

@@ -13,7 +13,7 @@ mod tests {
                 ASSIGNMENT_DEADLINE, FULFILLMENT_BLOCK_HEIGHT, GraphInvalidTransition,
                 GraphTransition, TEST_POV_IDX, create_nonpov_sm, create_sm, get_state,
                 mock_states::{assigned_state, fulfilled_state},
-                test_graph_invalid_transition, test_graph_sm_cfg, test_recipient_desc,
+                test_graph_invalid_transition, test_recipient_desc,
             },
         },
         testing::test_transition,
@@ -29,15 +29,13 @@ mod tests {
 
     #[test]
     fn test_fulfillment_from_assigned() {
-        let cfg = test_graph_sm_cfg();
-
         let event = test_fulfillment_event();
         let fulfillment_txid = event.fulfillment_txid;
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: assigned_state(
                     TEST_POV_IDX,
@@ -54,15 +52,13 @@ mod tests {
 
     #[test]
     fn test_fulfillment_from_assigned_nonpov_no_duty() {
-        let cfg = test_graph_sm_cfg();
-
         let event = test_fulfillment_event();
         let fulfillment_txid = event.fulfillment_txid;
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: assigned_state(
                     TEST_POV_IDX,
