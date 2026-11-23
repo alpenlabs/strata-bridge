@@ -791,7 +791,7 @@ mod stake_initialization_tests {
         match &duties[0] {
             UnifiedDuty::Stake {
                 stake_key,
-                duty: StakeDuty::PublishStakeData { operator_idx },
+                duty: StakeDuty::PublishStakeData { operator_idx, .. },
             } => {
                 assert_eq!(*operator_idx, 0);
                 assert_eq!(stake_key.operator, *operator_idx);

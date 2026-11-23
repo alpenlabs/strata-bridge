@@ -100,6 +100,7 @@ fn accept_nag_received_stake_data() {
             })),
             expected_duties: vec![StakeDuty::PublishStakeData {
                 operator_idx: TEST_CTX.operator_idx(),
+                cfg: TEST_CFG.clone(),
             }],
         });
         test_nonpov_handler_output(StakeHandlerOutput {

@@ -1,5 +1,7 @@
 //! Duties for the Stake State Machine.
 
+use std::sync::Arc;
+
 use bitcoin::{
     OutPoint, Transaction,
     secp256k1::{Message, XOnlyPublicKey, schnorr},
@@ -13,6 +15,8 @@ use strata_bridge_tx_graph::{
     musig_functor::StakeFunctor, transactions::prelude::UnstakingIntentTx,
 };
 
+use crate::stake::config::StakeSMCfg;
+
 /// A duty of a Stake State Machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StakeDuty {
@@ -20,6 +24,8 @@ pub enum StakeDuty {
     PublishStakeData {
         /// The operator who owns the stake graph.
         operator_idx: OperatorIdx,
+        /// The configuration of the stake that emitted this duty.
+        cfg: Arc<StakeSMCfg>,
     },
     /// Publish the stake transaction.
     PublishStake {
@@ -31,6 +37,8 @@ pub enum StakeDuty {
         /// transaction, because the output holds the tweaked key and not the internal key.
         /// The state machine builds the anchor, so it reports the key with the duty.
         anchor_key: XOnlyPublicKey,
+        /// The configuration of the stake that emitted this duty.
+        cfg: Arc<StakeSMCfg>,
     },
     /// Publish the nonces for a given operator.
     PublishUnstakingNonces {
@@ -132,7 +140,7 @@ pub enum NagDuty {
 impl std::fmt::Display for StakeDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display = match self {
-            Self::PublishStakeData { operator_idx } => {
+            Self::PublishStakeData { operator_idx, .. } => {
                 format!("PublishStakeData (operator_idx: {operator_idx})")
             }
             Self::PublishStake { operator_idx, .. } => {

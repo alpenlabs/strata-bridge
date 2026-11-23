@@ -46,7 +46,7 @@ fn participants_emit_duties_for_their_own_covenant() {
             let (mut sm, duty) = StakeSM::new(TEST_CFG.clone(), ctx, 200);
             if local == TEST_POV_IDX {
                 assert!(
-                    matches!(duty, Some(StakeDuty::PublishStakeData { operator_idx }) if operator_idx == TEST_POV_IDX)
+                    matches!(duty, Some(StakeDuty::PublishStakeData { operator_idx, .. }) if operator_idx == TEST_POV_IDX)
                 );
             } else {
                 assert!(duty.is_none());

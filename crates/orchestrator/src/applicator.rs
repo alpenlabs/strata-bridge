@@ -836,7 +836,7 @@ mod tests {
         }
         assert_eq!(duties.len(), 1);
         assert!(
-            matches!(&duties[0], UnifiedDuty::Stake { stake_key, duty: StakeDuty::PublishStakeData { operator_idx: 0 } } if *stake_key == keys[0])
+            matches!(&duties[0], UnifiedDuty::Stake { stake_key, duty: StakeDuty::PublishStakeData { operator_idx: 0, .. } } if *stake_key == keys[0])
         );
         assert_eq!(
             tracker
