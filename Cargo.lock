@@ -12599,6 +12599,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-sidecar-api"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "jsonrpsee",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
