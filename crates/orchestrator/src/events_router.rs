@@ -6,6 +6,7 @@
 use strata_bridge_p2p_types::{
     MuSig2Nonce, MuSig2Partial, NagRequestPayload, UnsignedGossipsubMsg,
 };
+use strata_bridge_sm::deposit::state::DepositState;
 use strata_mosaic_client_api::MosaicEvent;
 use tracing::{debug, warn};
 
@@ -27,6 +28,8 @@ pub fn route(event: &UnifiedEvent, registry: &SMRegistry) -> Vec<SMId> {
         // handled directly by the pipeline/registry (the latch), not deposit-scoped, so it is not
         // routed to any state machine
         UnifiedEvent::SafeHarbour(_) => Vec::new(),
+        // handled by the pipeline, which asks the sidecar hook after every committed batch
+        UnifiedEvent::SidecarHookDecision => Vec::new(),
         // Membership has no peer retry or nag duties.
         UnifiedEvent::NagTick | UnifiedEvent::RetryTick => registry
             .get_all_ids()
@@ -117,15 +120,41 @@ fn route_gossipsub_msg(
         vec![sm_id]
     } else {
         if let UnsignedGossipsubMsg::NagRequestExchange(nag_request) = unsigned_gossip_msg {
-            warn!(
-                target_sm = %sm_id,
-                recipient = ?nag_request.recipient,
-                payload = ?nag_request.payload,
-                "dropping nag request in router: target state machine not found"
-            );
+            if is_graph_of_held_or_declined_deposit(registry, &sm_id) {
+                // Peers keep nagging for the graphs of a deposit this node is holding or declined
+                // to take part in; it has none, by its own choice.
+                debug!(
+                    target_sm = %sm_id,
+                    payload = ?nag_request.payload,
+                    "dropping nag request in router: this node is not taking part in the deposit"
+                );
+            } else {
+                warn!(
+                    target_sm = %sm_id,
+                    recipient = ?nag_request.recipient,
+                    payload = ?nag_request.payload,
+                    "dropping nag request in router: target state machine not found"
+                );
+            }
         }
         vec![]
     }
+}
+
+/// Whether `sm_id` is a graph of a deposit held for a local participation decision or declined
+/// by it. Such a deposit has no graphs on this node.
+fn is_graph_of_held_or_declined_deposit(registry: &SMRegistry, sm_id: &SMId) -> bool {
+    let SMId::Graph(graph_idx) = sm_id else {
+        return false;
+    };
+    registry
+        .get_deposit(&graph_idx.deposit)
+        .is_some_and(|deposit| {
+            matches!(
+                deposit.state(),
+                DepositState::ParticipationPending { .. } | DepositState::ParticipationDeclined
+            )
+        })
 }
 
 fn route_mosaic_event(registry: &SMRegistry, evt: &MosaicEvent) -> Vec<SMId> {
@@ -453,6 +482,55 @@ mod tests {
             1 + N_TEST_OPERATORS,
             "only the tracked deposit and its graphs must be routed: {routed:?}"
         );
+    }
+
+    #[test]
+    fn graph_nags_of_a_held_or_declined_deposit_are_expected_drops() {
+        use crate::testing::insert_deposit_activated_at;
+
+        let graph = SMId::Graph(GraphIdx {
+            deposit: 0,
+            operator: 1,
+        });
+        let mut registry = test_empty_registry();
+        assert!(
+            !is_graph_of_held_or_declined_deposit(&registry, &graph),
+            "a graph of an unknown deposit is unexpected"
+        );
+
+        insert_deposit_activated_at(&mut registry, 0, 100);
+        assert!(!is_graph_of_held_or_declined_deposit(&registry, &graph));
+
+        let deposit = registry.get_deposit_mut(&0).unwrap();
+        *deposit = deposit.clone().into_participation_pending(vec![]);
+        assert!(is_graph_of_held_or_declined_deposit(&registry, &graph));
+        assert!(
+            !is_graph_of_held_or_declined_deposit(&registry, &SMId::Deposit(0)),
+            "the deposit itself exists and is routed as usual"
+        );
+        assert!(
+            route_gossipsub_msg(
+                &registry,
+                &UnsignedGossipsubMsg::NagRequestExchange(NagRequest {
+                    recipient: P2POperatorPubKey::from(vec![0u8; 32]),
+                    payload: NagRequestPayload::GraphData {
+                        graph_idx: GraphIdx {
+                            deposit: 0,
+                            operator: 1,
+                        },
+                    },
+                }),
+            )
+            .is_empty()
+        );
+
+        assert!(
+            registry
+                .get_deposit_mut(&0)
+                .unwrap()
+                .decline_participation()
+        );
+        assert!(is_graph_of_held_or_declined_deposit(&registry, &graph));
     }
 }
 

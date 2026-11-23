@@ -224,6 +224,7 @@ pub(crate) const fn unified_event_kind(event: &UnifiedEvent) -> &'static str {
         UnifiedEvent::Assignment(_) => "assignment",
         UnifiedEvent::GossipMessage(_) => "gossip_message",
         UnifiedEvent::MosaicEvent(_) => "mosaic_event",
+        UnifiedEvent::SidecarHookDecision => "sidecar_hook_decision",
         UnifiedEvent::NagTick => "nag_tick",
         UnifiedEvent::RetryTick => "retry_tick",
         UnifiedEvent::SafeHarbour(_) => "safe_harbour",

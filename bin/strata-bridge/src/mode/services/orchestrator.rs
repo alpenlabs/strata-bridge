@@ -181,6 +181,7 @@ where
         nag_tick,
         retry_tick,
         pending_asm_events: VecDeque::new(),
+        sidecar_hook_decision_rx: None,
     };
 
     let btc_rpc_arc = Arc::new(btc_rpc_client.clone());
