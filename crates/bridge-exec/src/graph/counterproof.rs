@@ -87,6 +87,20 @@ pub(super) async fn evaluate_and_publish_counterproof(
             break 'select_mode CounterproofMode::InvalidBridgeProof;
         }
 
+        // Give the canonical chain time to out-work the bridge proof before testing it.
+        let delay = u64::from(graph_cfg.counterproof_delay_blocks);
+        if delay > 0 {
+            let bridge_proof_height = chain::tx_block_height(
+                &output_handles.bitcoind_rpc_client,
+                &bridge_proof_tx.compute_txid(),
+            )
+            .await?;
+            if bridge_proof_height.is_none_or(|height| last_block_height < height + delay) {
+                info!(%deposit_idx, %operator_idx, %game_index, "counterproof delay not elapsed; retrying later");
+                return Ok(());
+            }
+        }
+
         let Some(heavier_chain_proof) = detect_heavier_chain(
             output_handles,
             deposit_idx,
