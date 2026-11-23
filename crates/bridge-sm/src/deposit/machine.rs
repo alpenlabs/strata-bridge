@@ -46,7 +46,7 @@ pub struct DepositSM {
 }
 
 impl StateMachine for DepositSM {
-    type Config = Arc<DepositSMCfg>;
+    type Config = ();
     type Duty = DepositDuty;
     type OutgoingSignal = DepositSignal;
     type Event = DepositEvent;
@@ -54,9 +54,10 @@ impl StateMachine for DepositSM {
 
     fn process_event(
         &mut self,
-        cfg: Self::Config,
+        _cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
+        let cfg = self.cfg.clone();
         match event {
             DepositEvent::UserTakeBack(takeback) => self.process_drt_takeback(takeback),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),

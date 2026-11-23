@@ -43,14 +43,14 @@ use crate::{
     stake_readiness::{self, CovenantStakes, ReadinessError},
 };
 
-/// Static configuration shared by all state machines.
+/// Configuration given to newly created state machines.
 #[derive(Debug, Clone)]
 pub struct SMConfig {
     /// Configuration for new deposit state machines.
     pub deposit: Arc<DepositSMCfg>,
     /// Configuration for new graph state machines.
     pub graph: Arc<GraphSMCfg>,
-    /// Static configuration for all stake state machines.
+    /// Configuration for new stake state machines.
     pub stake: Arc<StakeSMCfg>,
     /// The index allocated to the first deposit when no deposits are registered.
     pub deposit_index_offset: DepositIdx,
@@ -666,12 +666,11 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Deposit(deposit_event.clone());
-                let cfg = sm.cfg().clone();
-                sm.process_event(cfg.clone(), *deposit_event)
+                sm.process_event((), *deposit_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&cfg, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&(), &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Deposit)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -683,12 +682,11 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Graph(graph_event.clone());
-                let cfg = sm.cfg().clone();
-                sm.process_event(cfg.clone(), *graph_event)
+                sm.process_event((), *graph_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&cfg, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&(), &cross_sm_context));
                         applied_process_outcome(out, UnifiedDuty::Graph)
                     })
                     .or_else(|err| process_result_from_sm_error(id, event, err))
@@ -700,11 +698,11 @@ impl SMRegistry {
                     .get_mut(idx)
                     .ok_or(ProcessError::SMNotFound(*id))?;
                 let event = SMEvent::Stake(stake_event.clone());
-                sm.process_event(self.cfg.stake.clone(), *stake_event)
+                sm.process_event((), *stake_event)
                     .map(|out| {
                         let mut out = out;
                         out.duties
-                            .extend(sm.run_post_stf_hook(&self.cfg.stake, &cross_sm_context));
+                            .extend(sm.run_post_stf_hook(&(), &cross_sm_context));
                         applied_process_outcome(out, |duty| UnifiedDuty::Stake {
                             stake_key: sm.context().stake_key(),
                             duty,
@@ -916,7 +914,7 @@ mod tests {
             insert_confirmed_stake, insert_deposit_activated_at, insert_deposit_with_graphs,
             insert_test_membership, make_confirmed_stake_sm, mock_bitcoin_rpc, test_empty_registry,
             test_fdb_config, test_membership_table, test_operator_table, test_populated_registry,
-            test_registry_with_cap, test_sm_config, unavailable_bitcoin_client,
+            test_registry_with_cap, test_sm_config, test_stake_sm_cfg, unavailable_bitcoin_client,
         },
     };
 
@@ -987,7 +985,7 @@ mod tests {
             .into_unsigned_tx();
             let sm = registry.get_deposit(&0).unwrap();
             assert!(matches!(
-                sm.classify_tx(sm.cfg(), &tx, INITIAL_BLOCK_HEIGHT + 1),
+                sm.classify_tx(&(), &tx, INITIAL_BLOCK_HEIGHT + 1),
                 Some(DepositEvent::FulfillmentConfirmed(_))
             ));
             // Either startup value would make this fulfillment unrecognizable.
@@ -1668,6 +1666,7 @@ mod tests {
 
         StakeSM {
             context,
+            cfg: test_stake_sm_cfg(),
             state: StakeState::PreimageRevealed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 stake_data,
@@ -2322,13 +2321,21 @@ mod covenant_tests {
 
     use super::*;
     use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table,
+        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table, test_stake_sm_cfg,
     };
 
     pub(super) fn stakes_at_two_heights() -> (StakeSM, StakeSM) {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        let (first, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100), 101);
-        let (second, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table, 200), 101);
+        let (first, _) = StakeSM::new(
+            test_stake_sm_cfg(),
+            StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100),
+            101,
+        );
+        let (second, _) = StakeSM::new(
+            test_stake_sm_cfg(),
+            StakeSMCtx::new(TEST_POV_IDX, table, 200),
+            101,
+        );
         (first, second)
     }
 
@@ -2414,7 +2421,7 @@ mod covenant_tests {
             remapped.with_pov(table.pov_idx() + 10).unwrap(),
             key.covenant.activation_height,
         );
-        let (other, _) = StakeSM::new(ctx, 101);
+        let (other, _) = StakeSM::new(test_stake_sm_cfg(), ctx, 101);
         let mut registry = test_empty_registry();
         registry.insert_stake(first).unwrap();
         assert!(matches!(
@@ -2443,7 +2450,7 @@ mod operator_set_tests {
         events_mux::UnifiedEvent,
         events_router,
         sm_types::SMId,
-        testing::{test_empty_registry, test_operator_set_sm},
+        testing::{test_empty_registry, test_operator_set_sm, test_stake_sm_cfg},
     };
 
     fn exit_block(operator_idx: u32) -> OperatorSetEvent {
@@ -2494,7 +2501,11 @@ mod operator_set_tests {
             .with_pov(0)
             .unwrap();
         for operator_idx in table.operator_idxs() {
-            let (stake, _) = StakeSM::new(StakeSMCtx::new(operator_idx, table.clone(), 100), 100);
+            let (stake, _) = StakeSM::new(
+                test_stake_sm_cfg(),
+                StakeSMCtx::new(operator_idx, table.clone(), 100),
+                100,
+            );
             participant.insert_stake(stake).unwrap();
         }
         observer.insert_operator_set(membership.clone()).unwrap();
@@ -2656,7 +2667,7 @@ mod recovery_height_tests {
         sm_types::SMId,
         testing::{
             N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm, test_empty_registry,
-            test_operator_set_sm, test_operator_table, test_populated_registry,
+            test_operator_set_sm, test_operator_table, test_populated_registry, test_stake_sm_cfg,
         },
     };
 
@@ -2702,6 +2713,7 @@ mod recovery_height_tests {
             .insert_operator_set(test_operator_set_sm())
             .unwrap();
         let (stake, _) = StakeSM::new(
+            test_stake_sm_cfg(),
             StakeSMCtx::new(
                 TEST_POV_IDX,
                 test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
@@ -2764,8 +2776,11 @@ mod recovery_height_tests {
         let mut registry = test_empty_registry();
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         for height in [100, 200] {
-            let (stake, _) =
-                StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), height), height);
+            let (stake, _) = StakeSM::new(
+                test_stake_sm_cfg(),
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), height),
+                height,
+            );
             registry.insert_stake(stake).unwrap();
         }
         assert_eq!(registry.earliest_processed_block_height(), Some(100));

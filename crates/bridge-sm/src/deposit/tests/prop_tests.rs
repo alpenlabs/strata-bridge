@@ -16,7 +16,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
-        test_deposit_sm_cfg(),
+        (),
         any::<DepositState>(),
         any::<DepositEvent>()
     );
@@ -26,7 +26,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
-        test_deposit_sm_cfg(),
+        (),
         any::<DepositState>(),
         prop_oneof![arb_stf_events(), arb_nag_received_events()]
     );
@@ -36,7 +36,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
-        test_deposit_sm_cfg(),
+        (),
         arb_terminal_state(),
         prop_oneof![arb_stf_events(), arb_nag_received_events()]
     );
@@ -46,7 +46,7 @@ mod tests {
         DepositSM,
         create_sm,
         get_state,
-        test_deposit_sm_cfg(),
+        (),
         arb_terminal_state(),
         arb_tick_events()
     );
@@ -87,7 +87,7 @@ mod tests {
                     }),
                     PayoutStep::Retry => DepositEvent::RetryTick(RetryTickEvent),
                 };
-                seq.process(test_deposit_sm_cfg(), event);
+                seq.process((), event);
             }
 
             let payout_published = seq

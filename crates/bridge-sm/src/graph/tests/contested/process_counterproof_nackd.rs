@@ -28,7 +28,7 @@ use crate::{
                 counter_proof_posted_state,
             },
             test_completed_signatures, test_deposit_params, test_graph_invalid_transition,
-            test_graph_sm_cfg, test_graph_sm_ctx, test_graph_transition,
+            test_graph_sm_ctx, test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
@@ -188,7 +188,7 @@ fn second_nack_transitions_to_all_nackd_nonpov() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         GraphTransition {
             from_state: counter_proof_posted_state_with_nacks(&[TEST_NONPOV_IDX]),
             event: GraphEvent::CounterProofNackConfirmed(event),

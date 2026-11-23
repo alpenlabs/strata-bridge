@@ -107,7 +107,7 @@ mod tests {
 
             let result = sm
                 .process_event(
-                    cfg.clone(),
+                    (),
                     GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                         claim_txid: test_graph_summary().claim,
                         claim_block_height: CLAIM_BLOCK_HEIGHT,
@@ -188,7 +188,7 @@ mod tests {
                 state,
             },
             get_state,
-            cfg.clone(),
+            (),
             GraphTransition {
                 from_state: GraphState::GraphSigned {
                     last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -232,8 +232,6 @@ mod tests {
         ];
 
         for from_state in from_states {
-            let cfg = test_graph_sm_cfg();
-
             let expected_state = GraphState::Claimed {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 graph_data: test_deposit_params(),
@@ -249,7 +247,7 @@ mod tests {
             test_transition::<GraphSM, _, _, _, _, _, _, _>(
                 create_sm,
                 get_state,
-                cfg,
+                (),
                 GraphTransition {
                     from_state,
                     event: GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {

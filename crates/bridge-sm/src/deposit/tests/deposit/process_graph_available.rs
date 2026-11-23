@@ -38,7 +38,7 @@ mod tests {
             let claim_txid = generate_txid();
             expected_claim_txids_by_operator.insert(operator_idx, claim_txid);
             seq.process(
-                test_deposit_sm_cfg(),
+                (),
                 DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
                     claim_txid,
                     operator_idx,
@@ -90,7 +90,7 @@ mod tests {
                 operator_idx,
                 deposit_idx: TEST_DEPOSIT_IDX,
             });
-            seq.process(test_deposit_sm_cfg(), event.clone());
+            seq.process((), event.clone());
 
             // Process the same event again to simulate duplicate
             test_deposit_invalid_transition(DepositInvalidTransition {
@@ -224,7 +224,7 @@ mod tests {
             operator_idx: u32::MAX,
             deposit_idx: TEST_DEPOSIT_IDX,
         });
-        seq.process(test_deposit_sm_cfg(), event.clone());
+        seq.process((), event.clone());
 
         // Process the same event again to simulate duplicate
         test_deposit_invalid_transition(DepositInvalidTransition {

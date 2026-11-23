@@ -80,7 +80,7 @@ fn all_state_variants() -> Vec<StakeState> {
 fn classify_stake_tx() {
     for state in [unstaking_nonces_collected_state(), unstaking_signed_state()] {
         let sm = create_state_machine(state.clone());
-        let result = sm.classify_tx(&TEST_CFG, TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
+        let result = sm.classify_tx(&(), TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
 
         assert!(
             matches!(result, Some(StakeEvent::StakeConfirmed(_))),
@@ -93,7 +93,7 @@ fn classify_stake_tx() {
 fn classify_unstaking_intent_tx() {
     let sm = create_state_machine(confirmed_state());
     let result = sm.classify_tx(
-        &TEST_CFG,
+        &(),
         TEST_GRAPH.unstaking_intent.as_ref(),
         CLASSIFICATION_HEIGHT,
     );
@@ -109,11 +109,7 @@ fn classify_unstaking_intent_tx() {
 #[test]
 fn classify_unstaking_tx() {
     let sm = create_state_machine(preimage_revealed_state());
-    let result = sm.classify_tx(
-        &TEST_CFG,
-        TEST_GRAPH.unstaking.as_ref(),
-        CLASSIFICATION_HEIGHT,
-    );
+    let result = sm.classify_tx(&(), TEST_GRAPH.unstaking.as_ref(), CLASSIFICATION_HEIGHT);
 
     assert!(
         matches!(result, Some(StakeEvent::UnstakingConfirmed(_))),
@@ -125,7 +121,7 @@ fn classify_unstaking_tx() {
 fn classify_slash_tx() {
     for state in [confirmed_state(), preimage_revealed_state()] {
         let sm = create_state_machine(state.clone());
-        let result = sm.classify_tx(&TEST_CFG, &slash_tx(), CLASSIFICATION_HEIGHT);
+        let result = sm.classify_tx(&(), &slash_tx(), CLASSIFICATION_HEIGHT);
 
         assert!(
             matches!(result, Some(StakeEvent::SlashConfirmed(_))),
@@ -146,7 +142,7 @@ fn ignore_irrelevant_tx_in_all_states() {
 
     for state in all_state_variants() {
         let sm = create_state_machine(state);
-        let result = sm.classify_tx(&TEST_CFG, &irrelevant_tx, CLASSIFICATION_HEIGHT);
+        let result = sm.classify_tx(&(), &irrelevant_tx, CLASSIFICATION_HEIGHT);
         assert_eq!(result, None);
     }
 }
@@ -156,8 +152,7 @@ fn ignore_relevant_tx_in_mismatching_states() {
     for state in all_state_variants() {
         let sm = create_state_machine(state.clone());
 
-        let stake_result =
-            sm.classify_tx(&TEST_CFG, TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
+        let stake_result = sm.classify_tx(&(), TEST_GRAPH.stake.as_ref(), CLASSIFICATION_HEIGHT);
         let expect_stake = matches!(
             state,
             StakeState::UnstakingNoncesCollected { .. } | StakeState::UnstakingSigned { .. }
@@ -169,7 +164,7 @@ fn ignore_relevant_tx_in_mismatching_states() {
         );
 
         let preimage_result = sm.classify_tx(
-            &TEST_CFG,
+            &(),
             TEST_GRAPH.unstaking_intent.as_ref(),
             CLASSIFICATION_HEIGHT,
         );
@@ -180,11 +175,8 @@ fn ignore_relevant_tx_in_mismatching_states() {
             "unexpected preimage classification in state {state}"
         );
 
-        let unstaking_result = sm.classify_tx(
-            &TEST_CFG,
-            TEST_GRAPH.unstaking.as_ref(),
-            CLASSIFICATION_HEIGHT,
-        );
+        let unstaking_result =
+            sm.classify_tx(&(), TEST_GRAPH.unstaking.as_ref(), CLASSIFICATION_HEIGHT);
         let expect_unstaking = matches!(state, StakeState::PreimageRevealed { .. });
         assert_eq!(
             unstaking_result.is_some(),
@@ -192,7 +184,7 @@ fn ignore_relevant_tx_in_mismatching_states() {
             "unexpected unstaking classification in state {state}"
         );
 
-        let slash_result = sm.classify_tx(&TEST_CFG, &slash_tx(), CLASSIFICATION_HEIGHT);
+        let slash_result = sm.classify_tx(&(), &slash_tx(), CLASSIFICATION_HEIGHT);
         let expect_slash = matches!(
             state,
             StakeState::Confirmed { .. } | StakeState::PreimageRevealed { .. }

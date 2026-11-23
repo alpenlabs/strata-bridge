@@ -249,7 +249,7 @@ pub(crate) fn insert_created_stake(
     operator_table: OperatorTable,
 ) {
     let ctx = StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT);
-    let (ssm, _duty) = StakeSM::new(ctx, INITIAL_BLOCK_HEIGHT);
+    let (ssm, _duty) = StakeSM::new(test_stake_sm_cfg(), ctx, INITIAL_BLOCK_HEIGHT);
     registry
         .insert_stake(ssm)
         .expect("test helper must not insert duplicate stake state machine");
@@ -285,6 +285,7 @@ pub(crate) fn make_confirmed_stake_sm(
     };
     StakeSM {
         context: StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT),
+        cfg: test_stake_sm_cfg(),
         state: StakeState::Confirmed {
             last_block_height: INITIAL_BLOCK_HEIGHT,
             stake_data,

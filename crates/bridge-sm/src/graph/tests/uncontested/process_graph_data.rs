@@ -15,7 +15,7 @@ mod tests {
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX, create_nonpov_sm,
                 create_sm, get_state, test_deposit_params, test_graph_invalid_transition,
-                test_graph_invalid_transition_with, test_graph_sm_cfg, test_graph_summary,
+                test_graph_invalid_transition_with, test_graph_summary,
             },
         },
         testing::EventSequence,
@@ -45,10 +45,7 @@ mod tests {
         let sm = create_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
 
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::GraphDataProduced(test_graph_data_event()),
-        );
+        seq.process((), GraphEvent::GraphDataProduced(test_graph_data_event()));
 
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
@@ -71,10 +68,7 @@ mod tests {
         let sm = create_nonpov_sm(initial_state);
         let mut seq = EventSequence::new(sm, get_state);
 
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::GraphDataProduced(test_graph_data_event()),
-        );
+        seq.process((), GraphEvent::GraphDataProduced(test_graph_data_event()));
 
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
@@ -99,10 +93,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // First event should succeed: Created → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::GraphDataProduced(test_graph_data_event()),
-        );
+        seq.process((), GraphEvent::GraphDataProduced(test_graph_data_event()));
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
@@ -124,10 +115,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // First event should succeed: Created → GraphGenerated
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::GraphDataProduced(test_graph_data_event()),
-        );
+        seq.process((), GraphEvent::GraphDataProduced(test_graph_data_event()));
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::GraphGenerated { .. }));
 
