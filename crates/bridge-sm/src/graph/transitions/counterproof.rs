@@ -45,7 +45,7 @@ impl GraphSM {
                     CounterproofData {
                         txid: event.tx.compute_txid(),
                         conf_height: event.counterproof_block_height,
-                        completed_signatures,
+                        completed_signatures: Some(completed_signatures),
                     },
                 );
 
@@ -87,7 +87,7 @@ impl GraphSM {
                     CounterproofData {
                         txid: event.tx.compute_txid(),
                         conf_height: event.counterproof_block_height,
-                        completed_signatures,
+                        completed_signatures: Some(completed_signatures),
                     },
                 );
 
@@ -132,7 +132,7 @@ impl GraphSM {
                     CounterproofData {
                         txid: event.tx.compute_txid(),
                         conf_height: event.counterproof_block_height,
-                        completed_signatures,
+                        completed_signatures: Some(completed_signatures),
                     },
                 );
 

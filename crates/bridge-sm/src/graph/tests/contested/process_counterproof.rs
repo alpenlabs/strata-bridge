@@ -97,7 +97,7 @@ fn event_accepted_from_contested_pov() {
         CounterproofData {
             txid: event.tx.compute_txid(),
             conf_height: event.counterproof_block_height,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 
@@ -132,7 +132,7 @@ fn event_accepted_from_contested_nonpov() {
         CounterproofData {
             txid: event.tx.compute_txid(),
             conf_height: event.counterproof_block_height,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 
@@ -174,7 +174,7 @@ fn event_accepted_from_bridge_proof_posted_pov() {
         CounterproofData {
             txid: event.tx.compute_txid(),
             conf_height: event.counterproof_block_height,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 
@@ -209,7 +209,7 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
         CounterproofData {
             txid: event.tx.compute_txid(),
             conf_height: event.counterproof_block_height,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 
@@ -251,7 +251,7 @@ fn event_accepted_from_counter_proof_posted_pov() {
         CounterproofData {
             txid: event.tx.compute_txid(),
             conf_height: event.counterproof_block_height,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 
@@ -303,7 +303,7 @@ fn event_duplicate() {
         CounterproofData {
             txid: event.tx.compute_txid(),
             conf_height: event.counterproof_block_height,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 
@@ -416,6 +416,22 @@ fn event_rejected_malformed_counterproof_signature_nonpov() {
             },
         },
     );
+}
+
+#[test]
+fn counterproof_data_roundtrips_with_and_without_signatures() {
+    for completed_signatures in [None, Some(test_completed_signatures())] {
+        let data = CounterproofData {
+            txid: test_counterproof_tx().compute_txid(),
+            conf_height: COUNTERPROOF_BLOCK_HEIGHT,
+            completed_signatures,
+        };
+        let bytes = postcard::to_allocvec(&data).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<CounterproofData>(&bytes).unwrap(),
+            data
+        );
+    }
 }
 
 /// Returns `true` if the state is valid for [`GraphEvent::CounterProofConfirmed`].
