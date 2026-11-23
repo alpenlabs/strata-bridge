@@ -31,10 +31,7 @@ use strata_bridge_sm::{
         machine::GraphSM,
     },
     operator_set::{BlockCovenant, OperatorSetEvent},
-    stake::{
-        config::StakeSMCfg,
-        events::{NewBlockEvent as StakeNewBlockEvent, StakeEvent},
-    },
+    stake::events::{NewBlockEvent as StakeNewBlockEvent, StakeEvent},
     tx_classifier::TxClassifier,
 };
 use strata_bridge_tx_graph::transactions::{prelude::DepositData, stake::StakeTx};
@@ -73,7 +70,6 @@ pub(crate) async fn process_stake_pass(
         .map(|(&key, _)| SMId::Stake(key))
         .collect();
 
-    let stake_cfg = applicator.registry().cfg().stake.clone();
     let magic = applicator.registry().cfg().deposit.magic_bytes;
 
     // Authenticate exits only when membership needs to advance. Recovery replays blocks
@@ -93,7 +89,7 @@ pub(crate) async fn process_stake_pass(
             observations.push(observation);
         }
 
-        let events = classify_stake_tx(&stake_cfg, applicator.registry(), tx, height)
+        let events = classify_stake_tx(applicator.registry(), tx, height)
             .into_iter()
             .filter(|(id, _)| eligible.contains(id));
 
@@ -412,11 +408,11 @@ fn classify_deposit_graph_tx(
     registry
         .deposits()
         .filter_map(|(&deposit_idx, sm)| {
-            sm.classify_tx(sm.cfg(), tx, height)
+            sm.classify_tx(&(), tx, height)
                 .map(|ev| (SMId::Deposit(deposit_idx), ev.into()))
         })
         .chain(registry.graphs().filter_map(|(&graph_idx, sm)| {
-            sm.classify_tx(sm.cfg(), tx, height)
+            sm.classify_tx(&(), tx, height)
                 .map(|ev| (graph_idx.into(), ev.into()))
         }))
         .collect()
@@ -424,13 +420,12 @@ fn classify_deposit_graph_tx(
 
 /// Returns stake lifecycle events whose source identifies a unique tracked stake.
 fn classify_stake_tx(
-    stake_cfg: &Arc<StakeSMCfg>,
     registry: &SMRegistry,
     tx: &Transaction,
     height: BitcoinBlockHeight,
 ) -> Vec<(SMId, SMEvent)> {
     registry.stakes().filter_map(|(&stake_key, sm)| {
-            sm.classify_tx(stake_cfg, tx, height).and_then(|ev| {
+            sm.classify_tx(&(), tx, height).and_then(|ev| {
                 let stake_txid = sm.state().stake_txid()?;
                 let source = OutPoint::new(stake_txid, StakeTx::STAKE_VOUT);
                 if registry.resolve_stake_outpoint(&source) != Some(stake_key) {
@@ -2517,8 +2512,7 @@ mod covenant_routing_tests {
         registry.insert_stake(successor.clone()).unwrap();
         assert_eq!(registry.resolve_stake_outpoint(&source), Some(old_key));
         let tx = generate_spending_tx(source, &[]);
-        let cfg = registry.cfg().clone();
-        let events = classify_stake_tx(&cfg.stake, &registry, &tx, 201);
+        let events = classify_stake_tx(&registry, &tx, 201);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].0, SMId::Stake(old_key));
         for (key, event) in events {
@@ -2542,7 +2536,6 @@ mod covenant_routing_tests {
         registry.insert_stake(second).unwrap();
         assert!(registry.resolve_stake_outpoint(&source).is_none());
         let tx = generate_spending_tx(source, &[]);
-        let cfg = registry.cfg();
-        assert!(classify_stake_tx(&cfg.stake, &registry, &tx, 201).is_empty());
+        assert!(classify_stake_tx(&registry, &tx, 201).is_empty());
     }
 }

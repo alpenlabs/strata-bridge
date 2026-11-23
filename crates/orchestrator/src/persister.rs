@@ -536,7 +536,7 @@ mod covenant_storage_tests {
         testing::{
             N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry,
             test_fdb_config, test_operator_set_sm, test_operator_table, test_populated_registry,
-            test_safe_harbour_address, test_sm_config,
+            test_safe_harbour_address, test_sm_config, test_stake_sm_cfg,
         },
     };
 
@@ -546,7 +546,11 @@ mod covenant_storage_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut keys = BTreeSet::new();
         for height in [100, 200] {
-            let (sm, _) = StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), height), 101);
+            let (sm, _) = StakeSM::new(
+                test_stake_sm_cfg(),
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), height),
+                101,
+            );
             keys.insert(SMId::Stake(sm.context().stake_key()));
             registry.insert_stake(sm).unwrap();
         }
@@ -596,8 +600,11 @@ mod covenant_storage_tests {
             .unwrap();
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         for height in [100, 200] {
-            let (sm, _) =
-                StakeSM::new(StakeSMCtx::new(TEST_POV_IDX, table.clone(), height), height);
+            let (sm, _) = StakeSM::new(
+                test_stake_sm_cfg(),
+                StakeSMCtx::new(TEST_POV_IDX, table.clone(), height),
+                height,
+            );
             registry.insert_stake(sm).unwrap();
         }
         let address = test_safe_harbour_address();
@@ -779,9 +786,12 @@ mod sm_config_tests {
     use strata_bridge_db::fdb::{cfg::Config, client::MustDrop};
     use strata_bridge_p2p_types::NagRequestPayload;
     use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
-    use strata_bridge_sm::graph::{
-        duties::GraphDuty,
-        events::{GraphEvent, NagReceivedEvent},
+    use strata_bridge_sm::{
+        graph::{
+            duties::GraphDuty,
+            events::{GraphEvent, NagReceivedEvent},
+        },
+        stake::{context::StakeSMCtx, machine::StakeSM},
     };
 
     use super::*;
@@ -789,7 +799,8 @@ mod sm_config_tests {
         sm_registry::ProcessOutcome,
         sm_types::UnifiedDuty,
         testing::{
-            TEST_POV_IDX, insert_deposit_with_graphs, test_fdb_config, test_populated_registry,
+            N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs, test_fdb_config,
+            test_operator_table, test_populated_registry,
         },
     };
 
@@ -822,9 +833,13 @@ mod sm_config_tests {
         let mut graph = (*cfg.graph).clone();
         graph.game_graph_params.contest_timelock =
             relative::Height::from_height(graph.game_graph_params.contest_timelock.value() + 10);
+        let mut stake = *cfg.stake;
+        stake.protocol_params.unstaking_timelock =
+            relative::Height::from_height(stake.protocol_params.unstaking_timelock.value() + 10);
         SMConfig {
             deposit: Arc::new(deposit),
             graph: Arc::new(graph),
+            stake: Arc::new(stake),
             ..cfg.clone()
         }
     }
@@ -861,6 +876,34 @@ mod sm_config_tests {
         assert_eq!(again.get_deposit(&0).unwrap().cfg(), &original.deposit);
         assert_eq!(again.get_deposit(&1).unwrap().cfg(), &changed.deposit);
         assert_eq!(again.get_graph(&graph(1, 0)).unwrap().cfg(), &changed.graph);
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn stakes_keep_their_config_across_a_params_change() {
+        let (persister, db, guard) = persister().await;
+        let mut registry = test_populated_registry(1);
+        let original = registry.cfg().clone();
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let (stake, _) = StakeSM::new(
+            original.stake.clone(),
+            StakeSMCtx::new(TEST_POV_IDX, table, 100),
+            101,
+        );
+        let stake_key = stake.context().stake_key();
+        registry.insert_stake(stake).unwrap();
+        persist_all(&persister, &registry).await;
+
+        let changed = with_changed_params(&original);
+        let restored = persister.recover_registry(changed.clone()).await.unwrap();
+        assert_ne!(changed.stake, original.stake);
+        assert_eq!(
+            restored.get_stake(&stake_key).unwrap().cfg(),
+            &original.stake
+        );
 
         drop(persister);
         drop(db);

@@ -70,6 +70,7 @@ use crate::{
 fn create_state_machine(state: StakeState) -> StakeSM {
     StakeSM {
         context: TEST_CTX.clone(),
+        cfg: TEST_CFG.clone(),
         state,
     }
 }
@@ -78,6 +79,7 @@ fn create_state_machine(state: StakeState) -> StakeSM {
 fn create_nonpov_state_machine(state: StakeState) -> StakeSM {
     StakeSM {
         context: TEST_NONPOV_CTX.clone(),
+        cfg: TEST_CFG.clone(),
         state,
     }
 }
@@ -110,18 +112,14 @@ fn test_stake_transition(transition: StakeTransition) {
     test_transition::<StakeSM, _, _, _, _, _, _, _>(
         create_state_machine,
         get_state,
-        TEST_CFG.clone(),
+        (),
         transition,
     );
 }
 
 /// Test an invalid [`StakeSM`] transition with pre-configured test helpers.
 fn test_stake_invalid_transition(invalid: StakeInvalidTransition) {
-    test_invalid_transition::<StakeSM, _, _, _, _, _, _>(
-        create_state_machine,
-        TEST_CFG.clone(),
-        invalid,
-    );
+    test_invalid_transition::<StakeSM, _, _, _, _, _, _>(create_state_machine, (), invalid);
 }
 
 /// Test a valid non-POV [`StakeSM`] transition with pre-configured test helpers.
@@ -129,7 +127,7 @@ fn test_nonpov_stake_transition(transition: StakeTransition) {
     test_transition::<StakeSM, _, _, _, _, _, _, _>(
         create_nonpov_state_machine,
         get_state,
-        TEST_CFG.clone(),
+        (),
         transition,
     );
 }

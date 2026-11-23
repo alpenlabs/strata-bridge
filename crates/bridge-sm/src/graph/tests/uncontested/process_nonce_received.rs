@@ -73,7 +73,7 @@ mod tests {
                 .expect("operator nonces missing")
                 .clone();
             seq.process(
-                cfg.clone(),
+                (),
                 GraphEvent::NoncesReceived(GraphNoncesReceivedEvent {
                     operator_idx: signer.operator_idx(),
                     pubnonces: nonces,

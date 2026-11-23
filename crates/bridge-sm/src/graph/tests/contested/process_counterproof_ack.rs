@@ -14,8 +14,7 @@ use crate::{
                 TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY, acked_state, all_state_variants,
                 counter_proof_posted_state,
             },
-            test_deposit_params, test_graph_invalid_transition, test_graph_sm_cfg,
-            test_graph_transition,
+            test_deposit_params, test_graph_invalid_transition, test_graph_transition,
         },
     },
     testing::test_transition,
@@ -51,7 +50,7 @@ fn event_accepted_nonpov() {
     test_transition::<crate::graph::machine::GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         GraphTransition {
             from_state: counter_proof_posted_state(),
             event: GraphEvent::CounterProofAckConfirmed(CounterProofAckConfirmedEvent {

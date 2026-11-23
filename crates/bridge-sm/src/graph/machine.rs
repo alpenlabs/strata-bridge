@@ -41,7 +41,7 @@ pub struct GraphSM {
 }
 
 impl StateMachine for GraphSM {
-    type Config = Arc<GraphSMCfg>;
+    type Config = ();
     type Duty = GraphDuty;
     type OutgoingSignal = GraphSignal;
     type Event = GraphEvent;
@@ -49,9 +49,10 @@ impl StateMachine for GraphSM {
 
     fn process_event(
         &mut self,
-        cfg: Self::Config,
+        _cfg: Self::Config,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
+        let cfg = self.cfg.clone();
         match event {
             GraphEvent::GraphDataProduced(graph_data) => {
                 let event = GraphEvent::GraphDataProduced(graph_data.clone());
@@ -107,10 +108,10 @@ impl StateMachine for GraphSM {
 
     fn run_post_stf_hook(
         &self,
-        cfg: &Self::Config,
+        _cfg: &Self::Config,
         cross_sm_context: &CrossSmContext,
     ) -> Vec<Self::Duty> {
-        self.run_graph_post_stf_hook(cfg, cross_sm_context)
+        self.run_graph_post_stf_hook(&self.cfg, cross_sm_context)
     }
 }
 

@@ -35,6 +35,7 @@ use crate::{
             GraphDataGeneratedEvent, GraphEvent, GraphNoncesReceivedEvent,
             GraphPartialsReceivedEvent, PayoutConfirmedEvent, WithdrawalAssignedEvent,
         },
+        machine::GraphSM,
         state::GraphState,
     },
     state_machine::StateMachine,
@@ -398,8 +399,11 @@ fn every_transition_rejects_its_non_accepting_source_states() {
                 continue;
             }
 
-            let mut sm = create_sm(state.clone());
-            let result = sm.process_event(cfg.clone(), (case.event)());
+            let mut sm = GraphSM {
+                cfg: cfg.clone(),
+                ..create_sm(state.clone())
+            };
+            let result = sm.process_event((), (case.event)());
 
             match &result {
                 Ok(_) => panic!("{transition}: accepted from {state}, expected {expected:?}"),
@@ -448,8 +452,11 @@ fn peer_driven_events_are_accepted_from_their_source_state() {
     ];
 
     for (state, event) in cases {
-        let mut sm = create_sm(state.clone());
-        let result = sm.process_event(cfg.clone(), event.clone());
+        let mut sm = GraphSM {
+            cfg: cfg.clone(),
+            ..create_sm(state.clone())
+        };
+        let result = sm.process_event((), event.clone());
         assert!(
             result.is_ok(),
             "{event} must be accepted from {state}, got {result:?}"

@@ -57,7 +57,7 @@ fn accept_stake_data() {
     let mut seq = EventSequence::new(sm, get_state);
 
     seq.process(
-        TEST_CFG.clone(),
+        (),
         StakeDataReceivedEvent {
             stake_funds: TEST_STAKE_DATA.stake_funds,
             unstaking_image: TEST_STAKE_DATA.unstaking_image,

@@ -39,7 +39,7 @@ fn test_contest_from_claimed_pov_emits_duty() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_sm,
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: claimed_state(
                 LATER_BLOCK_HEIGHT,
@@ -79,7 +79,7 @@ fn test_contest_from_claimed_nonpov_no_duty() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         GraphTransition {
             from_state: claimed_state(
                 LATER_BLOCK_HEIGHT,
@@ -112,7 +112,7 @@ fn test_contest_state_fields() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         GraphTransition {
             from_state: claimed_state(
                 LATER_BLOCK_HEIGHT,

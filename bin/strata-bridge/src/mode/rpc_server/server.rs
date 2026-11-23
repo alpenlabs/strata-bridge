@@ -554,11 +554,10 @@ impl StrataBridgeDaApiServer for BridgeRpc {
 
     async fn get_stake_data(&self, stake_key: StakeKey) -> RpcResult<Option<RpcStakeData>> {
         let cached_registry = self.cached_registry.read().await;
-        let stake_cfg = cached_registry.cfg().stake.clone();
 
         Ok(cached_registry
             .get_stake(&stake_key)
-            .and_then(|ssm| stake_data_response(ssm.context(), ssm.state(), &stake_cfg)))
+            .and_then(|ssm| stake_data_response(ssm.context(), ssm.state(), ssm.cfg())))
     }
 
     async fn get_stake_aggregate_signatures(

@@ -493,6 +493,7 @@ mod tests {
             ConfirmedExit, ExitKind, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
         },
         stake::{
+            config::StakeSMCfg,
             context::{MinimumStakeData, StakeSMCtx},
             machine::StakeSM,
             state::StakeState,
@@ -512,7 +513,7 @@ mod tests {
             AdminMultisig, CounterproofGraphSummary, DepositParams, GameGraphSummary,
             ProtocolParams as GameProtocolParams,
         },
-        stake_graph::StakeGraphSummary,
+        stake_graph::{ProtocolParams as StakeProtocolParams, StakeGraphSummary},
         transactions::sweep::{SweepData, SweepTx},
     };
     use strata_predicate::PredicateKey;
@@ -607,6 +608,18 @@ mod tests {
         })
     }
 
+    /// Builds the stake config the test state machines are created under.
+    fn test_stake_cfg() -> Arc<StakeSMCfg> {
+        Arc::new(StakeSMCfg {
+            protocol_params: StakeProtocolParams {
+                network: Network::Regtest,
+                magic_bytes: [0x54, 0x45, 0x53, 0x54].into(),
+                unstaking_timelock: relative::Height::from_height(144),
+                stake_amount: Amount::from_sat(100_000_000),
+            },
+        })
+    }
+
     /// Builds a [`DepositSM`] from the given components.
     fn make_deposit_sm(
         deposit_idx: DepositIdx,
@@ -651,6 +664,7 @@ mod tests {
     ) -> StakeSM {
         StakeSM {
             context: StakeSMCtx::new(operator_idx, operator_table, 101),
+            cfg: test_stake_cfg(),
             state,
         }
     }
@@ -666,6 +680,7 @@ mod tests {
             };
             StakeSM {
                 context: StakeSMCtx::new(0, table.clone(), activation_height),
+                cfg: test_stake_cfg(),
                 state: StakeState::PreimageRevealed {
                     last_block_height: 300,
                     stake_data: MinimumStakeData {
@@ -904,7 +919,14 @@ mod tests {
             .unwrap();
         let mut before = WriteBatch::new();
         before.set_operator_set(membership.clone());
-        before.add_stake(StakeSM::new(StakeSMCtx::new(0, table.clone(), 100), 100).0);
+        before.add_stake(
+            StakeSM::new(
+                test_stake_cfg(),
+                StakeSMCtx::new(0, table.clone(), 100),
+                100,
+            )
+            .0,
+        );
         let output = membership
             .process_event(
                 (),
@@ -931,7 +953,7 @@ mod tests {
                 stake_key.covenant.activation_height,
             );
             assert_eq!(context.stake_key(), stake_key);
-            after.add_stake(StakeSM::new(context, 101).0);
+            after.add_stake(StakeSM::new(test_stake_cfg(), context, 101).0);
         }
         assert_eq!(after.stakes().len(), 2);
         after.set_operator_set(membership);

@@ -187,10 +187,10 @@ mod tests {
             operator_idx: TEST_ARBITRARY_OPERATOR_IDX,
         });
 
-        sequence.process(test_deposit_sm_cfg(), event.clone());
+        sequence.process((), event.clone());
         sequence.assert_no_errors();
         // Second submission from the same operator - should fail with Duplicate
-        sequence.process(test_deposit_sm_cfg(), event);
+        sequence.process((), event);
 
         let errors = sequence.all_errors();
         assert_eq!(

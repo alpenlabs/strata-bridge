@@ -19,7 +19,7 @@ use crate::{
     graph::{
         duties::GraphDuty,
         state::GraphState,
-        tests::{create_nonpov_sm, create_sm, mock_states::all_state_variants, test_graph_sm_cfg},
+        tests::{create_nonpov_sm, create_sm, mock_states::all_state_variants},
     },
     state_machine::StateMachine,
 };
@@ -182,11 +182,10 @@ fn run_non_owner(
     unstaking_image: sha256::Hash,
     cross_sm_context: &CrossSmContext,
 ) -> (GraphIdx, Vec<GraphDuty>) {
-    let cfg = test_graph_sm_cfg();
     let mut sm = create_nonpov_sm(initial);
     sm.context.unstaking_image = unstaking_image;
     let graph_idx = sm.context.graph_idx();
-    let duties = sm.run_post_stf_hook(&cfg, cross_sm_context);
+    let duties = sm.run_post_stf_hook(&(), cross_sm_context);
     (graph_idx, duties)
 }
 
@@ -195,11 +194,10 @@ fn run_owner(
     unstaking_image: sha256::Hash,
     cross_sm_context: &CrossSmContext,
 ) -> (GraphIdx, Vec<GraphDuty>) {
-    let cfg = test_graph_sm_cfg();
     let mut sm = create_sm(initial);
     sm.context.unstaking_image = unstaking_image;
     let graph_idx = sm.context.graph_idx();
-    let duties = sm.run_post_stf_hook(&cfg, cross_sm_context);
+    let duties = sm.run_post_stf_hook(&(), cross_sm_context);
     (graph_idx, duties)
 }
 

@@ -445,7 +445,7 @@ mod tests {
 
                     let claim_output = sm
                         .process_event(
-                            cfg.clone(),
+                            (),
                             GraphEvent::ClaimConfirmed(ClaimConfirmedEvent {
                                 claim_txid: test_graph_summary().claim,
                                 claim_block_height: CLAIM_BLOCK_HEIGHT,
@@ -455,7 +455,7 @@ mod tests {
                     assert_eq!(claim_output.duties, vec![expected_duty.clone()]);
 
                     let retry_output = sm
-                        .process_event(cfg.clone(), GraphEvent::RetryTick(RetryTickEvent))
+                        .process_event((), GraphEvent::RetryTick(RetryTickEvent))
                         .expect("retry tick must be accepted");
                     assert_eq!(
                         retry_output.duties,

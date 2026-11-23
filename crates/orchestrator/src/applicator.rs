@@ -310,7 +310,8 @@ impl<'a> Applicator<'a> {
             table,
             stake_key.covenant.activation_height,
         );
-        let (sm, initial_duty) = StakeSM::new(context, block_height);
+        let (sm, initial_duty) =
+            StakeSM::new(self.registry.cfg().stake.clone(), context, block_height);
 
         self.registry.insert_stake(sm)?;
         self.tracker.record(SMId::Stake(stake_key));

@@ -18,10 +18,11 @@ use crate::{
 impl TxClassifier for DepositSM {
     fn classify_tx(
         &self,
-        config: &Self::Config,
+        _config: &Self::Config,
         tx: &Transaction,
         height: BitcoinBlockHeight,
     ) -> Option<Self::Event> {
+        let config = &self.cfg;
         let txid = tx.compute_txid();
         let dt_txid = self.context().deposit_outpoint().txid;
 
