@@ -1,7 +1,7 @@
 //! Pure validation of deposit request transactions against a bridge configuration and covenant
 //! membership.
 
-use bitcoin::{Amount, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
+use bitcoin::{Amount, ScriptBuf, Transaction, hex::DisplayHex, secp256k1::XOnlyPublicKey};
 use strata_asm_proto_bridge_txs::{
     BRIDGE_SUBPROTOCOL_ID,
     constants::BridgeTxType,
@@ -39,8 +39,18 @@ pub(super) enum ValidationError {
     /// Output-1's P2TR script does not match the script reconstructed from the depositor's
     /// recovery pubkey, the covenant's N-of-N aggregated key, and the bridge's recovery delay.
     /// The DRT is therefore not cooperatively spendable by the bridge.
-    #[error("DRT output script does not match expected P2TR locking script")]
-    LockingScriptMismatch,
+    #[error(
+        "DRT output script {actual:x} does not match expected P2TR locking script {expected:x} \
+         for N-of-N key {expected_n_of_n}"
+    )]
+    LockingScriptMismatch {
+        /// Covenant N-of-N aggregated key used to build the expected script.
+        expected_n_of_n: XOnlyPublicKey,
+        /// Locking script reconstructed for the covenant.
+        expected: ScriptBuf,
+        /// Locking script found on the DRT output.
+        actual: ScriptBuf,
+    },
 }
 
 /// Returns `true` iff `tx`'s SPS-50 envelope identifies it as a Bridge-v1 deposit request for
@@ -89,7 +99,11 @@ pub(super) fn validate_candidate<Pov>(
     let expected_script =
         create_deposit_request_locking_script(recovery_pk_bytes, n_of_n, cfg.recovery_delay);
     if drt_output.script_pubkey != expected_script {
-        return Err(ValidationError::LockingScriptMismatch);
+        return Err(ValidationError::LockingScriptMismatch {
+            expected_n_of_n: n_of_n,
+            expected: expected_script,
+            actual: drt_output.script_pubkey.clone(),
+        });
     }
 
     Ok(Valid {
@@ -325,7 +339,7 @@ mod tests {
         assert!(
             matches!(
                 validate_candidate(&builder.build(), &cfg, &operator_table),
-                Err(ValidationError::LockingScriptMismatch),
+                Err(ValidationError::LockingScriptMismatch { .. }),
             ),
             "recovery pk encoded in the takeback tapscript must match aux",
         );
@@ -341,7 +355,7 @@ mod tests {
         assert!(
             matches!(
                 validate_candidate(&builder.build(), &cfg, &operator_table),
-                Err(ValidationError::LockingScriptMismatch),
+                Err(ValidationError::LockingScriptMismatch { .. }),
             ),
             "P2TR internal key must match the active N-of-N aggregated key",
         );
@@ -357,7 +371,7 @@ mod tests {
         assert!(
             matches!(
                 validate_candidate(&builder.build(), &cfg, &operator_table),
-                Err(ValidationError::LockingScriptMismatch),
+                Err(ValidationError::LockingScriptMismatch { .. }),
             ),
             "tapscript CSV delay must match the bridge's configured recovery_delay",
         );
