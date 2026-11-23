@@ -393,6 +393,20 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
 
     let cases = vec![
         (
+            "ParticipationPending",
+            DepositState::ParticipationPending {
+                deposit_transaction: test_deposit_tx(),
+                last_block_height: 100,
+                graph_contexts: vec![],
+            },
+            no_duties.clone(),
+        ),
+        (
+            "ParticipationDeclined",
+            DepositState::ParticipationDeclined,
+            no_duties.clone(),
+        ),
+        (
             "Created",
             DepositState::Created {
                 deposit_transaction: test_deposit_tx(),
@@ -660,6 +674,15 @@ fn withdrawal_status_reports_each_deposit_state() {
     let fulfillment_txid = generate_txid();
 
     let cases = vec![
+        (
+            "ParticipationPending",
+            DepositState::ParticipationPending {
+                deposit_transaction: test_deposit_tx(),
+                last_block_height: 100,
+                graph_contexts: vec![],
+            },
+        ),
+        ("ParticipationDeclined", DepositState::ParticipationDeclined),
         (
             "Created",
             DepositState::Created {

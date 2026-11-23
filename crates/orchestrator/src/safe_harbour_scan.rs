@@ -43,7 +43,9 @@ pub fn safe_harbour_scan(registry: &SMRegistry) -> Vec<(SMId, SMEvent)> {
                 }
 
                 // Safe abort window: no partial signature gossiped yet.
-                DepositState::Created { .. } | DepositState::GraphGenerated { .. } => {
+                DepositState::Created { .. }
+                | DepositState::GraphGenerated { .. }
+                | DepositState::ParticipationPending { .. } => {
                     DepositEvent::SafeHarbourAbort(SafeHarbourAbortEvent)
                 }
 
@@ -57,7 +59,8 @@ pub fn safe_harbour_scan(registry: &SMRegistry) -> Vec<(SMId, SMEvent)> {
                 | DepositState::SweepNoncesCollected { .. }
                 | DepositState::Spent { .. }
                 | DepositState::Aborted
-                | DepositState::Skipped => return None,
+                | DepositState::Skipped
+                | DepositState::ParticipationDeclined => return None,
             };
 
             Some((SMId::Deposit(deposit_idx), event.into()))

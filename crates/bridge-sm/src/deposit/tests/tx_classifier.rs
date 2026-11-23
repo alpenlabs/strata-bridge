@@ -84,6 +84,11 @@ mod tests {
                 claim_txids: BTreeMap::new(),
                 pubnonces: Default::default(),
             },
+            DepositState::ParticipationPending {
+                last_block_height: h,
+                deposit_transaction: test_deposit_txn(),
+                graph_contexts: vec![],
+            },
         ]
     }
 

@@ -30,7 +30,10 @@ impl DepositSM {
         &mut self,
         takeback: UserTakeBackEvent,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        if matches!(self.state(), DepositState::Aborted | DepositState::Skipped) {
+        if matches!(
+            self.state(),
+            DepositState::Aborted | DepositState::Skipped | DepositState::ParticipationDeclined
+        ) {
             return Err(DSMError::duplicate(self.state().clone(), takeback.into()));
         }
 
@@ -171,12 +174,16 @@ impl DepositSM {
                         Ok(DSMOutput::new())
                     }
 
-                    // An abort can preempt graph generation and a skip never starts it; drop
-                    // late links rather than escalate (GraphMessage is not softened).
-                    DepositState::Aborted | DepositState::Skipped => Err(DSMError::rejected(
+                    // An abort can preempt graph generation, and a skipped, pending or declined
+                    // deposit never starts it; drop late links rather than escalate
+                    // (GraphMessage is not softened).
+                    DepositState::Aborted
+                    | DepositState::Skipped
+                    | DepositState::ParticipationPending { .. }
+                    | DepositState::ParticipationDeclined => Err(DSMError::rejected(
                         self.state().clone(),
                         DepositEvent::GraphMessage(graph_msg),
-                        "deposit aborted or skipped; graph links are no longer collected",
+                        "deposit has no graphs in this state; graph links are not collected",
                     )),
 
                     // The full graph set was collected on leaving `Created`, so a late
@@ -512,7 +519,11 @@ impl DepositSM {
     /// Returns `None` if the deposit UTXO has been confirmed spent on-chain.
     pub fn spendable_deposit_request_outpoint(&self) -> Option<OutPoint> {
         match self.state() {
-            DepositState::Created {
+            DepositState::ParticipationPending {
+                deposit_transaction,
+                ..
+            }
+            | DepositState::Created {
                 deposit_transaction,
                 ..
             }

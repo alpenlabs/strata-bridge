@@ -47,7 +47,7 @@ impl TxClassifier for DepositSM {
 
         match self.state() {
             // initial states expect DRT spend but that is handled above.
-            DepositState::Created { .. } => None,
+            DepositState::Created { .. } | DepositState::ParticipationPending { .. } => None,
             DepositState::GraphGenerated { .. } => None,
 
             // expect deposit confirmation
@@ -94,7 +94,7 @@ impl TxClassifier for DepositSM {
             // terminal states expect no txs
             DepositState::Spent { .. } => None,
             DepositState::Aborted => None,
-            DepositState::Skipped => None,
+            DepositState::Skipped | DepositState::ParticipationDeclined => None,
         }
     }
 }
