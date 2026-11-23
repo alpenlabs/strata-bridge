@@ -83,6 +83,7 @@ impl StakeSM {
         let initial_duty = (sm.context().operator_table().pov_idx() == sm.context().operator_idx())
             .then_some(StakeDuty::PublishStakeData {
                 operator_idx: sm.context().operator_idx(),
+                cfg: sm.cfg.clone(),
             });
 
         (sm, initial_duty)

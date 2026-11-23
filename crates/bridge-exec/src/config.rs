@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bitcoin::{Amount, FeeRate, Network};
+use bitcoin::{FeeRate, Network};
 
 use crate::fees::FeeQuoteMemo;
 
@@ -19,10 +19,6 @@ pub struct ExecutionConfig {
     /// Maximum fee rate for broadcasting transactions. If the estimated fee rate exceeds this,
     /// the transaction will not be broadcast.
     pub maximum_fee_rate: FeeRate,
-
-    /// The amount of BTC this operator stakes as collateral. The stake-funding UTXO spent by the
-    /// stake transaction must carry `stake_amount` plus any connector dust the stake tx produces.
-    pub stake_amount: Amount,
 
     /// The target number of claim-funding UTXOs to keep available in the reserved wallet for
     /// each claim-funding amount. When the pool of a graph's amount is exhausted, the duty

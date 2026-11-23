@@ -24,9 +24,12 @@ pub async fn execute_stake_duty(
 ) -> Result<(), ExecutorError> {
     info!(%stake_key, "executing covenant-qualified stake duty");
     match duty {
-        StakeDuty::PublishStakeData { operator_idx } => {
+        StakeDuty::PublishStakeData {
+            operator_idx,
+            cfg: stake_cfg,
+        } => {
             info!(%operator_idx, "executing StakeDuty::PublishStakeData");
-            staking::publish_stake_data(&cfg, &output_handles, stake_key).await
+            staking::publish_stake_data(&cfg, &output_handles, stake_key, stake_cfg).await
         }
         StakeDuty::PublishUnstakingNonces {
             operator_idx,
@@ -70,9 +73,10 @@ pub async fn execute_stake_duty(
             operator_idx,
             tx,
             anchor_key,
+            cfg: stake_cfg,
         } => {
             info!(%operator_idx, stake_txid=%tx.compute_txid(), "executing StakeDuty::PublishStake");
-            staking::publish_stake(&cfg, &output_handles, tx, *anchor_key).await
+            staking::publish_stake(&output_handles, tx, *anchor_key, stake_cfg).await
         }
         StakeDuty::PublishUnstakingIntent {
             unsigned_tx,

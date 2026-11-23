@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use musig2::{aggregate_partial_signatures, verify_partial};
 use strata_bridge_connectors::{Connector, ParentTx};
 use strata_bridge_primitives::key_agg::create_agg_ctx;
@@ -23,7 +25,7 @@ impl StakeSM {
     /// partial signatures, the machine transitions to [`StakeState::UnstakingSigned`].
     pub(crate) fn process_unstaking_partials_received(
         &mut self,
-        cfg: &StakeSMCfg,
+        cfg: &Arc<StakeSMCfg>,
         event: UnstakingPartialsReceivedEvent,
     ) -> SSMResult<SSMOutput> {
         self.check_operator_idx(event.operator_idx, &event)?;
@@ -64,7 +66,7 @@ impl StakeSM {
                     .get(&event.operator_idx)
                     .expect("operator index has been validated above")
                     .clone();
-                let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
+                let stake_graph = StakeGraph::new(stake_data.expand(**cfg, &context));
                 let signing_infos = stake_graph.musig_signing_info();
                 let agg_nonces_functor = agg_nonces.as_ref().clone();
 
@@ -137,13 +139,14 @@ impl StakeSM {
                     .boxed();
 
                     if context.operator_table().pov_idx() == context.operator_idx() {
-                        let stake_graph = StakeGraph::new(stake_data.expand(*cfg, &context));
+                        let stake_graph = StakeGraph::new(stake_data.expand(**cfg, &context));
                         let anchor_key = stake_graph.stake.cpfp_connector().internal_key();
                         let stake_tx = stake_graph.stake.as_ref().clone();
                         duties.push(StakeDuty::PublishStake {
                             operator_idx: context.operator_idx(),
                             tx: stake_tx,
                             anchor_key,
+                            cfg: cfg.clone(),
                         });
                     }
 
