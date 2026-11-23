@@ -70,7 +70,22 @@ pub(crate) async fn process_stake_pass(
         .map(|(&key, _)| SMId::Stake(key))
         .collect();
 
-    let magic = applicator.registry().cfg().deposit.magic_bytes;
+    // Exits are tagged with the magic bytes of the stake or graph they spend.
+    let registry = applicator.registry();
+    let mut magics = vec![registry.cfg().deposit.magic_bytes];
+    for magic in registry
+        .stakes()
+        .map(|(_, sm)| sm.cfg().protocol_params.magic_bytes)
+        .chain(
+            registry
+                .graphs()
+                .map(|(_, sm)| sm.cfg().game_graph_params.magic_bytes),
+        )
+    {
+        if !magics.contains(&magic) {
+            magics.push(magic);
+        }
+    }
 
     // Authenticate exits only when membership needs to advance. Recovery replays blocks
     // at or below its cursor to catch up lagging stakes; revalidating their public exits
@@ -84,7 +99,7 @@ pub(crate) async fn process_stake_pass(
     for (tx_index, tx) in block_event.block.txdata.iter().enumerate() {
         if observe_exits
             && let Some(observation) =
-                resolve_exit_observation(bitcoin_client, magic, tx, tx_index).await?
+                resolve_exit_observation(bitcoin_client, &magics, tx, tx_index).await?
         {
             observations.push(observation);
         }
@@ -387,7 +402,15 @@ fn try_register_deposit(
             operator_table: local_table.clone(),
         };
 
-        let (gsm, duty) = GraphSM::new(graph_cfg.clone(), gsm_ctx, height);
+        // The stake connector spends the bound stake output, so it uses that stake's amount.
+        let gsm_cfg = if graph_cfg.game_graph_params.stake_amount == binding.stake_amount {
+            graph_cfg.clone()
+        } else {
+            let mut cfg = (*graph_cfg).clone();
+            cfg.game_graph_params.stake_amount = binding.stake_amount;
+            Arc::new(cfg)
+        };
+        let (gsm, duty) = GraphSM::new(gsm_cfg, gsm_ctx, height);
 
         info!(%graph_idx, "registering new GraphSM for detected DRT");
         applicator.insert_graph(gsm.context().graph_idx(), gsm)?;
@@ -1657,6 +1680,37 @@ mod tests {
             duty_operator_table, &operator_table,
             "initial graph duty must carry the active operator-table snapshot"
         );
+    }
+
+    #[test]
+    fn new_graphs_use_the_stake_amount_of_their_bound_stakes() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut startup = test_sm_config();
+        let stake_amount = startup.stake.protocol_params.stake_amount;
+        Arc::make_mut(&mut startup.graph)
+            .game_graph_params
+            .stake_amount = stake_amount + bitcoin::Amount::from_sat(1);
+        let mut registry = SMRegistry::new(startup);
+        confirm_all_stakes(&mut registry, &operator_table);
+
+        let tx = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let mut applicator = Applicator::new(&mut registry, None);
+        try_register_deposit(
+            &cfg,
+            &block_covenant_for(&operator_table),
+            TEST_POV_IDX,
+            &mut applicator,
+            &tx,
+            TEST_HEIGHT,
+        )
+        .unwrap();
+        let _ = applicator.finish();
+
+        assert_eq!(registry.get_graph_ids().len(), N_TEST_OPERATORS);
+        for (_, gsm) in registry.graphs() {
+            assert_eq!(gsm.cfg().game_graph_params.stake_amount, stake_amount);
+        }
     }
 
     /// Returns the covenants finalized before and after `exited` leaves [`test_membership`].
