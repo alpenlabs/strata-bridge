@@ -23,6 +23,7 @@ impl StakeSM {
             {
                 vec![StakeDuty::PublishStakeData {
                     operator_idx: self.context().operator_idx(),
+                    cfg: self.cfg.clone(),
                 }]
             }
             StakeState::UnstakingSigned { stake_data, .. }
@@ -33,6 +34,7 @@ impl StakeSM {
                     operator_idx: self.context().operator_idx(),
                     tx: stake_graph.stake.as_ref().clone(),
                     anchor_key: stake_graph.stake.cpfp_connector().internal_key(),
+                    cfg: self.cfg.clone(),
                 }]
             }
             _ => Vec::new(),

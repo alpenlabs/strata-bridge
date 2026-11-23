@@ -95,6 +95,7 @@ fn accept_partials_all_collected_pov() {
             operator_idx: 0,
             tx: TEST_GRAPH.stake.as_ref().clone(),
             anchor_key: TEST_GRAPH.stake.cpfp_connector().internal_key(),
+            cfg: TEST_CFG.clone(),
         }],
         expected_signals: vec![],
     });

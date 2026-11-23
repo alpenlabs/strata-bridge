@@ -78,6 +78,7 @@ impl StakeSM {
             | StakeState::UnstakingNoncesCollected { .. }
             | StakeState::UnstakingSigned { .. } => Ok(vec![StakeDuty::PublishStakeData {
                 operator_idx: self.context().operator_idx(),
+                cfg: self.cfg.clone(),
             }]),
             _ => {
                 tracing::debug!(

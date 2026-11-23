@@ -21,6 +21,7 @@ fn retry_publish_stake() {
             operator_idx: TEST_POV_IDX,
             tx: stake_graph.stake.as_ref().clone(),
             anchor_key: stake_graph.stake.cpfp_connector().internal_key(),
+            cfg: TEST_CFG.clone(),
         }],
     });
 }
@@ -96,6 +97,7 @@ fn retry_created_stake_only_for_local_owner() {
         event: RetryTickEvent.into(),
         expected_duties: vec![StakeDuty::PublishStakeData {
             operator_idx: TEST_POV_IDX,
+            cfg: TEST_CFG.clone(),
         }],
     });
     test_nonpov_handler_output(StakeHandlerOutput {
