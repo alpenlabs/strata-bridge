@@ -2507,7 +2507,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2564,6 +2564,17 @@ dependencies = [
  "serde",
  "ssz 0.17.0",
  "ssz_types 0.17.0",
+]
+
+[[package]]
+name = "bitcoin-bosd"
+version = "0.12.0"
+source = "git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0#2721a8b810ff1fdc9aaa9c4eaddee1b88074f007"
+dependencies = [
+ "bitcoin",
+ "hex-conservative 0.2.2",
+ "secp256k1 0.29.1",
+ "serde",
 ]
 
 [[package]]
@@ -3783,7 +3794,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -3983,7 +3994,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoincore-rpc",
  "clap",
  "hex",
@@ -4394,7 +4405,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4504,7 +4515,7 @@ checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if 1.0.4",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7957,7 +7968,7 @@ version = "0.1.0"
 dependencies = [
  "bdk_bitcoind_rpc",
  "bdk_wallet",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "corepc-node",
  "operator-wallet",
  "rand 0.8.8",
@@ -8998,7 +9009,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.3",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9648,7 +9659,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9716,7 +9727,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9737,7 +9748,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.10",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9758,7 +9769,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs 1.0.10",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -11753,7 +11764,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/asm?tag=v0.4.0-rc.6#afaf935727c34acf07967420fe3c4584428f5550"
 dependencies = [
  "arbitrary",
- "bitcoin-bosd 0.12.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.12.0)",
  "bitvec",
  "borsh",
  "serde",
@@ -12183,7 +12194,7 @@ dependencies = [
  "async-trait",
  "bdk_bitcoind_rpc",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoind-async-client",
  "btc-tracker",
  "chrono",
@@ -12244,7 +12255,7 @@ dependencies = [
  "algebra",
  "async-trait",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "btc-tracker",
  "futures",
  "jsonrpsee",
@@ -12271,7 +12282,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "hex",
  "secp256k1 0.29.1",
  "serde",
@@ -12334,7 +12345,7 @@ name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "foundationdb",
  "libp2p-identity",
  "postcard",
@@ -12359,7 +12370,7 @@ dependencies = [
  "async-trait",
  "bdk_bitcoind_rpc",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoind-async-client",
  "borsh",
  "btc-tracker",
@@ -12428,7 +12439,7 @@ name = "strata-bridge-orchestrator"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoind-async-client",
  "btc-tracker",
  "futures",
@@ -12489,7 +12500,7 @@ name = "strata-bridge-p2p-types"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "libp2p-identity",
  "musig2",
  "proptest",
@@ -12510,7 +12521,7 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoin-script",
  "futures",
  "hex",
@@ -12603,7 +12614,7 @@ name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "borsh",
  "musig2",
  "postcard",
@@ -12645,7 +12656,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "bitcoind-async-client",
  "corepc-node",
  "hex",
@@ -12666,7 +12677,7 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "bitcoin",
- "bitcoin-bosd 0.14.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.13.0)",
  "futures",
  "secp256k1 0.29.1",
  "serde",
@@ -12686,7 +12697,7 @@ source = "git+https://github.com/alpenlabs/strata-common?tag=v0.4.0-rc.3#4b7fd84
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.12.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.12.0)",
  "borsh",
  "serde",
  "ssz 0.17.0",
@@ -12708,7 +12719,7 @@ source = "git+https://github.com/alpenlabs/strata-common?tag=v0.6.0#80bf497552e6
 dependencies = [
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd 0.12.0",
+ "bitcoin-bosd 0.12.0 (git+https://github.com/alpenlabs/bitcoin-bosd?tag=v0.12.0)",
  "serde",
  "ssz 0.19.0",
  "ssz_codegen 0.19.0",
@@ -13379,7 +13390,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
