@@ -180,7 +180,7 @@ mod tests {
     use strata_bridge_sm::stake::context::StakeSMCtx;
 
     use super::*;
-    use crate::testing::{test_deposit_sm_cfg, test_operator_table};
+    use crate::testing::{test_deposit_sm_cfg, test_operator_table, test_stake_sm_cfg};
 
     fn dummy_tx() -> Transaction {
         Transaction {
@@ -224,7 +224,10 @@ mod tests {
 
         let stake = UnifiedDuty::Stake {
             stake_key: StakeSMCtx::new(0, test_operator_table(3, 0), 100).stake_key(),
-            duty: StakeDuty::PublishStakeData { operator_idx: 0 },
+            duty: StakeDuty::PublishStakeData {
+                operator_idx: 0,
+                cfg: test_stake_sm_cfg(),
+            },
         };
         assert!(!stake.should_suppress_under_safe_harbour());
     }

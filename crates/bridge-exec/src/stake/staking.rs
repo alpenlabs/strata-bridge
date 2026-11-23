@@ -4,7 +4,7 @@
 //! the stake transaction.
 
 use bitcoin::{
-    Amount, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+    Amount, FeeRate, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     hashes::{Hash, sha256},
     secp256k1::{Message, XOnlyPublicKey},
     sighash::{Prevouts, SighashCache},
@@ -24,7 +24,10 @@ use strata_bridge_primitives::{
     covenant::StakeKey,
     scripts::taproot::{TaprootTweak, create_key_spend_hash},
 };
-use strata_bridge_tx_graph::{fee, musig_functor::StakeFunctor, transactions::prelude::StakeTx};
+use strata_bridge_sm::stake::config::StakeSMCfg;
+use strata_bridge_tx_graph::{
+    fee, musig_functor::StakeFunctor, stake_graph::ProtocolParams, transactions::prelude::StakeTx,
+};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -40,12 +43,13 @@ pub(crate) async fn publish_stake_data(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     stake_key: StakeKey,
+    stake_cfg: &StakeSMCfg,
 ) -> Result<(), ExecutorError> {
     let operator_idx = stake_key.operator;
     info!(%stake_key, "executing duty to publish stake data");
 
     let (reservation, parent_fee) =
-        read_or_create_stake_funding(cfg, output_handles, stake_key).await?;
+        read_or_create_stake_funding(cfg, output_handles, stake_key, stake_cfg).await?;
 
     let stake_funding_txid = reservation.unsigned_tx.compute_txid();
     let stake_funds = OutPoint {
@@ -115,9 +119,10 @@ async fn read_or_create_stake_funding(
     cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     stake_key: StakeKey,
+    stake_cfg: &StakeSMCfg,
 ) -> Result<(StakeFundingReservation, ParentFee), ExecutorError> {
     let operator_idx = stake_key.operator;
-    let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
+    let funding_amount = stake_funding_amount(stake_cfg);
     // Read before the wallet guard, because this can wait for the source for up to
     // `QUOTE_READ_TIMEOUT`. A stored reservation does not use the rate, so its error applies only
     // when this path builds a new funding transaction; the read itself runs on every stake duty.
@@ -376,10 +381,10 @@ pub(crate) async fn publish_unstaking_partials(
 }
 
 pub(crate) async fn publish_stake(
-    cfg: &ExecutionConfig,
     output_handles: &OutputHandles,
     tx: &Transaction,
     anchor_key: XOnlyPublicKey,
+    stake_cfg: &StakeSMCfg,
 ) -> Result<(), ExecutorError> {
     let stake_txid = tx.compute_txid();
     let funding_input = tx.input[0].previous_output;
@@ -389,7 +394,7 @@ pub(crate) async fn publish_stake(
     // Reconstruct the prevout from known values: the funding UTXO is always at the reserved
     // address with value `stake_amount + unstaking_intent_output.value() + stake_fee`.
     let reserved_script = output_handles.wallet.read().await.reserved_script_pubkey();
-    let funding_amount = stake_funding_amount(cfg.network, cfg.stake_amount);
+    let funding_amount = stake_funding_amount(stake_cfg);
     let prevout = TxOut {
         script_pubkey: reserved_script,
         value: funding_amount,
@@ -440,7 +445,12 @@ pub(crate) async fn publish_stake(
 /// The stake transaction spends this UTXO into the NOfN stake connector (`stake_amount`), the
 /// unstaking-intent connector (with its presigned-tx fee surcharge baked in), a zero-value CPFP
 /// anchor, and the stake transaction's own fee.
-fn stake_funding_amount(network: Network, stake_amount: Amount) -> Amount {
+fn stake_funding_amount(stake_cfg: &StakeSMCfg) -> Amount {
+    let ProtocolParams {
+        network,
+        stake_amount,
+        ..
+    } = stake_cfg.protocol_params;
     // `UnstakingIntentOutput::value()` is the P2TR script's `minimal_non_dust()` plus a surcharge
     // that depends only on the script kind — not on the particular n-of-n key or unstaking image.
     // We supply a dummy x-only pubkey (the generator point's x-coordinate) and a zero image so we
