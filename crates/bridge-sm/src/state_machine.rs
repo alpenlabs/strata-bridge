@@ -126,7 +126,7 @@ where
 /// ```ignore
 /// impl StateMachine for DepositSM {
 ///     type Duty = DepositDuty;
-///     type Config = Arc<DepositSMCfg>;
+///     type Config = ();
 ///     type OutgoingSignal = DepositSignal;  // Can only emit DepositSignal variants
 ///     type Event = DepositEvent;
 ///     type Error = DSMError;

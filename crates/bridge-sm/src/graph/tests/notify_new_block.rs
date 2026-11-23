@@ -160,7 +160,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: claimed_state(
                     INITIAL_BLOCK_HEIGHT,
@@ -192,7 +192,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: claimed_state(
                     INITIAL_BLOCK_HEIGHT,
@@ -298,7 +298,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: contested_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -330,7 +330,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: contested_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -361,7 +361,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: contested_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -388,7 +388,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: contested_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -437,7 +437,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: bridge_proof_timedout_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -464,7 +464,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: bridge_proof_timedout_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -556,7 +556,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: bridge_proof_posted_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -582,7 +582,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: bridge_proof_posted_state_with(contest_height, Default::default()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -614,7 +614,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: bridge_proof_posted_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -648,7 +648,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: bridge_proof_posted_state_with(contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -686,7 +686,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -722,7 +722,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -764,7 +764,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -820,7 +820,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_without_refuted_proof_state_with(
                     contest_height,
@@ -859,7 +859,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_without_refuted_proof_state_with(
                     contest_height,
@@ -896,7 +896,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_without_refuted_proof_state_with(
                     contest_height,
@@ -933,7 +933,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_without_refuted_proof_state_with(
                     contest_height,
@@ -1000,7 +1000,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -1054,7 +1054,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -1105,7 +1105,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -1158,7 +1158,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: counter_proof_posted_state_with(
                     contest_height,
@@ -1233,7 +1233,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: acked_state_with(contest_height, contest_height, signatures.clone()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -1257,7 +1257,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: acked_state_with(contest_height, contest_height, Default::default()),
                 event: GraphEvent::NewBlock(NewBlockEvent {
@@ -1373,7 +1373,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: all_nackd_state_with(
                     contest_height,
@@ -1403,7 +1403,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: all_nackd_state_with(
                     contest_height,
@@ -1439,7 +1439,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: all_nackd_state_with(
                     contest_height,
@@ -1478,7 +1478,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: all_nackd_state_with(
                     contest_height,

@@ -1376,7 +1376,7 @@ mod tests {
         use crate::testing::{
             INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX,
             insert_deposit_with_graphs, insert_stakes_for_all_operators, random_p2tr_desc,
-            test_operator_table,
+            test_operator_table, test_stake_sm_cfg,
         };
 
         #[test]
@@ -1702,6 +1702,7 @@ mod tests {
             let mut registry = test_empty_registry();
             let mut stake_key_in = |table: &OperatorTable, activation_height| {
                 let (stake, _) = StakeSM::new(
+                    test_stake_sm_cfg(),
                     StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
                     INITIAL_BLOCK_HEIGHT,
                 );

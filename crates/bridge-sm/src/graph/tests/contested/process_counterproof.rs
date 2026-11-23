@@ -139,7 +139,7 @@ fn event_accepted_from_contested_nonpov() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         GraphTransition {
             from_state: contested_state(),
             event: GraphEvent::CounterProofConfirmed(event.clone()),
@@ -216,7 +216,7 @@ fn event_accepted_from_bridge_proof_posted_nonpov() {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
         create_nonpov_sm,
         get_state,
-        test_graph_sm_cfg(),
+        (),
         GraphTransition {
             from_state: bridge_proof_posted_state(),
             event: GraphEvent::CounterProofConfirmed(event.clone()),

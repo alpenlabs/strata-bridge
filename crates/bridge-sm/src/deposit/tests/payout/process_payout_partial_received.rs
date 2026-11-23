@@ -241,10 +241,10 @@ mod tests {
             operator_idx: TEST_NON_ASSIGNEE_IDX,
         });
 
-        sequence.process(test_deposit_sm_cfg(), event.clone());
+        sequence.process((), event.clone());
         sequence.assert_no_errors();
         // Second submission with same signature - should fail with Duplicate
-        sequence.process(test_deposit_sm_cfg(), event);
+        sequence.process((), event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -285,10 +285,10 @@ mod tests {
             operator_idx: TEST_NON_ASSIGNEE_IDX,
         });
 
-        sequence.process(test_deposit_sm_cfg(), first_event);
+        sequence.process((), first_event);
         sequence.assert_no_errors();
         // Second submission with different signature but same operator - should fail with Duplicate
-        sequence.process(test_deposit_sm_cfg(), duplicate_event);
+        sequence.process((), duplicate_event);
 
         let errors = sequence.all_errors();
         assert_eq!(
@@ -318,7 +318,7 @@ mod tests {
             partial_signature: partial_sig,
             operator_idx: u32::MAX,
         });
-        seq.process(test_deposit_sm_cfg(), event.clone());
+        seq.process((), event.clone());
 
         // Verify rejection with test_invalid_transition
         test_deposit_invalid_transition(DepositInvalidTransition {

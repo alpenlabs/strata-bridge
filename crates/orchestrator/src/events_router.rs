@@ -473,6 +473,7 @@ mod covenant_wire_tests {
         sm_types::{OperatorKey, UnifiedDuty},
         testing::{
             N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, test_empty_registry, test_operator_table,
+            test_stake_sm_cfg,
         },
     };
 
@@ -483,6 +484,7 @@ mod covenant_wire_tests {
         let mut keys = Vec::new();
         for activation_height in [100, 200] {
             let (stake, _) = StakeSM::new(
+                test_stake_sm_cfg(),
                 StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
                 100,
             );
@@ -519,6 +521,7 @@ mod covenant_wire_tests {
         let mut keys = Vec::new();
         for activation_height in [100, 200] {
             let (stake, _) = StakeSM::new(
+                test_stake_sm_cfg(),
                 StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
                 100,
             );
@@ -550,6 +553,7 @@ mod covenant_wire_tests {
         let mut keys = Vec::new();
         for activation_height in [100, 200] {
             let (stake, _) = StakeSM::new(
+                test_stake_sm_cfg(),
                 StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
                 100,
             );
@@ -590,6 +594,7 @@ mod covenant_wire_tests {
         let mut keys = Vec::new();
         for activation_height in [100, 200] {
             let (stake, _) = StakeSM::new(
+                test_stake_sm_cfg(),
                 StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
                 100,
             );

@@ -18,7 +18,7 @@ mod tx_classifier;
 
 use std::{
     num::NonZero,
-    sync::{Arc, OnceLock},
+    sync::{Arc, LazyLock, OnceLock},
 };
 
 use bitcoin::{
@@ -111,34 +111,38 @@ const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
 
 // ===== Configuration Helpers =====
 
-/// Creates a test bridge-wide GSM configuration.
+/// Creates a test GSM configuration.
 pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
-    let payout_descs = (0..N_TEST_OPERATORS as OperatorIdx)
-        .map(|idx| (idx, random_p2tr_desc()))
-        .collect();
+    static CFG: LazyLock<Arc<GraphSMCfg>> = LazyLock::new(|| {
+        let payout_descs = (0..N_TEST_OPERATORS as OperatorIdx)
+            .map(|idx| (idx, random_p2tr_desc()))
+            .collect();
 
-    Arc::new(GraphSMCfg {
-        game_graph_params: ProtocolParams {
-            network: Network::Regtest,
-            magic_bytes: TEST_MAGIC_BYTES.into(),
-            contest_timelock: CONTEST_TIMELOCK,
-            proof_timelock: PROOF_TIMELOCK,
-            ack_timelock: ACK_TIMELOCK,
-            nack_timelock: NACK_TIMELOCK,
-            contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
-            counterproof_n_data: NonZero::new(128).unwrap(),
-            deposit_amount: TEST_DEPOSIT_AMOUNT,
-            stake_amount: STAKE_AMOUNT,
-        },
-        admin: AdminMultisig {
-            pubkeys: vec![generate_xonly_pubkey()],
-            threshold: 1,
-        },
-        operator_fee: TEST_OPERATOR_FEE,
-        payout_descs,
-        bridge_proof_predicate: PredicateKey::always_accept(),
-        counterproof_predicate: PredicateKey::always_accept(),
-    })
+        Arc::new(GraphSMCfg {
+            game_graph_params: ProtocolParams {
+                network: Network::Regtest,
+                magic_bytes: TEST_MAGIC_BYTES.into(),
+                contest_timelock: CONTEST_TIMELOCK,
+                proof_timelock: PROOF_TIMELOCK,
+                ack_timelock: ACK_TIMELOCK,
+                nack_timelock: NACK_TIMELOCK,
+                contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
+                counterproof_n_data: NonZero::new(128).unwrap(),
+                deposit_amount: TEST_DEPOSIT_AMOUNT,
+                stake_amount: STAKE_AMOUNT,
+            },
+            admin: AdminMultisig {
+                pubkeys: vec![generate_xonly_pubkey()],
+                threshold: 1,
+            },
+            operator_fee: TEST_OPERATOR_FEE,
+            payout_descs,
+            bridge_proof_predicate: PredicateKey::always_accept(),
+            counterproof_predicate: PredicateKey::always_accept(),
+        })
+    });
+
+    CFG.clone()
 }
 
 /// Creates a GraphSM for a POV operator.
@@ -390,12 +394,7 @@ pub(super) type GraphTransition = Transition<GraphState, GraphEvent, GraphDuty, 
 
 /// Test a valid GraphSM transition with pre-configured test helpers.
 pub(super) fn test_graph_transition(transition: GraphTransition) {
-    test_transition::<GraphSM, _, _, _, _, _, _, _>(
-        create_sm,
-        get_state,
-        test_graph_sm_cfg(),
-        transition,
-    );
+    test_transition::<GraphSM, _, _, _, _, _, _, _>(create_sm, get_state, (), transition);
 }
 
 /// Type alias for invalid GraphSM transitions.
@@ -408,7 +407,7 @@ pub(super) fn test_graph_invalid_transition_with<CreateFn>(
 ) where
     CreateFn: Fn(GraphState) -> GraphSM,
 {
-    test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, test_graph_sm_cfg(), invalid);
+    test_invalid_transition::<GraphSM, _, _, _, _, _, _>(create_sm, (), invalid);
 }
 
 /// Test an invalid GraphSM transition with pre-configured test helpers.
@@ -431,9 +430,12 @@ pub(super) struct GraphHandlerOutput {
 /// Helper for testing handlers for graphs owned by the POV (`create_sm`).
 pub(super) fn test_pov_owned_handler_output(cfg: Arc<GraphSMCfg>, output: GraphHandlerOutput) {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
-        create_sm,
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: output.state.clone(),
             event: output.event,
@@ -447,9 +449,12 @@ pub(super) fn test_pov_owned_handler_output(cfg: Arc<GraphSMCfg>, output: GraphH
 /// Helper for testing handlers for graphs not owned by the POV (`create_nonpov_sm`).
 pub(super) fn test_nonpov_owned_handler_output(cfg: Arc<GraphSMCfg>, output: GraphHandlerOutput) {
     test_transition::<GraphSM, _, _, _, _, _, _, _>(
-        create_nonpov_sm,
+        |state| GraphSM {
+            cfg: cfg.clone(),
+            ..create_nonpov_sm(state)
+        },
         get_state,
-        cfg,
+        (),
         GraphTransition {
             from_state: output.state.clone(),
             event: output.event,

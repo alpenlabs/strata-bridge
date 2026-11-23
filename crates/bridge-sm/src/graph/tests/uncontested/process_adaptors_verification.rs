@@ -12,7 +12,6 @@ mod tests {
             tests::{
                 GraphInvalidTransition, create_nonpov_sm, create_sm, get_state,
                 mock_states::test_graph_generated_state, test_graph_invalid_transition,
-                test_graph_sm_cfg,
             },
         },
         testing::EventSequence,
@@ -25,10 +24,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // GraphGenerated → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
+        seq.process((), GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}));
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
@@ -51,10 +47,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // First event should succeed: GraphGenerated → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
+        seq.process((), GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}));
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
@@ -73,18 +66,12 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // First event should succeed: GraphGenerated → AdaptorsVerified
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
+        seq.process((), GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}));
         seq.assert_no_errors();
         assert!(matches!(seq.state(), GraphState::AdaptorsVerified { .. }));
 
         // Duplicate event from AdaptorsVerified should produce a Duplicate error
-        seq.process(
-            test_graph_sm_cfg(),
-            GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}),
-        );
+        seq.process((), GraphEvent::AdaptorsVerified(AdaptorsVerifiedEvent {}));
         // Check that a duplicate error was raised
         assert!(
             matches!(seq.all_errors().as_slice(), [GSMError::Duplicate { .. }]),

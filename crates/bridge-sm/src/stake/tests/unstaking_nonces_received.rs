@@ -90,7 +90,7 @@ fn accept_nonces_all_collected() {
     }
     .into();
 
-    seq.process(TEST_CFG.clone(), event);
+    seq.process((), event);
 
     let new_state = seq.state();
     assert!(matches!(new_state,

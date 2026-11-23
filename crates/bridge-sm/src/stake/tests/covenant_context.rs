@@ -43,7 +43,7 @@ fn participants_emit_duties_for_their_own_covenant() {
                 .map(|key| key.x_only_public_key().0)
                 .collect();
             let ctx = StakeSMCtx::new(TEST_POV_IDX, table, height);
-            let (mut sm, duty) = StakeSM::new(ctx, 200);
+            let (mut sm, duty) = StakeSM::new(TEST_CFG.clone(), ctx, 200);
             if local == TEST_POV_IDX {
                 assert!(
                     matches!(duty, Some(StakeDuty::PublishStakeData { operator_idx }) if operator_idx == TEST_POV_IDX)
@@ -53,7 +53,7 @@ fn participants_emit_duties_for_their_own_covenant() {
             }
             let out = sm
                 .process_event(
-                    TEST_CFG.clone(),
+                    (),
                     StakeEvent::StakeDataReceived(StakeDataReceivedEvent {
                         stake_funds: OutPoint::default(),
                         unstaking_image: sha256::Hash::all_zeros(),
@@ -70,7 +70,7 @@ fn participants_emit_duties_for_their_own_covenant() {
             for (i, operator_idx) in operator_idxs.into_iter().enumerate() {
                 let out = sm
                     .process_event(
-                        TEST_CFG.clone(),
+                        (),
                         StakeEvent::UnstakingNoncesReceived(UnstakingNoncesReceivedEvent {
                             operator_idx,
                             pub_nonces: TEST_PUB_NONCES_MAP[&operator_idx].clone().into(),
@@ -100,7 +100,7 @@ fn context_preserves_activation_height_and_table_pov_through_serialization() {
                 .with_pov(local)
                 .unwrap();
             let ctx = StakeSMCtx::new(TEST_POV_IDX, table, height);
-            let (sm, _) = StakeSM::new(ctx, 999);
+            let (sm, _) = StakeSM::new(TEST_CFG.clone(), ctx, 999);
             assert_eq!(sm.context().stake_key(), key(height));
             assert_eq!(sm.context().operator_table().pov_idx(), local);
             let bytes = postcard::to_allocvec(&sm).unwrap();

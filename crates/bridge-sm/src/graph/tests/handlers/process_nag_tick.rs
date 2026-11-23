@@ -14,8 +14,8 @@ mod tests {
             tests::{
                 GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, N_TEST_OPERATORS,
                 TEST_ASSIGNEE, TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, get_state,
-                test_deposit_params, test_graph_sm_cfg, test_graph_sm_ctx, test_graph_summary,
-                test_graph_transition, test_operator_table, test_recipient_desc,
+                test_deposit_params, test_graph_sm_ctx, test_graph_summary, test_graph_transition,
+                test_operator_table, test_recipient_desc,
             },
         },
         testing::test_transition,
@@ -69,7 +69,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            test_graph_sm_cfg(),
+            (),
             GraphTransition {
                 from_state: state.clone(),
                 event: GraphEvent::NagTick(NagTickEvent),

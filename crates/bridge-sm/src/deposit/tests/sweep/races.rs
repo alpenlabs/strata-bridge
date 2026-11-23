@@ -53,7 +53,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::SweepRequested(SweepRequestedEvent {
                 safe_harbour_desc: desc.clone(),
             }),
@@ -65,7 +65,7 @@ mod tests {
             .collect();
         for (operator_idx, sweep_nonce) in &nonces {
             seq.process(
-                test_deposit_sm_cfg(),
+                (),
                 DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
                     sweep_nonce: sweep_nonce.clone(),
                     operator_idx: *operator_idx,
@@ -77,7 +77,7 @@ mod tests {
         for signer in &signers {
             let partial = signer.sign(&key_agg_ctx, nonce_counter, &agg_nonce, message);
             seq.process(
-                test_deposit_sm_cfg(),
+                (),
                 DepositEvent::SweepPartialReceived(SweepPartialReceivedEvent {
                     partial_signature: partial,
                     operator_idx: signer.operator_idx(),
@@ -112,7 +112,7 @@ mod tests {
         let finalized = (**duty_sweep_tx).clone().finalize(agg_signature);
 
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::PayoutConfirmed(PayoutConfirmedEvent { tx: finalized }),
         );
         seq.assert_no_errors()
@@ -148,7 +148,7 @@ mod tests {
 
         // The sweep starts and collects one nonce, then the racing payout confirms.
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::SweepRequested(SweepRequestedEvent {
                 safe_harbour_desc: desc.clone(),
             }),
@@ -156,7 +156,7 @@ mod tests {
         let sweep_tx = test_sweep_txn(desc);
         let (key_agg_ctx, _) = get_sweep_signing_info(&sweep_tx, &signers);
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::SweepNonceReceived(SweepNonceReceivedEvent {
                 sweep_nonce: signers[0].pubnonce(key_agg_ctx.aggregated_pubkey(), 0),
                 operator_idx: signers[0].operator_idx(),
@@ -164,7 +164,7 @@ mod tests {
         );
 
         seq.process(
-            test_deposit_sm_cfg(),
+            (),
             DepositEvent::PayoutConfirmed(PayoutConfirmedEvent {
                 tx: test_payout_tx(test_deposit_outpoint()),
             }),

@@ -76,7 +76,6 @@ mod tests {
 
     #[test]
     fn test_deposit_request_taken_back_aborts_pre_assignment_states() {
-        let cfg = test_graph_sm_cfg();
         let takeback_txid = generate_txid();
         let mut states = vec![GraphState::Created {
             last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -89,7 +88,7 @@ mod tests {
             test_transition::<GraphSM, _, _, _, _, _, _, _>(
                 crate::graph::tests::create_sm,
                 get_state,
-                cfg.clone(),
+                (),
                 GraphTransition {
                     from_state,
                     event: deposit_request_taken_back_event(TEST_DEPOSIT_IDX, takeback_txid),
@@ -108,7 +107,6 @@ mod tests {
 
     #[test]
     fn test_duplicate_deposit_request_taken_back_is_rejected() {
-        let cfg = test_graph_sm_cfg();
         let takeback_txid = generate_txid();
         let from_state = GraphState::Aborted {
             claim_txid: None,
@@ -119,7 +117,7 @@ mod tests {
         let mut sm = crate::graph::tests::create_sm(from_state.clone());
 
         let result = sm.process_event(
-            cfg,
+            (),
             deposit_request_taken_back_event(TEST_DEPOSIT_IDX, takeback_txid),
         );
 
@@ -136,7 +134,6 @@ mod tests {
 
     #[test]
     fn test_deposit_request_taken_back_after_pre_assignment_is_invalid() {
-        let cfg = test_graph_sm_cfg();
         let takeback_txid = generate_txid();
 
         for initial_state in all_state_variants()
@@ -147,7 +144,7 @@ mod tests {
             let mut sm = crate::graph::tests::create_sm(initial_state.clone());
 
             let result = sm.process_event(
-                cfg.clone(),
+                (),
                 deposit_request_taken_back_event(TEST_DEPOSIT_IDX, takeback_txid),
             );
 
@@ -171,14 +168,13 @@ mod tests {
 
     #[test]
     fn test_deposit_request_taken_back_for_different_deposit_is_invalid() {
-        let cfg = test_graph_sm_cfg();
         let from_state = GraphState::Created {
             last_block_height: INITIAL_BLOCK_HEIGHT,
         };
         let mut sm = crate::graph::tests::create_sm(from_state.clone());
 
         let result = sm.process_event(
-            cfg,
+            (),
             deposit_request_taken_back_event(TEST_DEPOSIT_IDX + 1, generate_txid()),
         );
 
@@ -211,7 +207,7 @@ mod tests {
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             crate::graph::tests::create_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
                 event: coop_payout_failed_event(),
@@ -238,13 +234,12 @@ mod tests {
 
     #[test]
     fn test_coop_payout_failed_from_fulfilled_nonpov_no_duties() {
-        let cfg = test_graph_sm_cfg();
         let fulfillment_txid = generate_txid();
 
         test_transition::<GraphSM, _, _, _, _, _, _, _>(
             create_nonpov_sm,
             get_state,
-            cfg,
+            (),
             GraphTransition {
                 from_state: fulfilled_state(TEST_POV_IDX, fulfillment_txid),
                 event: coop_payout_failed_event(),
@@ -267,8 +262,6 @@ mod tests {
 
     #[test]
     fn test_stale_coop_payout_failed_after_fulfilled_is_rejected() {
-        let cfg = test_graph_sm_cfg();
-
         for initial_state in all_state_variants()
             .into_iter()
             .filter(is_after_fulfilled_state)
@@ -276,7 +269,7 @@ mod tests {
             let state_name = initial_state.to_string();
             let mut sm = crate::graph::tests::create_sm(initial_state.clone());
 
-            let result = sm.process_event(cfg.clone(), coop_payout_failed_event());
+            let result = sm.process_event((), coop_payout_failed_event());
 
             assert!(
                 matches!(

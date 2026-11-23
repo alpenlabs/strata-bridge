@@ -208,13 +208,12 @@ mod tests {
 
     #[test]
     fn classify_tx_recognizes_takeback_in_all_pre_deposit_states() {
-        let cfg = test_deposit_sm_cfg();
         for state in pre_deposit_states() {
             let sm = create_sm(state);
             let drt = sm
                 .spendable_deposit_request_outpoint()
                 .expect("pre-deposit states must have DRT outpoint");
-            let result = sm.classify_tx(&cfg, &test_takeback_tx(drt), LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &test_takeback_tx(drt), LATER_BLOCK_HEIGHT);
             assert!(
                 matches!(result, Some(DepositEvent::UserTakeBack(_))),
                 "expected Some(UserTakeBack) but got {result:?}"
@@ -224,11 +223,10 @@ mod tests {
 
     #[test]
     fn classify_tx_recognizes_deposit_confirmation() {
-        let cfg = test_deposit_sm_cfg();
         let deposit_tx = test_deposit_txn().as_ref().clone();
         for state in deposit_confirmation_states() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &deposit_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &deposit_tx, LATER_BLOCK_HEIGHT);
             assert!(
                 matches!(result, Some(DepositEvent::DepositConfirmed(_))),
                 "expected Some(DepositConfirmed) but got {result:?}"
@@ -238,9 +236,8 @@ mod tests {
 
     #[test]
     fn classify_tx_recognizes_fulfillment() {
-        let cfg = test_deposit_sm_cfg();
         let sm = create_sm(assigned_state());
-        let result = sm.classify_tx(&cfg, &test_fulfillment_tx(), LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(&(), &test_fulfillment_tx(), LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(DepositEvent::FulfillmentConfirmed(_))),
             "expected Some(FulfillmentConfirmed) but got {result:?}"
@@ -249,11 +246,10 @@ mod tests {
 
     #[test]
     fn classify_tx_recognizes_op_return_fulfillment() {
-        let cfg = test_deposit_sm_cfg();
         let recipient_desc = test_op_return_recipient_desc();
         let fulfillment_tx = test_fulfillment_tx_for_recipient(recipient_desc.clone());
         let sm = create_sm(assigned_state_with_recipient(recipient_desc));
-        let result = sm.classify_tx(&cfg, &fulfillment_tx, LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(&(), &fulfillment_tx, LATER_BLOCK_HEIGHT);
         assert!(
             matches!(result, Some(DepositEvent::FulfillmentConfirmed(_))),
             "expected Some(FulfillmentConfirmed) but got {result:?}"
@@ -262,11 +258,10 @@ mod tests {
 
     #[test]
     fn classify_tx_recognizes_deposit_spend_in_all_live_utxo_states() {
-        let cfg = test_deposit_sm_cfg();
         for state in live_deposit_utxo_states() {
             let sm = create_sm(state);
             let payout_tx = test_payout_tx(sm.context().deposit_outpoint());
-            let result = sm.classify_tx(&cfg, &payout_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &payout_tx, LATER_BLOCK_HEIGHT);
             assert!(
                 matches!(result, Some(DepositEvent::PayoutConfirmed(_))),
                 "expected Some(PayoutConfirmed) but got {result:?}"
@@ -278,7 +273,6 @@ mod tests {
 
     #[test]
     fn classify_tx_ignores_irrelevant_tx_in_all_states() {
-        let cfg = test_deposit_sm_cfg();
         let random_outpoint = OutPoint {
             txid: generate_txid(),
             vout: 99,
@@ -287,14 +281,13 @@ mod tests {
 
         for state in all_state_variants() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &irrelevant_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &irrelevant_tx, LATER_BLOCK_HEIGHT);
             assert!(result.is_none(), "expected None but got {:?}", result);
         }
     }
 
     #[test]
     fn classify_tx_returns_none_in_terminal_states() {
-        let cfg = test_deposit_sm_cfg();
         let terminal = [
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
@@ -309,19 +302,19 @@ mod tests {
             let sm = create_sm(state);
             let payout_tx = test_payout_tx(sm.context().deposit_outpoint());
 
-            let result = sm.classify_tx(&cfg, &deposit_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &deposit_tx, LATER_BLOCK_HEIGHT);
             assert!(
                 result.is_none(),
                 "expected None for deposit tx but got {:?}",
                 result
             );
-            let result = sm.classify_tx(&cfg, &fulfillment_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &fulfillment_tx, LATER_BLOCK_HEIGHT);
             assert!(
                 result.is_none(),
                 "expected None for fulfillment tx but got {:?}",
                 result
             );
-            let result = sm.classify_tx(&cfg, &payout_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &payout_tx, LATER_BLOCK_HEIGHT);
             assert!(
                 result.is_none(),
                 "expected None for payout tx but got {:?}",
@@ -332,19 +325,17 @@ mod tests {
 
     #[test]
     fn classify_tx_ignores_deposit_tx_in_early_states() {
-        let cfg = test_deposit_sm_cfg();
         let deposit_tx = test_deposit_txn().as_ref().clone();
 
         for state in early_pre_deposit_states() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &deposit_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &deposit_tx, LATER_BLOCK_HEIGHT);
             assert!(result.is_none(), "expected None but got {:?}", result);
         }
     }
 
     #[test]
     fn classify_tx_ignores_wrong_deposit_idx_fulfillment() {
-        let cfg = test_deposit_sm_cfg();
         let sm = create_sm(assigned_state());
 
         let data = WithdrawalFulfillmentData {
@@ -355,7 +346,7 @@ mod tests {
         let wrong_fulfillment =
             WithdrawalFulfillmentTx::new(data, random_p2tr_desc()).into_unsigned_tx();
 
-        let result = sm.classify_tx(&cfg, &wrong_fulfillment, LATER_BLOCK_HEIGHT);
+        let result = sm.classify_tx(&(), &wrong_fulfillment, LATER_BLOCK_HEIGHT);
         assert!(
             result.is_none(),
             "expected None for wrong deposit_idx but got {:?}",
@@ -365,7 +356,6 @@ mod tests {
 
     #[test]
     fn classify_tx_ignores_non_spending_tx_in_live_utxo_states() {
-        let cfg = test_deposit_sm_cfg();
         let random_outpoint = OutPoint {
             txid: generate_txid(),
             vout: 0,
@@ -374,7 +364,7 @@ mod tests {
 
         for state in live_deposit_utxo_states() {
             let sm = create_sm(state);
-            let result = sm.classify_tx(&cfg, &non_spending_tx, LATER_BLOCK_HEIGHT);
+            let result = sm.classify_tx(&(), &non_spending_tx, LATER_BLOCK_HEIGHT);
             assert!(result.is_none(), "expected None but got {:?}", result);
         }
     }
