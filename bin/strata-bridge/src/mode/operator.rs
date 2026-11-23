@@ -101,8 +101,7 @@ pub(crate) async fn bootstrap(
     let pov_idx = operator_table.pov_idx();
     let pov_btc_key = operator_table.pov_btc_key();
     let pov_p2p_key = operator_table.pov_p2p_key();
-    let agg_key = operator_table.aggregated_btc_key();
-    info!(%pov_idx, %pov_p2p_key, %pov_btc_key, %agg_key, "operator table initialized");
+    info!(%pov_idx, %pov_p2p_key, %pov_btc_key, "operator table initialized");
     health_registry.mark_ok(COMPONENT_S2, "operator_table_loaded");
 
     debug!("initializing operator wallet");
