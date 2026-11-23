@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use strata_bridge_primitives::{
-    covenant::StakeKey,
+    covenant::{CovenantId, StakeKey},
     operator_set_schedule::OperatorSetSchedule,
     operator_table::PublicOperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, GraphIdx, OperatorIdx},
@@ -359,11 +359,26 @@ impl<'a> Applicator<'a> {
             return Ok(());
         }
 
+        let covenant_before = self.operator_set_covenant(sm_id);
+
         match self.registry.process_event(&sm_id, sm_event) {
             Ok(ProcessOutcome::Applied(output)) => {
                 let mutated = output.did_mutate();
                 if mutated {
                     self.tracker.record(sm_id);
+                }
+
+                if let (Some(previous), Some(current)) =
+                    (covenant_before, self.operator_set_covenant(sm_id))
+                    && previous != current
+                {
+                    info!(
+                        previous_aggregate_pubkey = %previous.aggregate_pubkey,
+                        previous_activation_height = %previous.activation_height,
+                        aggregate_pubkey = %current.aggregate_pubkey,
+                        activation_height = %current.activation_height,
+                        "active bridge covenant changed"
+                    );
                 }
 
                 self.duties.extend(output.duties);
@@ -402,6 +417,14 @@ impl<'a> Applicator<'a> {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    /// Returns the operator set's current covenant when `sm_id` targets the operator set.
+    fn operator_set_covenant(&self, sm_id: SMId) -> Option<CovenantId> {
+        matches!(sm_id, SMId::OperatorSet)
+            .then(|| self.registry.get_operator_set())
+            .flatten()
+            .map(OperatorSetSM::current_covenant)
     }
 }
 

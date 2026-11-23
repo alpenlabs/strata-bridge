@@ -379,7 +379,18 @@ impl Pipeline {
         let mut applicator = Applicator::new(&mut self.registry, Some(local_operator));
         applicator.initialize_operator_set(registrations, height)?;
         let batch = applicator.finish();
-        self.commit_batch(batch, None).await
+        self.commit_batch(batch, None).await?;
+
+        if let Some(membership) = self.registry.get_operator_set() {
+            let covenant = membership.current_covenant();
+            info!(
+                aggregate_pubkey = %covenant.aggregate_pubkey,
+                activation_height = %covenant.activation_height,
+                "active bridge covenant"
+            );
+        }
+
+        Ok(())
     }
 }
 
