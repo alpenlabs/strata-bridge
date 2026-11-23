@@ -779,7 +779,7 @@ mod tests {
     use super::{
         ParentFee, checked_anchor_spend, ensure_spends_leased_inputs, first_output_paying_script,
         is_outpoint_unspent, is_txid_onchain, mempool_spender_paying, resolve_strategy,
-        tx_confirmations,
+        tx_block_height, tx_confirmations,
     };
     use crate::errors::ExecutorError;
 
@@ -1106,6 +1106,43 @@ mod tests {
                 .expect("a mined txid reads")
                 .is_some_and(|depth| depth >= 1),
             "a mined transaction has depth one or more"
+        );
+    }
+
+    #[tokio::test]
+    async fn tx_block_height_reads_only_confirmed_transactions() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("bitcoind should start");
+        let mining_address = bitcoind
+            .client
+            .new_address()
+            .expect("wallet address should be generated");
+        bitcoind
+            .client
+            .generate_to_address(101, &mining_address)
+            .expect("coinbase outputs should mature");
+        let txid = bitcoind
+            .client
+            .send_to_address(&mining_address, Amount::ONE_BTC)
+            .expect("wallet transaction should be created")
+            .txid()
+            .expect("wallet transaction result should expose a txid");
+        let rpc_client = setup_btc_client(&bitcoind);
+
+        assert_eq!(
+            tx_block_height(&rpc_client, &missing_txid()).await.unwrap(),
+            None
+        );
+        assert_eq!(tx_block_height(&rpc_client, &txid).await.unwrap(), None);
+
+        bitcoind
+            .client
+            .generate_to_address(3, &mining_address)
+            .expect("transaction should be mined");
+        assert_eq!(
+            tx_block_height(&rpc_client, &txid).await.unwrap(),
+            Some(102)
         );
     }
 

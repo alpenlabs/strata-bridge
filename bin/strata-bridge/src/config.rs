@@ -523,6 +523,7 @@ pub(crate) fn test_config() -> Config {
             cooperative_payout_timeout = 144 # ~24 hours
             proof_delay_blocks = 6
             proof_retry_blocks = 3
+            counterproof_delay_blocks = 6
             max_fee_rate = 10 # sats/vbyte
             max_active_deposits = 2
 
@@ -671,6 +672,16 @@ mod tests {
             .unwrap()
             .replace("proof_retry_blocks = 3", "proof_retry_blocks = 0");
         assert!(toml::from_str::<Config>(&zero_retry).is_err());
+    }
+
+    #[test]
+    fn counterproof_delay_blocks_absent_means_zero() {
+        assert_eq!(test_config().counterproof_delay_blocks, 6);
+
+        let config =
+            toml::from_str::<Config>(&test_config_without("counterproof_delay_blocks")).unwrap();
+
+        assert_eq!(config.counterproof_delay_blocks, 0);
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
