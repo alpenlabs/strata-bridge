@@ -36,11 +36,11 @@ pub fn parse_exit(magic: MagicBytes, tx: &Transaction) -> Option<ParsedExit> {
 
 pub(crate) async fn resolve_exit_observation(
     client: &BitcoinClient,
-    magic: MagicBytes,
+    magics: &[MagicBytes],
     tx: &Transaction,
     tx_index: usize,
 ) -> Result<Option<ExitObservation>, PipelineError> {
-    let Some(parsed) = parse_exit(magic, tx) else {
+    let Some(parsed) = magics.iter().find_map(|&magic| parse_exit(magic, tx)) else {
         return Ok(None);
     };
     let outpoint = parsed.source();
@@ -169,10 +169,15 @@ mod tests {
             serialize_hex(&parent)
         )])
         .await;
-        let observation = resolve_exit_observation(&client, MagicBytes::new(*b"test"), &tx, 3)
-            .await
-            .unwrap()
-            .unwrap();
+        let observation = resolve_exit_observation(
+            &client,
+            &[MagicBytes::new(*b"else"), MagicBytes::new(*b"test")],
+            &tx,
+            3,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         let request = server.await.unwrap().remove(0);
         assert!(request.contains("getrawtransaction"));
         assert!(request.contains(&parent.compute_txid().to_string()));
@@ -212,7 +217,7 @@ mod tests {
             let outpoint = OutPoint::new(parent.compute_txid(), vout);
             tx.input[1].previous_output = outpoint;
             let (client, server) = mock_bitcoin_rpc(vec![response]).await;
-            let error = resolve_exit_observation(&client, MagicBytes::new(*b"test"), &tx, 3)
+            let error = resolve_exit_observation(&client, &[MagicBytes::new(*b"test")], &tx, 3)
                 .await
                 .unwrap_err();
             server.await.unwrap();
@@ -226,7 +231,7 @@ mod tests {
     async fn transactions_without_exits_need_no_rpc() {
         let tx = transaction(BridgeTxType::DepositRequest);
         let client = unavailable_bitcoin_client();
-        let observation = resolve_exit_observation(&client, MagicBytes::new(*b"test"), &tx, 3)
+        let observation = resolve_exit_observation(&client, &[MagicBytes::new(*b"test")], &tx, 3)
             .await
             .unwrap();
         assert!(observation.is_none());
