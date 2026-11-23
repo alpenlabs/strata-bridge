@@ -6,6 +6,7 @@ use strata_bridge_tx_graph::{
     transactions::prelude::{CounterproofNackData, CounterproofNackTx},
 };
 use strata_mosaic_client_api::types::{COUNTERPROOF_N_DATA, CompletedSignatures, Signature};
+use tracing::warn;
 
 use crate::graph::{
     config::GraphSMCfg,
@@ -45,7 +46,7 @@ impl GraphSM {
                     CounterproofData {
                         txid: event.tx.compute_txid(),
                         conf_height: event.counterproof_block_height,
-                        completed_signatures: Some(completed_signatures),
+                        completed_signatures,
                     },
                 );
 
@@ -87,7 +88,7 @@ impl GraphSM {
                     CounterproofData {
                         txid: event.tx.compute_txid(),
                         conf_height: event.counterproof_block_height,
-                        completed_signatures: Some(completed_signatures),
+                        completed_signatures,
                     },
                 );
 
@@ -132,7 +133,7 @@ impl GraphSM {
                     CounterproofData {
                         txid: event.tx.compute_txid(),
                         conf_height: event.counterproof_block_height,
-                        completed_signatures: Some(completed_signatures),
+                        completed_signatures,
                     },
                 );
 
@@ -158,15 +159,15 @@ impl GraphSM {
 
     /// Validates the counterproof txid, decodes the per-byte operator signatures from its
     /// witness, and builds a [`GraphDuty::PublishCounterProofNack`] duty if the current operator
-    /// is the POV. Returns the duties alongside the decoded signatures so the caller can persist
-    /// them on [`CounterproofData`].
+    /// is the POV and the signatures decode. Returns the duties alongside the decoded signatures
+    /// so the caller can persist them on [`CounterproofData`].
     fn validate_counterproof_and_nack(
         &self,
         cfg: &GraphSMCfg,
         event: &CounterProofConfirmedEvent,
         graph_data: &DepositParams,
         graph_summary: &GameGraphSummary,
-    ) -> GSMResult<(Vec<GraphDuty>, CompletedSignatures)> {
+    ) -> GSMResult<(Vec<GraphDuty>, Option<CompletedSignatures>)> {
         let counterproof_txid = event.tx.compute_txid();
 
         // Resolve the watchtower slot associated with the given counterproof transaction.
@@ -183,7 +184,15 @@ impl GraphSM {
                 )
             })?;
 
-        let completed_signatures = self.decode_completed_sigs(&event.tx, event)?;
+        let Some(completed_signatures) = decode_completed_sigs(&event.tx) else {
+            warn!(
+                graph_idx = ?self.context().graph_idx(),
+                counterprover_idx = event.counterprover_idx,
+                %counterproof_txid,
+                "counterproof witness does not decode into per-byte signatures"
+            );
+            return Ok((Vec::new(), None));
+        };
 
         let pov_idx = self.context().operator_table().pov_idx();
         let duties = if self.context().operator_idx() == pov_idx {
@@ -219,54 +228,29 @@ impl GraphSM {
             Vec::new()
         };
 
-        Ok((duties, completed_signatures))
+        Ok((duties, Some(completed_signatures)))
+    }
+}
+
+/// Decodes the per-byte operator signatures from an on-chain Counterproof tx, in byte order.
+fn decode_completed_sigs(counterproof_tx: &Transaction) -> Option<CompletedSignatures> {
+    // `+ 3` accounts for the trailing n-of-n signature, leaf script, and control block
+    // that follow the per-byte operator signatures in the counterproof witness.
+    const WANT: usize = COUNTERPROOF_N_DATA + 3;
+
+    let witness = &counterproof_tx.input.first()?.witness;
+    if witness.len() != WANT {
+        return None;
     }
 
-    /// Decodes the per-byte operator signatures from an on-chain Counterproof tx, in byte order.
-    fn decode_completed_sigs(
-        &self,
-        counterproof_tx: &Transaction,
-        event: &CounterProofConfirmedEvent,
-    ) -> GSMResult<CompletedSignatures> {
-        // `+ 3` accounts for the trailing n-of-n signature, leaf script, and control block
-        // that follow the per-byte operator signatures in the counterproof witness.
-        const WANT: usize = COUNTERPROOF_N_DATA + 3;
+    // Witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]`.
+    // Reversing the first N items recovers `[sig_0, .., sig_{N-1}]`.
+    let mut sigs = witness
+        .iter()
+        .take(COUNTERPROOF_N_DATA)
+        .map(|item| Signature::from_slice(item).ok())
+        .collect::<Option<Vec<_>>>()?;
+    sigs.reverse();
 
-        let witness_len = counterproof_tx.input[0].witness.len();
-        if witness_len != WANT {
-            return Err(GSMError::rejected(
-                self.state.clone(),
-                event.clone().into(),
-                format!("counterproof witness has {witness_len} elements, expected {WANT}"),
-            ));
-        }
-
-        // Witness layout is `[sig_{N-1}, .., sig_0, n-of-n sig, leaf script, control block]` —
-        // operator signatures pushed `.rev()`, then 3 trailing items. Reverse + skip(3) recovers
-        // `[sig_0, .., sig_{N-1}]`.
-        let mut items = counterproof_tx.input[0].witness.to_vec();
-        items.reverse();
-        let sigs: Vec<Signature> = items
-            .into_iter()
-            .skip(3)
-            .enumerate()
-            .map(|(idx, w)| {
-                Signature::from_slice(&w).map_err(|_| {
-                    GSMError::rejected(
-                        self.state.clone(),
-                        event.clone().into(),
-                        format!("counterproof witness signature {idx} is malformed"),
-                    )
-                })
-            })
-            .collect::<GSMResult<Vec<_>>>()?;
-
-        sigs.try_into().map_err(|_| {
-            GSMError::rejected(
-                self.state.clone(),
-                event.clone().into(),
-                "counterproof witness has an invalid signature count",
-            )
-        })
-    }
+    sigs.try_into().ok()
 }

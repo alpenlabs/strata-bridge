@@ -13,22 +13,25 @@ use crate::{
     graph::{
         duties::GraphDuty,
         errors::GSMError,
-        events::{CounterProofConfirmedEvent, GraphEvent},
-        machine::GraphSM,
+        events::{CounterProofConfirmedEvent, GraphEvent, NewBlockEvent},
+        machine::{GraphSM, generate_game_graph},
         state::{CounterproofData, GraphState},
         tests::{
             GraphInvalidTransition, GraphTransition, LATER_BLOCK_HEIGHT, TEST_NONPOV_IDX,
-            TEST_POV_IDX, TestGraphTxKind, create_nonpov_sm, dummy_proof_receipt, get_state,
+            TEST_POV_IDX, create_nonpov_sm, create_sm, dummy_proof_receipt, get_state,
+            mock_game_signatures,
             mock_states::{
                 TEST_BRIDGE_PROOF_TX, TEST_FULFILLMENT_TXID, TEST_GRAPH_SUMMARY,
-                all_state_variants, bridge_proof_posted_state, contested_state,
+                all_state_variants, bridge_proof_posted_state, bridge_proof_posted_state_with,
+                contested_state,
             },
             test_completed_signatures, test_counterproof_tx, test_deposit_params,
-            test_graph_invalid_transition, test_graph_invalid_transition_with, test_graph_sm_cfg,
-            test_graph_sm_ctx, test_graph_transition,
+            test_graph_invalid_transition, test_graph_sm_cfg, test_graph_sm_ctx,
+            test_graph_transition,
         },
         watchtower::watchtower_slot_for_operator,
     },
+    state_machine::StateMachine,
     testing::test_transition,
 };
 
@@ -368,54 +371,72 @@ fn event_invalid() {
     }
 }
 
-/// POV operator: a counterproof with the right txid but a witness of the wrong
-/// shape is rejected before any duty is emitted.
-#[test]
-fn event_rejected_invalid_counterproof_witness() {
-    // Empty-witness tx — same txid as `test_counterproof_tx()` (witness is excluded
-    // from txid), so it passes the txid lookup but fails the witness-shape check.
-    let bad_witness_tx = TestGraphTxKind::Counterproof.into();
-
-    test_graph_invalid_transition(GraphInvalidTransition {
-        from_state: contested_state(),
-        event: GraphEvent::CounterProofConfirmed(CounterProofConfirmedEvent {
-            counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
-            tx: bad_witness_tx,
-            counterprover_idx: TEST_NONPOV_IDX,
-        }),
-        expected_error: |e| matches!(e, GSMError::Rejected { .. }),
-    });
+/// Witness that keeps the counterproof txid but cannot be decoded into default-sighash
+/// signatures: one per-byte signature carries an explicit `SIGHASH_ALL` byte, which only the
+/// holder of the operator key can produce.
+fn explicit_sighash_witness() -> Witness {
+    let mut witness = test_counterproof_tx().input[0].witness.to_vec();
+    witness[0].push(0x01);
+    Witness::from_slice(&witness)
 }
 
-/// Non-POV operators reject malformed signature encodings instead of panicking while
-/// persisting the counterproof data.
+/// A confirmed counterproof is recorded even when its witness yields no NACK material.
 #[test]
-fn event_rejected_malformed_counterproof_signature_nonpov() {
-    let mut tx = test_counterproof_tx();
-    let expected_txid = tx.compute_txid();
-    let mut witness = tx.input[0].witness.to_vec();
-    witness[0] = vec![0; 32];
-    tx.input[0].witness = Witness::from_slice(&witness);
-    assert_eq!(tx.compute_txid(), expected_txid);
+fn event_accepted_without_decodable_signatures() {
+    for witness in [explicit_sighash_witness(), Witness::new()] {
+        let mut event = counterproof_event(TEST_NONPOV_IDX);
+        event.tx.input[0].witness = witness;
 
-    test_graph_invalid_transition_with(
-        create_nonpov_sm,
-        GraphInvalidTransition {
-            from_state: contested_state(),
-            event: GraphEvent::CounterProofConfirmed(CounterProofConfirmedEvent {
-                counterproof_block_height: COUNTERPROOF_BLOCK_HEIGHT,
-                tx,
-                counterprover_idx: TEST_NONPOV_IDX,
-            }),
-            expected_error: |e| {
-                matches!(
-                    e,
-                    GSMError::Rejected { reason, .. }
-                        if reason.contains("counterproof witness signature")
-                )
-            },
-        },
-    );
+        let mut sm = create_sm(contested_state());
+        let output = sm
+            .process_event(test_graph_sm_cfg(), event.clone().into())
+            .expect("confirmed counterproof must be accepted");
+        assert!(output.duties.is_empty());
+
+        let GraphState::CounterProofPosted {
+            counterproofs_and_confs,
+            ..
+        } = sm.state()
+        else {
+            panic!("expected CounterProofPosted, got {}", sm.state());
+        };
+        assert_eq!(
+            counterproofs_and_confs[&TEST_NONPOV_IDX],
+            CounterproofData {
+                txid: event.tx.compute_txid(),
+                conf_height: event.counterproof_block_height,
+                completed_signatures: None,
+            }
+        );
+    }
+}
+
+/// The watchtower ACKs its confirmed counterproof after the NACK window even when the
+/// witness yields no NACK material.
+#[test]
+fn watchtower_acks_counterproof_without_decodable_signatures() {
+    let cfg = test_graph_sm_cfg();
+    let game = generate_game_graph(&cfg, &test_graph_sm_ctx(), &test_deposit_params());
+    let mut sm = create_nonpov_sm(bridge_proof_posted_state_with(
+        LATER_BLOCK_HEIGHT,
+        mock_game_signatures(&game),
+    ));
+
+    let mut event = counterproof_event(TEST_NONPOV_IDX);
+    event.tx.input[0].witness = explicit_sighash_witness();
+    event.counterproof_block_height = LATER_BLOCK_HEIGHT + 1;
+    sm.process_event(cfg.clone(), event.clone().into()).unwrap();
+
+    let block_height = event.counterproof_block_height
+        + u64::from(cfg.game_graph_params.nack_timelock.value())
+        + 1;
+    let output = sm
+        .process_event(cfg, NewBlockEvent { block_height }.into())
+        .unwrap();
+    assert!(matches!(
+        output.duties.as_slice(),
+        [GraphDuty::PublishCounterProofAck { .. }]
+    ));
 }
 
 #[test]
