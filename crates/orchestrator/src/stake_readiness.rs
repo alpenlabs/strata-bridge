@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use bitcoin::{OutPoint, hashes::sha256};
+use bitcoin::{Amount, OutPoint, hashes::sha256};
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_table::PublicOperatorTable,
@@ -26,6 +26,8 @@ pub struct StakeBinding {
     pub outpoint: OutPoint,
     /// The image whose preimage the member reveals when it starts unstaking.
     pub unstaking_image: sha256::Hash,
+    /// The amount locked in the stake output.
+    pub stake_amount: Amount,
 }
 
 /// Usable stakes for every member of a ready covenant.
@@ -148,6 +150,7 @@ fn member_binding(
         } => Ok(StakeBinding {
             outpoint: OutPoint::new(summary.stake, StakeTx::STAKE_VOUT),
             unstaking_image: stake_data.unstaking_image,
+            stake_amount: stake.cfg().protocol_params.stake_amount,
         }),
         StakeState::Created { .. }
         | StakeState::StakeGraphGenerated { .. }
@@ -249,6 +252,7 @@ mod tests {
                 StakeBinding {
                     outpoint: OutPoint::new(summary.stake, StakeTx::STAKE_VOUT),
                     unstaking_image: stake_data.unstaking_image,
+                    stake_amount: sm.cfg().protocol_params.stake_amount,
                 },
                 "binding must come from the member's own confirmed stake"
             );
