@@ -65,10 +65,7 @@ pub(crate) async fn handle_unstaking_intent(args: cli::UnstakingIntentArgs) -> a
                 .covenant
         }
     };
-    let stake_key = StakeKey {
-        covenant,
-        operator: args.operator_idx,
-    };
+    let stake_key = StakeKey::new(covenant, args.operator_idx);
 
     info!(%stake_key, "posting unstaking intent");
 

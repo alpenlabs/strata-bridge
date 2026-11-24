@@ -838,7 +838,7 @@ mod tests {
         let keys: Vec<_> = table
             .operator_idxs()
             .into_iter()
-            .map(|operator| StakeKey { covenant, operator })
+            .map(|operator| StakeKey::new(covenant, operator))
             .collect();
         for key in &keys {
             assert!(
@@ -875,10 +875,7 @@ mod tests {
     fn matching_initialization_preserves_progress_and_processing_cursor() {
         let mut registry = test_empty_registry();
         let table = test_operator_table(3, 0);
-        let key = StakeKey {
-            covenant: CovenantId::from_operator_table(&table, 200).unwrap(),
-            operator: 0,
-        };
+        let key = StakeKey::new(CovenantId::from_operator_table(&table, 200).unwrap(), 0);
         let mut applicator = Applicator::new(&mut registry, Some(0));
         assert!(
             applicator
@@ -927,10 +924,7 @@ mod tests {
     fn conflicting_initialization_reports_exact_stake_without_overwriting_it() {
         let mut registry = test_empty_registry();
         let table = test_operator_table(3, 0);
-        let key = StakeKey {
-            covenant: CovenantId::from_operator_table(&table, 200).unwrap(),
-            operator: 0,
-        };
+        let key = StakeKey::new(CovenantId::from_operator_table(&table, 200).unwrap(), 0);
         let mut applicator = Applicator::new(&mut registry, Some(0));
         assert!(
             applicator
@@ -978,7 +972,7 @@ mod tests {
                 assert!(
                     !applicator
                         .initialize_stake(
-                            StakeKey { covenant, operator },
+                            StakeKey::new(covenant, operator),
                             table.clone().into_public(),
                             100,
                         )

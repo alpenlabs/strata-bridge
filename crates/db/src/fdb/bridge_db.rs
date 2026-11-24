@@ -1876,10 +1876,7 @@ mod tests {
         ) {
             let reservation = make_reservation(num_inputs, vout);
 
-            let stake_key = StakeKey {
-                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
-                operator: operator_idx,
-            };
+            let stake_key = StakeKey::new(CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 }, operator_idx);
             block_on(async {
                 let client = get_client();
 
@@ -1918,10 +1915,7 @@ mod tests {
             let second_reservation = make_reservation(second_num_inputs, second_vout);
             prop_assume!(first_reservation != second_reservation);
 
-            let stake_key = StakeKey {
-                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
-                operator: operator_idx,
-            };
+            let stake_key = StakeKey::new(CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 }, operator_idx);
             block_on(async {
                 let client = get_client();
 
@@ -1972,10 +1966,7 @@ mod tests {
                 vout: reservation.stake_output_vout,
             };
 
-            let stake_key = StakeKey {
-                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
-                operator: operator_idx,
-            };
+            let stake_key = StakeKey::new(CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 }, operator_idx);
             block_on(async {
                 let client = get_client();
 
@@ -2015,10 +2006,7 @@ mod tests {
         ) {
             let reservation = make_reservation(num_inputs, 0);
 
-            let stake_key = StakeKey {
-                covenant: CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 },
-                operator: operator_idx,
-            };
+            let stake_key = StakeKey::new(CovenantId { aggregate_pubkey: generate_xonly_pubkey(), activation_height: 101 }, operator_idx);
             block_on(async {
                 let client = get_client();
 

@@ -574,13 +574,13 @@ mod covenant_wire_tests {
                 "a stake nag must reach only the stake of the covenant it names"
             );
         }
-        let unknown = StakeKey {
-            covenant: CovenantId {
+        let unknown = StakeKey::new(
+            CovenantId {
                 activation_height: 300,
                 ..keys[0].covenant
             },
-            ..keys[0]
-        };
+            keys[0].operator,
+        );
         assert!(
             route_gossipsub_msg(&registry, &nag(unknown)).is_empty(),
             "a stake nag for an untracked covenant must not reach another covenant's stake"

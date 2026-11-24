@@ -244,10 +244,7 @@ mod tests {
             .insert_operator_set(test_operator_set_sm())
             .unwrap();
         let table = test_operator_table(3, 0).into_public();
-        let stake_key = StakeKey {
-            covenant: CovenantId::from_operator_table(&table, 10).unwrap(),
-            operator: 0,
-        };
+        let stake_key = StakeKey::new(CovenantId::from_operator_table(&table, 10).unwrap(), 0);
         let signal = OperatorSetSignal::InitializeStake {
             stake_key,
             operator_table: table.clone(),

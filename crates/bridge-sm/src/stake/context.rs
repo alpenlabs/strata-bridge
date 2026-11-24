@@ -38,10 +38,7 @@ impl StakeSMCtx {
         let covenant = CovenantId::from_operator_table(&operator_table, activation_height)
             .expect("valid covenant signing keys");
         Self {
-            stake_key: StakeKey {
-                covenant,
-                operator: operator_idx,
-            },
+            stake_key: StakeKey::new(covenant, operator_idx),
             operator_table,
         }
     }

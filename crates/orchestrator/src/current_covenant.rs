@@ -81,7 +81,7 @@ pub fn assess(
                     .into_keys()
                     .filter(|&operator| {
                         stakes
-                            .get(&StakeKey { covenant, operator })
+                            .get(&StakeKey::new(covenant, operator))
                             .and_then(|stake| stake.state().last_processed_block_height())
                             != Some(processed_height)
                     })

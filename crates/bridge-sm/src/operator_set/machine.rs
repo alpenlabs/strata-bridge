@@ -183,7 +183,7 @@ fn initialization_signals(
         .operator_idxs()
         .into_iter()
         .map(|operator| OperatorSetSignal::InitializeStake {
-            stake_key: StakeKey { covenant, operator },
+            stake_key: StakeKey::new(covenant, operator),
             operator_table: table.clone(),
         })
         .collect()

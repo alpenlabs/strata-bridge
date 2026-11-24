@@ -7,10 +7,10 @@ use crate::{
 };
 
 fn key(height: u64) -> StakeKey {
-    StakeKey {
-        covenant: CovenantId::from_operator_table(&*TEST_OPERATOR_TABLE, height).unwrap(),
-        operator: TEST_POV_IDX,
-    }
+    StakeKey::new(
+        CovenantId::from_operator_table(&*TEST_OPERATOR_TABLE, height).unwrap(),
+        TEST_POV_IDX,
+    )
 }
 
 #[test]
