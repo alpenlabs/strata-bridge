@@ -64,9 +64,8 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     let ed_keypair = EdKeypair::from(ed_secret);
     let p2p_pubkey = ed_keypair.public().to_bytes().to_lower_hex_string();
 
-    // Output the JSON entry
+    // Output public operator material only; never include the input seed.
     let output = json!({
-        "seed": seed.to_lower_hex_string(),
         "general_wallet_address": general_wallet_addr.to_string(),
         "general_wallet_descriptor": general_wallet_descriptor.to_string(),
         "reserved_wallet_address": reserved_wallet,
