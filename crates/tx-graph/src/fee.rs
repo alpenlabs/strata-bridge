@@ -37,7 +37,7 @@ use strata_bridge_connectors::{
 pub(crate) const FEE_RATE_SAT_PER_VB: u64 = 0;
 
 /// Fee rate (sat/vb) of the deposit transaction, which has no CPFP path.
-pub(crate) const DEPOSIT_FEE_RATE_SAT_PER_VB: u64 = 2;
+pub(crate) const DEPOSIT_FEE_RATE_SAT_PER_VB: u64 = 10;
 
 /// [`FEE_RATE_SAT_PER_VB`] as a [`FeeRate`].
 pub const FEE_RATE: FeeRate = FeeRate::from_sat_per_vb_unchecked(FEE_RATE_SAT_PER_VB);
