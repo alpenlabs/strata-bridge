@@ -641,7 +641,13 @@ impl GameConnectors {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{hashes::Hash, transaction::Version, TxOut};
+    use bitcoin::{
+        hashes::Hash,
+        sighash::{Prevouts, SighashCache},
+        taproot::{LeafVersion, TapLeafHash},
+        transaction::Version,
+        TapSighashType, TxOut, Witness,
+    };
     use secp256k1::{rand::random, Keypair, SECP256K1};
     use strata_bridge_connectors::{
         prelude::{AdminSignature, ContestCounterproofWitness},
@@ -862,6 +868,9 @@ mod tests {
         Nack,
         /// The counterproof, counterproof ack and slash transactions are posted.
         Ack,
+        /// Like [`Self::Ack`], but one operator signature in the counterproof witness
+        /// carries an explicit `SIGHASH_ALL` byte.
+        AckExplicitSighash,
     }
 
     fn test_scenario(scenario: Scenario) {
@@ -1120,10 +1129,40 @@ mod tests {
                 n_of_n_signature: presigned.watchtowers[0].counterproof[0],
                 operator_signatures,
             };
-            let counterproof = game.counterproofs[0]
+            let mut counterproof = game.counterproofs[0]
                 .counterproof
                 .clone()
                 .finalize(&witness);
+            if scenario == CounterproofScenario::AckExplicitSighash {
+                let connector = &connectors.contest_counterproof[0];
+                let leaf_hash =
+                    TapLeafHash::from_script(&connector.leaf_scripts()[0], LeafVersion::TapScript);
+                let code_separator = connector
+                    .code_separator_positions(0)
+                    .into_iter()
+                    .next()
+                    .unwrap();
+                let sighash = SighashCache::new(&counterproof)
+                    .taproot_signature_hash(
+                        0,
+                        &Prevouts::All(&[connector.tx_out()]),
+                        None,
+                        Some((leaf_hash, code_separator)),
+                        TapSighashType::All,
+                    )
+                    .unwrap();
+                let signature = bitcoin::taproot::Signature {
+                    signature: signer.operator_keypair.sign_schnorr(sighash.into()),
+                    sighash_type: TapSighashType::All,
+                };
+                let mut items = counterproof.input[0].witness.to_vec();
+                items[connector.n_data().get() - 1] = signature.to_vec();
+                counterproof.input[0].witness = Witness::from_slice(&items);
+                assert_eq!(
+                    counterproof.compute_txid(),
+                    game.counterproofs[0].counterproof.as_ref().compute_txid()
+                );
+            }
             assert_eq!(counterproof.version, Version(3));
             let child = node.create_keyed_cpfp_child(
                 &game.counterproofs[0].counterproof,
@@ -1166,7 +1205,10 @@ mod tests {
         // ┌───────────────────────────────────────────────────────────────────┐
         // │          Counterproof ACK + Slash (test terminates here)          │
         // └───────────────────────────────────────────────────────────────────┘
-        if scenario == CounterproofScenario::Ack {
+        if matches!(
+            scenario,
+            CounterproofScenario::Ack | CounterproofScenario::AckExplicitSighash
+        ) {
             // ┌───────────────────────────────────────────────────────────────┐
             // │                       Counterproof ACK                        │
             // └───────────────────────────────────────────────────────────────┘
@@ -1264,6 +1306,13 @@ mod tests {
     fn counterproof_ack_slash() {
         test_scenario(Scenario::Contested(ProofScenario::Proof(
             CounterproofScenario::Ack,
+        )));
+    }
+
+    #[test]
+    fn counterproof_ack_slash_with_explicit_sighash() {
+        test_scenario(Scenario::Contested(ProofScenario::Proof(
+            CounterproofScenario::AckExplicitSighash,
         )));
     }
 }

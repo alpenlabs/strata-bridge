@@ -91,7 +91,7 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
                 CounterproofData {
                     txid: counterproof_txid,
                     conf_height: LATER_BLOCK_HEIGHT,
-                    completed_signatures: test_completed_signatures(),
+                    completed_signatures: Some(test_completed_signatures()),
                 },
             ),
             (
@@ -99,7 +99,7 @@ fn counter_proof_posted_state_with_nacks(nacked_idxs: &[u32]) -> GraphState {
                 CounterproofData {
                     txid: counterproof_txid,
                     conf_height: LATER_BLOCK_HEIGHT,
-                    completed_signatures: test_completed_signatures(),
+                    completed_signatures: Some(test_completed_signatures()),
                 },
             ),
         ]),
@@ -136,7 +136,7 @@ fn first_nack_stays_in_counter_proof_posted() {
                     CounterproofData {
                         txid: counterproof_txid,
                         conf_height: LATER_BLOCK_HEIGHT,
-                        completed_signatures: test_completed_signatures(),
+                        completed_signatures: Some(test_completed_signatures()),
                     },
                 ),
                 (
@@ -144,7 +144,7 @@ fn first_nack_stays_in_counter_proof_posted() {
                     CounterproofData {
                         txid: counterproof_txid,
                         conf_height: LATER_BLOCK_HEIGHT,
-                        completed_signatures: test_completed_signatures(),
+                        completed_signatures: Some(test_completed_signatures()),
                     },
                 ),
             ]),
@@ -343,7 +343,7 @@ fn event_rejected_when_tx_is_counterproof_ack() {
                 CounterproofData {
                     txid: counterproof_txid,
                     conf_height: LATER_BLOCK_HEIGHT,
-                    completed_signatures: test_completed_signatures(),
+                    completed_signatures: Some(test_completed_signatures()),
                 },
             ),
             (
@@ -351,7 +351,7 @@ fn event_rejected_when_tx_is_counterproof_ack() {
                 CounterproofData {
                     txid: counterproof_txid,
                     conf_height: LATER_BLOCK_HEIGHT,
-                    completed_signatures: test_completed_signatures(),
+                    completed_signatures: Some(test_completed_signatures()),
                 },
             ),
         ]),

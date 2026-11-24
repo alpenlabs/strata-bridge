@@ -309,7 +309,7 @@ fn watchtower_skips_counterproof_when_already_posted_on_late_invalid_proof() {
         CounterproofData {
             txid: existing_counterproof_txid,
             conf_height: LATER_BLOCK_HEIGHT,
-            completed_signatures: test_completed_signatures(),
+            completed_signatures: Some(test_completed_signatures()),
         },
     );
 

@@ -980,7 +980,7 @@ mod tests {
             CounterproofData {
                 txid: graph_summary.counterproofs[watchtower_slot].counterproof,
                 conf_height: counterproof_conf_height,
-                completed_signatures: test_completed_signatures(),
+                completed_signatures: Some(test_completed_signatures()),
             },
         )]);
 
@@ -1047,7 +1047,7 @@ mod tests {
             CounterproofData {
                 txid: graph_summary.counterproofs[watchtower_slot].counterproof,
                 conf_height: counterproof_conf_height,
-                completed_signatures: test_completed_signatures(),
+                completed_signatures: Some(test_completed_signatures()),
             },
         )]);
 
@@ -1098,7 +1098,7 @@ mod tests {
             CounterproofData {
                 txid: graph_summary.counterproofs[watchtower_slot].counterproof,
                 conf_height: counterproof_conf_height,
-                completed_signatures: test_completed_signatures(),
+                completed_signatures: Some(test_completed_signatures()),
             },
         )]);
 
@@ -1151,7 +1151,7 @@ mod tests {
             CounterproofData {
                 txid: graph_summary.counterproofs[watchtower_slot].counterproof,
                 conf_height: counterproof_conf_height,
-                completed_signatures: test_completed_signatures(),
+                completed_signatures: Some(test_completed_signatures()),
             },
         )]);
 

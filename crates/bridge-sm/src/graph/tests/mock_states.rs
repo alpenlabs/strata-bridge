@@ -325,7 +325,7 @@ pub(super) fn counter_proof_posted_state_with(
                 CounterproofData {
                     txid: summary.counterproofs[watchtower_slot].counterproof,
                     conf_height: LATER_BLOCK_HEIGHT,
-                    completed_signatures: test_completed_signatures(),
+                    completed_signatures: Some(test_completed_signatures()),
                 },
             )
         })

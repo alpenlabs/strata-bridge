@@ -665,7 +665,7 @@ mod tests {
         GraphDuty::PublishCounterProofNack {
             deposit_idx: sm.context().deposit_idx(),
             counterprover_idx,
-            completed_signatures: data.completed_signatures,
+            completed_signatures: data.completed_signatures.unwrap(),
             counterproof_nack_tx,
         }
     }
@@ -778,6 +778,39 @@ mod tests {
         let sm = create_sm(state.clone());
         let expected_duty = expected_counterproof_nack_duty(&cfg, &sm, &state, TEST_NONPOV_IDX);
 
+        test_pov_owned_handler_output(
+            cfg,
+            GraphHandlerOutput {
+                state,
+                event: GraphEvent::RetryTick(RetryTickEvent),
+                expected_duties: vec![expected_duty],
+            },
+        );
+    }
+
+    // (refuted_proof: Some(_), NACK queue: one without signatures)   -> [nack for the other]
+    #[test]
+    fn test_retry_tick_skips_nack_for_counterproof_without_signatures() {
+        let cfg = test_graph_sm_cfg();
+        let mut state = counter_proof_posted_state_with(
+            Some(dummy_proof_receipt()),
+            &[TEST_NONPOV_IDX, 2],
+            &[],
+        );
+        let GraphState::CounterProofPosted {
+            counterproofs_and_confs,
+            ..
+        } = &mut state
+        else {
+            unreachable!()
+        };
+        counterproofs_and_confs
+            .get_mut(&TEST_NONPOV_IDX)
+            .unwrap()
+            .completed_signatures = None;
+
+        let sm = create_sm(state.clone());
+        let expected_duty = expected_counterproof_nack_duty(&cfg, &sm, &state, 2);
         test_pov_owned_handler_output(
             cfg,
             GraphHandlerOutput {
