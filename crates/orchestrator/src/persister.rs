@@ -548,20 +548,23 @@ mod covenant_storage_tests {
         sm_registry::{IgnoredEventReason, ProcessOutcome},
         testing::{
             N_TEST_OPERATORS, TEST_POV_IDX, insert_deposit_with_graphs, test_empty_registry,
-            test_fdb_config, test_operator_set_sm, test_operator_table, test_populated_registry,
-            test_safe_harbour_address, test_sm_config, test_stake_sm_cfg,
+            test_extended_operator_table, test_fdb_config, test_operator_set_sm,
+            test_operator_table, test_populated_registry, test_safe_harbour_address,
+            test_sm_config, test_stake_sm_cfg,
         },
     };
 
     #[test]
     fn write_batch_preserves_multiple_covenants_for_one_operator() {
         let mut registry = test_empty_registry();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut keys = BTreeSet::new();
-        for height in [100, 200] {
+        for (table, height) in [
+            (test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (sm, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), height),
+                StakeSMCtx::new(TEST_POV_IDX, table, height),
                 101,
             );
             keys.insert(SMId::Stake(sm.context().stake_key()));
@@ -611,11 +614,13 @@ mod covenant_storage_tests {
         registry
             .insert_operator_set(test_operator_set_sm())
             .unwrap();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        for height in [100, 200] {
+        for (table, height) in [
+            (test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (sm, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), height),
+                StakeSMCtx::new(TEST_POV_IDX, table, height),
                 height,
             );
             registry.insert_stake(sm).unwrap();

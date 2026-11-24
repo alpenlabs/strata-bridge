@@ -129,7 +129,9 @@ mod tests {
     use strata_bridge_sm::stake::context::StakeSMCtx;
 
     use super::*;
-    use crate::testing::{N_TEST_OPERATORS, TEST_POV_IDX, test_operator_table};
+    use crate::testing::{
+        N_TEST_OPERATORS, TEST_POV_IDX, test_extended_operator_table, test_operator_table,
+    };
 
     const WINDOW: Duration = Duration::from_secs(30);
     const IN_FLIGHT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -144,11 +146,13 @@ mod tests {
 
     #[test]
     fn stake_nags_for_different_covenants_are_tracked_separately() {
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        let stake_nag = |activation_height| NagRequestPayload::UnstakingData {
-            stake_key: StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height).stake_key(),
+        let stake_nag = |table, activation_height| NagRequestPayload::UnstakingData {
+            stake_key: StakeSMCtx::new(TEST_POV_IDX, table, activation_height).stake_key(),
         };
-        let (earlier, later) = (stake_nag(100), stake_nag(200));
+        let (earlier, later) = (
+            stake_nag(test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX), 100),
+            stake_nag(test_extended_operator_table(TEST_POV_IDX), 200),
+        );
         let dedup = dedup();
         let t0 = Instant::now();
 

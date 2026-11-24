@@ -913,8 +913,9 @@ mod tests {
             DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX,
             insert_confirmed_stake, insert_deposit_activated_at, insert_deposit_with_graphs,
             insert_test_membership, make_confirmed_stake_sm, mock_bitcoin_rpc, test_empty_registry,
-            test_fdb_config, test_membership_table, test_operator_table, test_populated_registry,
-            test_registry_with_cap, test_sm_config, test_stake_sm_cfg, unavailable_bitcoin_client,
+            test_extended_operator_table, test_fdb_config, test_membership_table,
+            test_operator_table, test_populated_registry, test_registry_with_cap, test_sm_config,
+            test_stake_sm_cfg, unavailable_bitcoin_client,
         },
     };
 
@@ -1812,7 +1813,7 @@ mod tests {
         summary.unstaking = unstaking.compute_txid();
         // A prepared successor must not supply the historical graph's preimage.
         let mut successor = preimage_revealed_stake_sm(1, table.clone(), [0x24; 32]);
-        successor.context = StakeSMCtx::new(1, table.clone(), 200);
+        successor.context = StakeSMCtx::new(1, test_extended_operator_table(TEST_POV_IDX), 200);
         registry.insert_stake(successor).unwrap();
         let mut block = BlockEvent {
             block: generate_block_with_height(101),
@@ -1907,8 +1908,12 @@ mod tests {
         let historical = preimage_revealed_stake_sm(TEST_POV_IDX, table.clone(), preimage);
         let historical_key = historical.context().stake_key();
         // Matching images must not allow a successor to substitute for a missing historical stake.
-        let mut successor = preimage_revealed_stake_sm(TEST_POV_IDX, table.clone(), preimage);
-        successor.context = StakeSMCtx::new(TEST_POV_IDX, table, INITIAL_BLOCK_HEIGHT + 100);
+        let mut successor = preimage_revealed_stake_sm(TEST_POV_IDX, table, preimage);
+        successor.context = StakeSMCtx::new(
+            TEST_POV_IDX,
+            test_extended_operator_table(TEST_POV_IDX),
+            INITIAL_BLOCK_HEIGHT + 100,
+        );
         registry.insert_stake(historical).unwrap();
         registry.insert_stake(successor).unwrap();
         bind_graph_stake(&mut registry, graph_idx, preimage);
@@ -2004,7 +2009,9 @@ mod tests {
 
     /// Binds `graph_idx` to the stake identified by `key`, as admission would.
     fn bind_to(registry: &mut SMRegistry, graph_idx: GraphIdx, key: &StakeKey) {
-        let (stake_data, summary) = match registry.stakes[key].state() {
+        let stake = &registry.stakes[key];
+        let operator_table = stake.context().operator_table().clone();
+        let (stake_data, summary) = match stake.state() {
             StakeState::Confirmed {
                 stake_data,
                 summary,
@@ -2019,6 +2026,7 @@ mod tests {
         };
         let ctx = &mut registry.graphs.get_mut(&graph_idx).unwrap().context;
         ctx.covenant = key.covenant;
+        ctx.operator_table = operator_table;
         ctx.stake_outpoint = OutPoint::new(summary.stake, StakeTx::STAKE_VOUT);
         ctx.unstaking_image = stake_data.unstaking_image;
     }
@@ -2063,7 +2071,7 @@ mod tests {
         let c1 = insert_stake_with_image(
             &mut registry,
             operator,
-            &table,
+            &test_extended_operator_table(TEST_POV_IDX),
             INITIAL_BLOCK_HEIGHT + 100,
             p1,
         );
@@ -2139,10 +2147,11 @@ mod tests {
         );
 
         let mut foreign_covenant = bound.clone();
-        foreign_covenant.covenant = CovenantId {
-            activation_height: INITIAL_BLOCK_HEIGHT + 100,
-            ..bound.covenant
-        };
+        foreign_covenant.covenant = CovenantId::from_operator_table(
+            &test_extended_operator_table(TEST_POV_IDX),
+            bound.covenant.activation_height,
+        )
+        .unwrap();
         registry.graphs.get_mut(&graph_idx).unwrap().context = foreign_covenant;
         assert_eq!(
             resolved_preimage(&registry, graph_idx),
@@ -2323,33 +2332,37 @@ mod covenant_tests {
 
     use super::*;
     use crate::testing::{
-        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_operator_table, test_stake_sm_cfg,
+        N_TEST_OPERATORS, TEST_POV_IDX, test_empty_registry, test_extended_operator_table,
+        test_operator_table, test_stake_sm_cfg,
     };
 
-    pub(super) fn stakes_at_two_heights() -> (StakeSM, StakeSM) {
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+    pub(super) fn stakes_in_two_covenants() -> (StakeSM, StakeSM) {
         let (first, _) = StakeSM::new(
             test_stake_sm_cfg(),
-            StakeSMCtx::new(TEST_POV_IDX, table.clone(), 100),
+            StakeSMCtx::new(
+                TEST_POV_IDX,
+                test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+                100,
+            ),
             101,
         );
         let (second, _) = StakeSM::new(
             test_stake_sm_cfg(),
-            StakeSMCtx::new(TEST_POV_IDX, table, 200),
+            StakeSMCtx::new(
+                TEST_POV_IDX,
+                test_extended_operator_table(TEST_POV_IDX),
+                200,
+            ),
             101,
         );
         (first, second)
     }
 
     #[test]
-    fn same_owner_and_aggregate_at_different_heights_progress_independently() {
-        let (first, second) = stakes_at_two_heights();
+    fn same_owner_in_two_covenants_progresses_independently() {
+        let (first, second) = stakes_in_two_covenants();
         let first_key = first.context().stake_key();
         let second_key = second.context().stake_key();
-        assert_eq!(
-            first_key.covenant.aggregate_pubkey,
-            second_key.covenant.aggregate_pubkey
-        );
         let mut registry = test_empty_registry();
         registry.insert_stake(first.clone()).unwrap();
         registry.insert_stake(second.clone()).unwrap();
@@ -2370,15 +2383,28 @@ mod covenant_tests {
                 .last_processed_block_height(),
             Some(102)
         );
-        assert_eq!(registry.get_stake(&second_key), Some(&second));
-        let mut absent = second_key;
-        absent.covenant.activation_height = 300;
-        assert!(registry.get_stake(&absent).is_none());
+        assert_eq!(
+            registry.get_stake(&second_key),
+            Some(&second),
+            "progress in one covenant must not touch the owner's stake in another"
+        );
+        let absent = StakeKey::new(
+            CovenantId::from_operator_table(
+                &test_operator_table(N_TEST_OPERATORS + 2, TEST_POV_IDX),
+                300,
+            )
+            .unwrap(),
+            TEST_POV_IDX,
+        );
+        assert!(
+            registry.get_stake(&absent).is_none(),
+            "a covenant without a stake must not resolve to another covenant's"
+        );
     }
 
     #[test]
     fn nag_duties_retain_their_stake_key() {
-        let (first, second) = stakes_at_two_heights();
+        let (first, second) = stakes_in_two_covenants();
         let keys = [first.context().stake_key(), second.context().stake_key()];
         let mut registry = test_empty_registry();
         registry.insert_stake(first).unwrap();
@@ -2403,7 +2429,7 @@ mod covenant_tests {
 
     #[test]
     fn equal_identity_with_different_indexed_membership_is_rejected() {
-        let (first, _) = stakes_at_two_heights();
+        let (first, _) = stakes_in_two_covenants();
         let key = first.context().stake_key();
         let table = first.context().operator_table();
         let entries = table
@@ -2669,7 +2695,8 @@ mod recovery_height_tests {
         sm_types::SMId,
         testing::{
             N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm, test_empty_registry,
-            test_operator_set_sm, test_operator_table, test_populated_registry, test_stake_sm_cfg,
+            test_extended_operator_table, test_operator_set_sm, test_operator_table,
+            test_populated_registry, test_stake_sm_cfg,
         },
     };
 
@@ -2776,11 +2803,13 @@ mod recovery_height_tests {
     #[test]
     fn historical_stakes_limit_recovery_without_deposits() {
         let mut registry = test_empty_registry();
-        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-        for height in [100, 200] {
+        for (table, height) in [
+            (test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), height),
+                StakeSMCtx::new(TEST_POV_IDX, table, height),
                 height,
             );
             registry.insert_stake(stake).unwrap();

@@ -2543,7 +2543,7 @@ mod covenant_routing_tests {
     use super::*;
     use crate::testing::{
         N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm, test_empty_registry,
-        test_operator_table,
+        test_extended_operator_table, test_operator_table,
     };
 
     #[test]
@@ -2552,7 +2552,11 @@ mod covenant_routing_tests {
         let historical = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
         let old_key = historical.context().stake_key();
         let mut successor = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
-        successor.context = StakeSMCtx::new(TEST_POV_IDX, table, 200);
+        successor.context = StakeSMCtx::new(
+            TEST_POV_IDX,
+            test_extended_operator_table(TEST_POV_IDX),
+            200,
+        );
         let new_key = successor.context().stake_key();
         let source = OutPoint::new(
             historical.state().stake_txid().unwrap(),
@@ -2581,7 +2585,11 @@ mod covenant_routing_tests {
         let first = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
         let source = OutPoint::new(first.state().stake_txid().unwrap(), StakeTx::STAKE_VOUT);
         let mut second = first.clone();
-        second.context = StakeSMCtx::new(TEST_POV_IDX, table, 200);
+        second.context = StakeSMCtx::new(
+            TEST_POV_IDX,
+            test_extended_operator_table(TEST_POV_IDX),
+            200,
+        );
         let mut registry = test_empty_registry();
         registry.insert_stake(first).unwrap();
         registry.insert_stake(second).unwrap();

@@ -674,15 +674,14 @@ mod tests {
 
     #[test]
     fn covenant_stakes_preserve_independent_lifecycles_and_deletion() {
-        let table = test_operator_table(3, 0);
-        let make = |activation_height, preimage: [u8; 32]| {
+        let make = |table, activation_height, preimage: [u8; 32]| {
             let summary = StakeGraphSummary {
                 stake: generate_txid(),
                 unstaking_intent: generate_txid(),
                 unstaking: generate_txid(),
             };
             StakeSM {
-                context: StakeSMCtx::new(0, table.clone(), activation_height),
+                context: StakeSMCtx::new(0, table, activation_height),
                 cfg: test_stake_cfg(),
                 state: StakeState::PreimageRevealed {
                     last_block_height: 300,
@@ -698,8 +697,8 @@ mod tests {
                 },
             }
         };
-        let mut historical = make(100, [1; 32]);
-        let current = make(200, [2; 32]);
+        let mut historical = make(test_operator_table(3, 0), 100, [1; 32]);
+        let current = make(test_operator_table(4, 0), 200, [2; 32]);
         let historical_key = historical.context().stake_key();
         let current_key = current.context().stake_key();
         block_on(async {
@@ -751,9 +750,8 @@ mod tests {
 
     #[test]
     fn covenant_reservations_preserve_funding_identity_on_retry() {
-        let table = test_operator_table(3, 0);
-        let first_key = StakeSMCtx::new(0, table.clone(), 100).stake_key();
-        let second_key = StakeSMCtx::new(0, table, 200).stake_key();
+        let first_key = StakeSMCtx::new(0, test_operator_table(3, 0), 100).stake_key();
+        let second_key = StakeSMCtx::new(0, test_operator_table(4, 0), 200).stake_key();
         let first = make_reservation(1, 0);
         let second = make_reservation(2, 0);
         block_on(async {
