@@ -36,10 +36,10 @@ pub struct GraphSMCfg {
     pub counterproof_predicate: PredicateKey,
 
     /// Blocks past the contest block before the owner anchors its first bridge proof attempt.
-    pub bridge_proof_delay_blocks: u16,
+    pub proof_delay_blocks: u16,
 
     /// Blocks between the owner's bridge proof attempts until one confirms.
-    pub bridge_proof_retry_blocks: NonZeroU16,
+    pub proof_retry_blocks: NonZeroU16,
 }
 
 #[cfg(test)]
@@ -83,8 +83,8 @@ mod tests {
             payout_descs: BTreeMap::from([(0, random_p2tr_desc()), (1, random_p2tr_desc())]),
             bridge_proof_predicate: PredicateKey::always_accept(),
             counterproof_predicate: PredicateKey::always_accept(),
-            bridge_proof_delay_blocks: 2,
-            bridge_proof_retry_blocks: NonZeroU16::new(6).unwrap(),
+            proof_delay_blocks: 2,
+            proof_retry_blocks: NonZeroU16::new(6).unwrap(),
         };
 
         let bytes = postcard::to_allocvec(&cfg).expect("config must serialize");
