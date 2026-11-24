@@ -10,8 +10,6 @@ use strata_bridge_tx_graph::game_graph::{AdminMultisig, ProtocolParams};
 use strata_predicate::PredicateKey;
 
 /// Configuration for a graph state machine.
-///
-/// The `bridge_proof_*` fields are operator-local; the rest are protocol-wide.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GraphSMCfg {
     /// Parameters of the Game Graph that are inherent to the protocol.

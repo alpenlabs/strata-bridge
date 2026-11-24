@@ -10,6 +10,7 @@ use std::{
 
 use strata_asm_bridge_types::SafeHarborAddress;
 use strata_bridge_db::{fdb::client::FdbClient, traits::BridgeDb, types::WriteBatch};
+use strata_bridge_sm::graph::config::GraphSMCfg;
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -234,12 +235,14 @@ impl Persister {
             .get_persisted_state()
             .await
             .map_err(PersistError::DbErr)?;
+        let live_graph_cfg = config.graph.clone();
         let mut registry = SMRegistry::new(config);
 
         for (deposit_idx, deposit_sm) in persisted.deposits {
             registry.insert_deposit(deposit_idx, deposit_sm)?;
         }
-        for (graph_idx, graph_sm) in persisted.graphs {
+        for (graph_idx, mut graph_sm) in persisted.graphs {
+            graph_sm.cfg = with_local_bridge_proof_cfg(&graph_sm.cfg, &live_graph_cfg);
             registry.insert_graph(graph_idx, graph_sm)?;
         }
         for (stake_key, stake_sm) in persisted.stakes {
@@ -257,6 +260,15 @@ impl Persister {
 
         Ok(registry)
     }
+}
+
+/// Returns `stored` with its operator-local bridge proof fields taken from `live`.
+fn with_local_bridge_proof_cfg(stored: &GraphSMCfg, live: &GraphSMCfg) -> Arc<GraphSMCfg> {
+    Arc::new(GraphSMCfg {
+        bridge_proof_delay_blocks: live.bridge_proof_delay_blocks,
+        bridge_proof_retry_blocks: live.bridge_proof_retry_blocks,
+        ..stored.clone()
+    })
 }
 
 /// Error type for problems arising during persistence operations.
@@ -904,6 +916,36 @@ mod sm_config_tests {
             restored.get_stake(&stake_key).unwrap().cfg(),
             &original.stake
         );
+
+        drop(persister);
+        drop(db);
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn recovered_graphs_take_the_live_bridge_proof_settings() {
+        let (persister, db, guard) = persister().await;
+        let registry = test_populated_registry(1);
+        persist_all(&persister, &registry).await;
+        let original = registry.cfg().clone();
+
+        let mut graph_cfg = (*with_changed_params(&original).graph).clone();
+        graph_cfg.bridge_proof_delay_blocks += 3;
+        graph_cfg.bridge_proof_retry_blocks = graph_cfg.bridge_proof_retry_blocks.saturating_add(2);
+        let changed = SMConfig {
+            graph: Arc::new(graph_cfg.clone()),
+            ..original.clone()
+        };
+
+        let restored = persister.recover_registry(changed).await.unwrap();
+        let expected = GraphSMCfg {
+            bridge_proof_delay_blocks: graph_cfg.bridge_proof_delay_blocks,
+            bridge_proof_retry_blocks: graph_cfg.bridge_proof_retry_blocks,
+            ..(*original.graph).clone()
+        };
+        assert_ne!(expected, *original.graph);
+        assert_ne!(expected, graph_cfg);
+        assert_eq!(**restored.get_graph(&graph(0, 0)).unwrap().cfg(), expected);
 
         drop(persister);
         drop(db);
