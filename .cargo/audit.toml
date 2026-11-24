@@ -29,4 +29,12 @@ ignore = [
   # attacker would already need local write access there.
   # Remove when bdk_chain accepts rusqlite >=0.41.
   "RUSTSEC-2026-0459",
+
+  # url 2.5.4 via alloy, jsonrpsee, reqwest, hickory-proto, and multiaddr.
+  # Fixed in 2.5.9, but that release is younger than the 14-day
+  # min-publish-age cooldown in .cargo/config.toml. Only Url::origin and
+  # url::quirks::origin are affected; neither the workspace nor any direct
+  # dependent of url calls them, and URLs come from operator config.
+  # Remove once 2.5.9 clears the cooldown and Cargo.lock is bumped.
+  "RUSTSEC-2026-0592",
 ]
