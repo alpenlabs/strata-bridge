@@ -1850,10 +1850,7 @@ mod tests {
                 summary,
                 ..
             } = registry
-                .get_stake(&StakeKey {
-                    covenant,
-                    operator: idx.operator,
-                })
+                .get_stake(&StakeKey::new(covenant, idx.operator))
                 .expect("every member has a stake in the covenant")
                 .state()
             else {

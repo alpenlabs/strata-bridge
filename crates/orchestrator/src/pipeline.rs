@@ -1085,10 +1085,7 @@ mod stake_initialization_tests {
             registry.insert_stake(stake).unwrap();
         }
         let initial = registry.clone();
-        let stake_key = StakeKey {
-            covenant,
-            operator: 0,
-        };
+        let stake_key = StakeKey::new(covenant, 0);
         let mut parent = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
         parent.output.push(TxOut {
             value: Amount::ONE_SAT,
@@ -1655,10 +1652,7 @@ mod stake_initialization_tests {
         };
         assert_eq!(target.activation_height, activation);
         let target_keys: Vec<_> = [0, 2]
-            .map(|operator| StakeKey {
-                covenant: target,
-                operator,
-            })
+            .map(|operator| StakeKey::new(target, operator))
             .into();
         assert_eq!(
             registry.get_stake_ids(),
@@ -2268,10 +2262,7 @@ mod stake_initialization_tests {
             first_writes, 6,
             "three historical stakes, two prepared successor stakes, and membership"
         );
-        let successor = StakeKey {
-            covenant: expected.get_operator_set().unwrap().current_covenant(),
-            operator: 0,
-        };
+        let successor = StakeKey::new(expected.get_operator_set().unwrap().current_covenant(), 0);
         let mut applicator = Applicator::new(&mut expected, Some(0));
         onchain::process_deposit_graph_pass(&mut applicator, &table, true, &block).unwrap();
         let second = applicator.finish();
@@ -2574,10 +2565,7 @@ mod block_persistence_tests {
         // A crash can retain a stake's first-pass write without membership's write.
         persister
             .persist_batch(
-                BTreeSet::from([SMId::Stake(StakeKey {
-                    covenant,
-                    operator: TEST_POV_IDX,
-                })]),
+                BTreeSet::from([SMId::Stake(StakeKey::new(covenant, TEST_POV_IDX))]),
                 &registry,
             )
             .await

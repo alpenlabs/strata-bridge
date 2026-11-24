@@ -188,6 +188,11 @@ pub struct StakeKey {
 }
 
 impl StakeKey {
+    /// Identifies `operator`'s stake in `covenant`.
+    pub const fn new(covenant: CovenantId, operator: OperatorIdx) -> Self {
+        Self { covenant, operator }
+    }
+
     /// Encodes the covenant's 40 bytes followed by the four-byte big-endian operator index.
     pub fn to_bytes(self) -> [u8; 44] {
         let mut bytes = [0; 44];
@@ -396,22 +401,10 @@ mod tests {
         let successor =
             CovenantId::from_operator_table(&table_at(registrations(), 300), 200).unwrap();
         let keys = [
-            StakeKey {
-                covenant,
-                operator: 0,
-            },
-            StakeKey {
-                covenant,
-                operator: 2,
-            },
-            StakeKey {
-                covenant: later,
-                operator: 0,
-            },
-            StakeKey {
-                covenant: successor,
-                operator: 0,
-            },
+            StakeKey::new(covenant, 0),
+            StakeKey::new(covenant, 2),
+            StakeKey::new(later, 0),
+            StakeKey::new(successor, 0),
         ];
         let stakes: std::collections::HashMap<_, _> = keys
             .into_iter()
@@ -437,10 +430,7 @@ mod tests {
             aggregate_pubkey: SIGNING_KEYS[0].parse().unwrap(),
             activation_height: 0x0102_0304_0506_0708,
         };
-        let key = StakeKey {
-            covenant,
-            operator: 0x090a_0b0c,
-        };
+        let key = StakeKey::new(covenant, 0x090a_0b0c);
         assert_eq!(
             hex::encode(key.to_bytes()),
             format!("{}0102030405060708090a0b0c", SIGNING_KEYS[0])
@@ -454,7 +444,7 @@ mod tests {
             })
         );
         for operator in [0, u32::MAX] {
-            let boundary = StakeKey { covenant, operator };
+            let boundary = StakeKey::new(covenant, operator);
             assert_eq!(StakeKey::from_bytes(boundary.to_bytes()).unwrap(), boundary);
         }
         assert!(StakeKey::from_bytes([0xff; 44]).is_err());
@@ -503,13 +493,13 @@ mod tests {
 
     #[test]
     fn archived_stake_keys_reject_invalid_covenant_keys() {
-        let key = StakeKey {
-            covenant: CovenantId {
+        let key = StakeKey::new(
+            CovenantId {
                 aggregate_pubkey: SIGNING_KEYS[0].parse().unwrap(),
                 activation_height: 101,
             },
-            operator: 2,
-        };
+            2,
+        );
         let mut bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&key)
             .expect("serialize")
             .to_vec();

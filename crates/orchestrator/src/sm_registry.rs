@@ -2271,17 +2271,19 @@ mod tests {
         let mut registry = test_empty_registry();
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
 
-        assert!(!registry.is_operator_active_for_new_deposits(&StakeKey {
-            covenant: test_covenant(&table),
-            operator: TEST_POV_IDX
-        }));
+        assert!(
+            !registry.is_operator_active_for_new_deposits(&StakeKey::new(
+                test_covenant(&table),
+                TEST_POV_IDX
+            ))
+        );
 
         insert_confirmed_stake(&mut registry, TEST_POV_IDX, table.clone(), generate_txid());
 
-        assert!(registry.is_operator_active_for_new_deposits(&StakeKey {
-            covenant: test_covenant(&table),
-            operator: TEST_POV_IDX
-        }));
+        assert!(registry.is_operator_active_for_new_deposits(&StakeKey::new(
+            test_covenant(&table),
+            TEST_POV_IDX
+        )));
     }
 
     #[test]

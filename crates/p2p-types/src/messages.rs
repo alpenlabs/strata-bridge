@@ -905,14 +905,14 @@ mod tests {
 
     // Helper to create a stake key in a covenant activated at `activation_height`.
     fn test_stake_key(activation_height: u64, operator: OperatorIdx) -> StakeKey {
-        StakeKey {
-            covenant: CovenantId {
+        StakeKey::new(
+            CovenantId {
                 aggregate_pubkey: XOnlyPublicKey::from_slice(&TEST_COVENANT_KEY)
                     .expect("valid x-only key"),
                 activation_height,
             },
             operator,
-        }
+        )
     }
 
     // Helper to create the expected signing bytes of `test_stake_key`.

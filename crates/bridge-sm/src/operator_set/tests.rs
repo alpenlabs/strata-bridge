@@ -656,10 +656,7 @@ fn block_stf_emits_only_final_covenant_members_and_no_external_duties() {
     assert_eq!(
         output.signals,
         vec![OperatorSetSignal::InitializeStake {
-            stake_key: StakeKey {
-                covenant: sm.current_covenant(),
-                operator: 0
-            },
+            stake_key: StakeKey::new(sm.current_covenant(), 0),
             operator_table: sm.current_operator_table().unwrap(),
         }],
         "A block with multiple exits must initialize only the final covenant, not intermediate subsets"

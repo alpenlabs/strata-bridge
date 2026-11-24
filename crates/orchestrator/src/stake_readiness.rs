@@ -102,10 +102,7 @@ pub fn assess(
     let mut ready = BTreeMap::new();
     let mut shortfalls = BTreeMap::new();
     for operator in operator_table.operator_idxs() {
-        let key = StakeKey {
-            covenant: *covenant,
-            operator,
-        };
+        let key = StakeKey::new(*covenant, operator);
         match member_binding(stakes.get(&key), operator_table) {
             Ok(binding) => {
                 ready.insert(operator, binding);
@@ -392,10 +389,7 @@ mod tests {
         let ready = assess(&successor, &stakes).expect("successor stakes are confirmed");
 
         for (operator, binding) in &ready.stakes {
-            let successor_key = StakeKey {
-                covenant: successor.covenant,
-                operator: *operator,
-            };
+            let successor_key = StakeKey::new(successor.covenant, *operator);
             assert_eq!(
                 Some(binding.outpoint.txid),
                 stakes[&successor_key].state().stake_txid(),
@@ -460,10 +454,7 @@ mod tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let block_covenant = block_covenant(&table, INITIAL_BLOCK_HEIGHT);
         let mut stakes = all_confirmed(&table);
-        let key = StakeKey {
-            covenant: block_covenant.covenant,
-            operator: TEST_POV_IDX,
-        };
+        let key = StakeKey::new(block_covenant.covenant, TEST_POV_IDX);
         let sm = stakes.get_mut(&key).expect("fixture stake");
         if let StakeState::Confirmed { stake_data, .. } = &mut sm.state {
             stake_data.unstaking_image = sha256::Hash::hash(&[9; 32]);

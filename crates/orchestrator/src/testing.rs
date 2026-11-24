@@ -402,14 +402,14 @@ impl DrtBuilder {
 
 /// Covenant-qualified identity for the standard test membership.
 pub(crate) fn test_stake_key(operator: OperatorIdx) -> StakeKey {
-    StakeKey {
-        covenant: CovenantId::from_operator_table(
+    StakeKey::new(
+        CovenantId::from_operator_table(
             &test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
             INITIAL_BLOCK_HEIGHT,
         )
         .unwrap(),
         operator,
-    }
+    )
 }
 
 /// Public membership with two active registrations and no local signing identity.
