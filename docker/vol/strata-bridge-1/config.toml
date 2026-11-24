@@ -11,10 +11,10 @@ max_fee_rate = 10
 # Blocks the graph owner waits after a contest confirms before anchoring and generating the bridge
 # proof. Absent or 0 anchors at the contest block; together with bury_depth it should stay well
 # below proof_timelock.
-# bridge_proof_delay_blocks = 0
+# proof_delay_blocks = 0
 # Blocks the graph owner waits after a bridge proof attempt before generating a fresh one, while
 # none has confirmed. Absent means 6; 0 is rejected.
-# bridge_proof_retry_blocks = 6
+# proof_retry_blocks = 6
 
 [secret_service_client]
 server_addr = "secret-service-1:69"

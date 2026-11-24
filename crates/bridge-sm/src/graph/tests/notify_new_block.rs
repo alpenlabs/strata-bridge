@@ -16,8 +16,8 @@ mod tests {
             machine::{GraphSM, generate_game_graph},
             state::{CounterproofData, GraphState},
             tests::{
-                BRIDGE_PROOF_RETRY_BLOCKS, CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS,
-                GraphInvalidTransition, GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT,
+                CLAIM_BLOCK_HEIGHT, CONTEST_TIMELOCK_BLOCKS, GraphInvalidTransition,
+                GraphTransition, INITIAL_BLOCK_HEIGHT, LATER_BLOCK_HEIGHT, PROOF_RETRY_BLOCKS,
                 TEST_NONPOV_IDX, TEST_POV_IDX, create_nonpov_sm, create_sm,
                 expected_bridge_proof_duty_at, get_state, mock_game_signatures,
                 mock_states::{
@@ -439,7 +439,7 @@ mod tests {
 
     const C: u64 = LATER_BLOCK_HEIGHT;
     // Retry cases attempt first at `C + 1` so the retry lands before the test `proof_timelock`.
-    const RETRY: u64 = BRIDGE_PROOF_RETRY_BLOCKS as u64;
+    const RETRY: u64 = PROOF_RETRY_BLOCKS as u64;
 
     #[test]
     fn contested_delay_not_elapsed_no_duty() {

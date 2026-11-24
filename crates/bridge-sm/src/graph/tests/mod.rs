@@ -108,7 +108,7 @@ const ACK_TIMELOCK: relative::Height = relative::Height::from_height(10);
 const NACK_TIMELOCK: relative::Height = relative::Height::from_height(5);
 const CONTESTED_PAYOUT_TIMELOCK: relative::Height = relative::Height::from_height(15);
 const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
-pub(super) const BRIDGE_PROOF_RETRY_BLOCKS: u16 = 3;
+pub(super) const PROOF_RETRY_BLOCKS: u16 = 3;
 
 // ===== Configuration Helpers =====
 
@@ -140,8 +140,8 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
             payout_descs,
             bridge_proof_predicate: PredicateKey::always_accept(),
             counterproof_predicate: PredicateKey::always_accept(),
-            bridge_proof_delay_blocks: 0,
-            bridge_proof_retry_blocks: NonZero::new(BRIDGE_PROOF_RETRY_BLOCKS).unwrap(),
+            proof_delay_blocks: 0,
+            proof_retry_blocks: NonZero::new(PROOF_RETRY_BLOCKS).unwrap(),
         })
     });
 
@@ -149,9 +149,9 @@ pub(super) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
 }
 
 /// Creates a test GSM configuration with the given bridge proof delay.
-pub(super) fn test_graph_sm_cfg_with_delay(bridge_proof_delay_blocks: u16) -> Arc<GraphSMCfg> {
+pub(super) fn test_graph_sm_cfg_with_delay(proof_delay_blocks: u16) -> Arc<GraphSMCfg> {
     Arc::new(GraphSMCfg {
-        bridge_proof_delay_blocks,
+        proof_delay_blocks,
         ..(*test_graph_sm_cfg()).clone()
     })
 }

@@ -242,7 +242,7 @@ impl Persister {
             registry.insert_deposit(deposit_idx, deposit_sm)?;
         }
         for (graph_idx, mut graph_sm) in persisted.graphs {
-            graph_sm.cfg = with_local_bridge_proof_cfg(&graph_sm.cfg, &live_graph_cfg);
+            graph_sm.cfg = with_local_proof_cfg(&graph_sm.cfg, &live_graph_cfg);
             registry.insert_graph(graph_idx, graph_sm)?;
         }
         for (stake_key, stake_sm) in persisted.stakes {
@@ -263,10 +263,10 @@ impl Persister {
 }
 
 /// Returns `stored` with its operator-local bridge proof fields taken from `live`.
-fn with_local_bridge_proof_cfg(stored: &GraphSMCfg, live: &GraphSMCfg) -> Arc<GraphSMCfg> {
+fn with_local_proof_cfg(stored: &GraphSMCfg, live: &GraphSMCfg) -> Arc<GraphSMCfg> {
     Arc::new(GraphSMCfg {
-        bridge_proof_delay_blocks: live.bridge_proof_delay_blocks,
-        bridge_proof_retry_blocks: live.bridge_proof_retry_blocks,
+        proof_delay_blocks: live.proof_delay_blocks,
+        proof_retry_blocks: live.proof_retry_blocks,
         ..stored.clone()
     })
 }
@@ -930,8 +930,8 @@ mod sm_config_tests {
         let original = registry.cfg().clone();
 
         let mut graph_cfg = (*with_changed_params(&original).graph).clone();
-        graph_cfg.bridge_proof_delay_blocks += 3;
-        graph_cfg.bridge_proof_retry_blocks = graph_cfg.bridge_proof_retry_blocks.saturating_add(2);
+        graph_cfg.proof_delay_blocks += 3;
+        graph_cfg.proof_retry_blocks = graph_cfg.proof_retry_blocks.saturating_add(2);
         let changed = SMConfig {
             graph: Arc::new(graph_cfg.clone()),
             ..original.clone()
@@ -939,8 +939,8 @@ mod sm_config_tests {
 
         let restored = persister.recover_registry(changed).await.unwrap();
         let expected = GraphSMCfg {
-            bridge_proof_delay_blocks: graph_cfg.bridge_proof_delay_blocks,
-            bridge_proof_retry_blocks: graph_cfg.bridge_proof_retry_blocks,
+            proof_delay_blocks: graph_cfg.proof_delay_blocks,
+            proof_retry_blocks: graph_cfg.proof_retry_blocks,
             ..(*original.graph).clone()
         };
         assert_ne!(expected, *original.graph);

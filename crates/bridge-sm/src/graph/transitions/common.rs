@@ -458,10 +458,9 @@ pub(super) fn check_bridge_proof_attempt(
     contest_txid: Txid,
 ) -> Option<GraphDuty> {
     let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
-    let delay_elapsed =
-        block_height >= contest_block_height + u64::from(cfg.bridge_proof_delay_blocks);
+    let delay_elapsed = block_height >= contest_block_height + u64::from(cfg.proof_delay_blocks);
     let retry_due = last_attempt_height
-        .is_none_or(|last| block_height >= last + u64::from(cfg.bridge_proof_retry_blocks.get()));
+        .is_none_or(|last| block_height >= last + u64::from(cfg.proof_retry_blocks.get()));
 
     (is_own_graph && delay_elapsed && retry_due)
         .then(|| bridge_proof_duty(graph_ctx, cfg, graph_data, contest_txid, block_height))

@@ -115,8 +115,8 @@ pub(crate) fn test_graph_sm_cfg() -> Arc<GraphSMCfg> {
         payout_descs,
         bridge_proof_predicate: PredicateKey::always_accept(),
         counterproof_predicate: PredicateKey::always_accept(),
-        bridge_proof_delay_blocks: 0,
-        bridge_proof_retry_blocks: NonZero::new(6).unwrap(),
+        proof_delay_blocks: 0,
+        proof_retry_blocks: NonZero::new(6).unwrap(),
     })
 }
 
