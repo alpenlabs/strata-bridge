@@ -412,6 +412,12 @@ pub(crate) fn test_stake_key(operator: OperatorIdx) -> StakeKey {
     )
 }
 
+/// Participant table of [`test_operator_table`]'s standard membership plus one more operator, so
+/// its covenants have a different signing set.
+pub(crate) fn test_extended_operator_table(pov_idx: OperatorIdx) -> OperatorTable {
+    test_operator_table(N_TEST_OPERATORS + 1, pov_idx)
+}
+
 /// Public membership with two active registrations and no local signing identity.
 pub(crate) fn test_operator_set_sm() -> OperatorSetSM {
     let registrations = (0..2)

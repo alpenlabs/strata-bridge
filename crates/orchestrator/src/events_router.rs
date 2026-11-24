@@ -472,8 +472,8 @@ mod covenant_wire_tests {
         sm_registry::ProcessOutcome,
         sm_types::{OperatorKey, UnifiedDuty},
         testing::{
-            N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, test_empty_registry, test_operator_table,
-            test_stake_sm_cfg,
+            N_TEST_OPERATORS, TEST_NONPOV, TEST_POV_IDX, test_empty_registry,
+            test_extended_operator_table, test_operator_table, test_stake_sm_cfg,
         },
     };
 
@@ -482,10 +482,13 @@ mod covenant_wire_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for activation_height in [100, 200] {
+        for (members, activation_height) in [
+            (table.clone(), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
                 100,
             );
             keys.push(stake.context().stake_key());
@@ -519,10 +522,13 @@ mod covenant_wire_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for activation_height in [100, 200] {
+        for (members, activation_height) in [
+            (table.clone(), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
                 100,
             );
             keys.push(stake.context().stake_key());
@@ -551,10 +557,13 @@ mod covenant_wire_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for activation_height in [100, 200] {
+        for (members, activation_height) in [
+            (table.clone(), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
                 100,
             );
             keys.push(stake.context().stake_key());
@@ -575,10 +584,11 @@ mod covenant_wire_tests {
             );
         }
         let unknown = StakeKey::new(
-            CovenantId {
-                activation_height: 300,
-                ..keys[0].covenant
-            },
+            CovenantId::from_operator_table(
+                &test_operator_table(N_TEST_OPERATORS + 2, TEST_POV_IDX),
+                300,
+            )
+            .unwrap(),
             keys[0].operator,
         );
         assert!(
@@ -592,10 +602,13 @@ mod covenant_wire_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for activation_height in [100, 200] {
+        for (members, activation_height) in [
+            (table.clone(), 100),
+            (test_extended_operator_table(TEST_POV_IDX), 200),
+        ] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
                 100,
             );
             keys.push(stake.context().stake_key());

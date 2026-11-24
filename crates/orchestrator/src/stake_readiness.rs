@@ -177,7 +177,7 @@ mod tests {
     use super::*;
     use crate::testing::{
         INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_POV_IDX, make_confirmed_stake_sm,
-        test_operator_table,
+        test_extended_operator_table, test_operator_table,
     };
 
     fn block_covenant(table: &OperatorTable, activation_height: u64) -> BlockCovenant {
@@ -377,12 +377,13 @@ mod tests {
     #[test]
     fn successor_stakes_make_the_successor_ready() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let successor_table = test_extended_operator_table(TEST_POV_IDX);
         let successor_height = INITIAL_BLOCK_HEIGHT + 100;
-        let successor = block_covenant(&table, successor_height);
+        let successor = block_covenant(&successor_table, successor_height);
         let mut stakes = all_confirmed(&table);
-        for operator in table.operator_idxs() {
-            let mut sm = confirmed(operator, &table);
-            sm.context = StakeSMCtx::new(operator, table.clone(), successor_height);
+        for operator in successor_table.operator_idxs() {
+            let mut sm = confirmed(operator, &successor_table);
+            sm.context = StakeSMCtx::new(operator, successor_table.clone(), successor_height);
             insert(&mut stakes, sm);
         }
 
