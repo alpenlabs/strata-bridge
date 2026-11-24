@@ -7,6 +7,7 @@ use bitcoin::{
     hashes::{Hash, sha256},
     relative,
 };
+use musig2::AggNonce;
 use secp256k1::schnorr::Signature;
 use strata_bridge_connectors::prelude::NOfNConnector;
 use strata_bridge_orchestrator::sm_registry::{SMConfig, SMRegistry};
@@ -16,7 +17,8 @@ use strata_bridge_primitives::{
     types::{DepositIdx, GraphIdx, OperatorIdx},
 };
 use strata_bridge_rpc::types::{
-    RpcBridgeDutyStatus, RpcClaimPhase, RpcReimbursementStatus, RpcWithdrawalStatus,
+    RpcBridgeDutyStatus, RpcClaimPhase, RpcPayoutBlock, RpcPayoutKind, RpcReimbursementStatus,
+    RpcWithdrawalStatus,
 };
 use strata_bridge_sm::{
     deposit::{
@@ -25,12 +27,12 @@ use strata_bridge_sm::{
     graph::{
         config::GraphSMCfg,
         context::GraphSMCtx,
-        state::{AbortReason, GraphState},
+        state::{AbortReason, CounterproofData, GraphState, PayoutBlockData, PayoutKind},
     },
     stake::config::StakeSMCfg,
 };
 use strata_bridge_test_utils::{
-    bitcoin::{generate_tx, generate_xonly_pubkey},
+    bitcoin::{generate_spending_tx, generate_tx, generate_xonly_pubkey},
     bridge_fixtures::{
         TEST_DEPOSIT_AMOUNT, TEST_MAGIC_BYTES, TEST_OPERATOR_FEE, TEST_POV_IDX,
         TEST_RECOVERY_DELAY, TEST_SWEEP_FEE_RATE, random_p2tr_desc, test_operator_table,
@@ -39,9 +41,13 @@ use strata_bridge_test_utils::{
     prelude::generate_txid,
 };
 use strata_bridge_tx_graph::{
-    game_graph::{AdminMultisig, DepositParams, GameGraphSummary, ProtocolParams},
+    game_graph::{
+        AdminMultisig, DepositParams, GameData, GameGraph, GameGraphSummary, ProtocolParams,
+    },
     stake_graph::ProtocolParams as StakeProtocolParams,
     transactions::{
+        claim::ClaimTx,
+        contest::ContestTx,
         cooperative_payout::{CooperativePayoutData, CooperativePayoutTx},
         deposit::{DepositData, DepositTx, build_test_deposit_tx},
         sweep::{SweepData, SweepTx},
@@ -52,8 +58,9 @@ use zkaleido::{Proof, ProofReceipt, PublicValues};
 
 use super::super::monitoring::{
     active_claim_from_state, aggregate_signatures_response, bridge_duties_for_deposit,
-    bridge_duties_for_operator_pk, duty_applies_to_operator, get_pending_assigned_operator,
-    get_reimbursement_operator, graph_data_response, reimbursement_status, withdrawal_status,
+    bridge_duties_for_operator_pk, cooperative_reimbursement_status, duty_applies_to_operator,
+    get_pending_assigned_operator, get_reimbursement_operator, graph_data_response,
+    reimbursement_status, withdrawal_status,
 };
 
 const DEPOSIT_IDX: DepositIdx = 3;
@@ -305,9 +312,12 @@ fn active_claim_from_state_returns_fulfilled_claim_in_claimed_state() {
         claim_block_height: 100,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
-    let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
+    let claim = active_claim_from_state(OPERATOR_IDX, &state)
+        .expect("valid claim")
+        .expect("claim should be returned");
 
     assert_eq!(claim.operator, OPERATOR_IDX);
     assert_eq!(claim.claim_txid, graph_summary.claim);
@@ -328,9 +338,12 @@ fn active_claim_from_state_returns_unfulfilled_claim_in_claimed_state() {
         claim_block_height: 100,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
-    let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
+    let claim = active_claim_from_state(OPERATOR_IDX, &state)
+        .expect("valid claim")
+        .expect("claim should be returned");
 
     assert!(!claim.fulfilled);
     assert_eq!(claim.phase, RpcClaimPhase::Claimed);
@@ -350,7 +363,7 @@ fn active_claim_from_state_returns_none_before_claim() {
         stake_spent: None,
     };
 
-    let claim = active_claim_from_state(OPERATOR_IDX, &state);
+    let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("valid pre-claim state");
 
     assert!(claim.is_none());
 }
@@ -368,16 +381,30 @@ fn active_claim_from_state_returns_contested_phase() {
         contest_block_height: 100,
         stake_spent: None,
         payout_connector_spent: None,
+        payout_block_data: Default::default(),
     };
 
-    let claim = active_claim_from_state(OPERATOR_IDX, &state).expect("claim should be returned");
+    let claim = active_claim_from_state(OPERATOR_IDX, &state)
+        .expect("valid claim")
+        .expect("claim should be returned");
 
     assert!(claim.fulfilled);
-    assert_eq!(claim.phase, RpcClaimPhase::Contested);
+    assert_eq!(
+        claim.phase,
+        RpcClaimPhase::Contested {
+            contest_txid: graph_summary.contest
+        }
+    );
 }
 
 #[test]
 fn bridge_duties_for_deposit_reports_each_deposit_state() {
+    let collected_nonces: BTreeMap<_, _> = test_operator_table(3, TEST_POV_IDX)
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| (idx, generate_pubnonce()))
+        .collect();
+    let collected_aggregated_nonce = AggNonce::sum(collected_nonces.values().cloned());
     let deposit_request_txid = generate_txid();
     let claim_txids = BTreeMap::from([(OPERATOR_IDX, generate_txid())]);
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, generate_pubnonce())]);
@@ -480,8 +507,8 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 cooperative_payment_deadline: 120,
-                payout_nonces: pubnonces,
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces: collected_nonces.clone(),
+                payout_aggregated_nonce: collected_aggregated_nonce.clone(),
                 payout_partial_signatures: partial_signatures,
             },
             no_duties.clone(),
@@ -492,6 +519,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
                 assignee: OPERATOR_IDX,
                 fulfillment_txid: generate_txid(),
                 last_block_height: 100,
+                expected_cooperative_payout_txid: None,
             },
             no_duties.clone(),
         ),
@@ -500,6 +528,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
             },
             no_duties.clone(),
         ),
@@ -510,6 +539,7 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             no_duties.clone(),
         ),
@@ -518,9 +548,10 @@ fn bridge_duties_for_deposit_reports_each_deposit_state() {
             DepositState::SweepNoncesCollected {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: collected_aggregated_nonce,
+                sweep_nonces: collected_nonces.clone(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             no_duties,
         ),
@@ -634,6 +665,7 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
     let state = DepositState::Spent {
         fulfillment_txid: Some(generate_txid()),
         assignee: Some(OPERATOR_IDX),
+        cooperative_payout_txid: None,
     };
 
     assert_eq!(get_reimbursement_operator(&state), Some(OPERATOR_IDX));
@@ -644,6 +676,7 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
     let swept_from_assigned = DepositState::Spent {
         fulfillment_txid: None,
         assignee: Some(OPERATOR_IDX),
+        cooperative_payout_txid: None,
     };
 
     assert_eq!(
@@ -655,6 +688,12 @@ fn reimbursement_operator_uses_terminal_spent_assignee_without_marking_it_pendin
 
 #[test]
 fn withdrawal_status_reports_each_deposit_state() {
+    let collected_nonces: BTreeMap<_, _> = test_operator_table(3, TEST_POV_IDX)
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| (idx, generate_pubnonce()))
+        .collect();
+    let collected_aggregated_nonce = AggNonce::sum(collected_nonces.values().cloned());
     let claim_txids = BTreeMap::from([(OPERATOR_IDX, generate_txid())]);
     let pubnonces = BTreeMap::from([(OPERATOR_IDX, generate_pubnonce())]);
     let partial_signatures = BTreeMap::from([(OPERATOR_IDX, generate_partial_signature())]);
@@ -740,8 +779,8 @@ fn withdrawal_status_reports_each_deposit_state() {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_tx(),
                 cooperative_payment_deadline: 120,
-                payout_nonces: pubnonces,
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces: collected_nonces.clone(),
+                payout_aggregated_nonce: collected_aggregated_nonce.clone(),
                 payout_partial_signatures: partial_signatures,
             },
         ),
@@ -749,8 +788,9 @@ fn withdrawal_status_reports_each_deposit_state() {
             "CooperativePathFailed",
             DepositState::CooperativePathFailed {
                 assignee: OPERATOR_IDX,
-                last_block_height: 100,
                 fulfillment_txid: generate_txid(),
+                last_block_height: 100,
+                expected_cooperative_payout_txid: None,
             },
         ),
         (
@@ -758,6 +798,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: Some(fulfillment_txid),
                 assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
             },
         ),
         (
@@ -765,6 +806,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
         ),
         (
@@ -772,6 +814,7 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
             },
         ),
         ("Aborted", DepositState::Aborted),
@@ -781,6 +824,7 @@ fn withdrawal_status_reports_each_deposit_state() {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ),
         (
@@ -788,9 +832,10 @@ fn withdrawal_status_reports_each_deposit_state() {
             DepositState::SweepNoncesCollected {
                 last_block_height: 100,
                 sweep_tx: test_sweep_tx(),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce: collected_aggregated_nonce,
+                sweep_nonces: collected_nonces.clone(),
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ),
     ];
@@ -829,17 +874,54 @@ fn withdrawal_status_reports_each_deposit_state() {
 
 #[test]
 fn reimbursement_status_reports_each_graph_state() {
-    let graph_data = test_graph_data();
-    let graph_summary = test_graph_summary();
+    // Derive transaction IDs and signing-vector lengths from the same graph.
+    let graph_cfg = test_graph_cfg();
+    let graph_ctx = test_graph_ctx();
+    let mut graph_data = test_graph_data();
+    graph_data.deposit_outpoint = graph_ctx.deposit_outpoint;
+    let (graph, _) = GameGraph::new(GameData {
+        protocol: graph_cfg.game_graph_params,
+        setup: graph_ctx.generate_setup_params(&graph_cfg, &graph_data),
+        deposit: graph_data.clone(),
+    });
+    let graph_summary = graph.summarize();
+    let contest_height = 100;
+    let proof_height = contest_height + 1;
+    let timeout_height =
+        contest_height + u64::from(graph_cfg.game_graph_params.proof_timelock.value());
+    let counterproof_height = contest_height + 1;
+    let ack_height =
+        counterproof_height + u64::from(graph_cfg.game_graph_params.nack_timelock.value());
+    let proof = dummy_proof_receipt();
     let claim_txid = graph_summary.claim;
     let fulfillment_txid = generate_txid();
-    let payout_txid = generate_txid();
-    let slash_txid = generate_txid();
-    let signatures = vec![Signature::from_slice(&[0x0c; 64]).expect("valid signature")];
-    let pubnonces = BTreeMap::from([(OPERATOR_IDX, vec![generate_pubnonce()])]);
-    let partial_signatures = BTreeMap::from([(OPERATOR_IDX, vec![generate_partial_signature()])]);
+    let signing_count = graph.musig_signing_info().pack().len();
+    let signatures =
+        vec![Signature::from_slice(&[0x0c; 64]).expect("valid signature"); signing_count];
+    let pubnonces: BTreeMap<_, Vec<_>> = graph_ctx
+        .operator_table
+        .operator_idxs()
+        .into_iter()
+        .map(|idx| {
+            (
+                idx,
+                (0..signing_count).map(|_| generate_pubnonce()).collect(),
+            )
+        })
+        .collect();
+    // Each aggregate combines one transaction's nonce from every operator.
+    let agg_nonces: Vec<_> = (0..signing_count)
+        .map(|i| AggNonce::sum(pubnonces.values().map(|nonces| nonces[i].clone())))
+        .collect();
+    let partial_signatures = BTreeMap::from([(
+        OPERATOR_IDX,
+        (0..signing_count)
+            .map(|_| generate_partial_signature())
+            .collect(),
+    )]);
     let not_started = RpcReimbursementStatus::NotStarted;
 
+    // Each case is an independent snapshot, not a sequence of transitions.
     let cases = vec![
         (
             "Created",
@@ -863,7 +945,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 last_block_height: 100,
                 graph_data: graph_data.clone(),
                 graph_summary: graph_summary.clone(),
-                pubnonces: pubnonces.clone(),
+                pubnonces: BTreeMap::from([(OPERATOR_IDX, pubnonces[&OPERATOR_IDX].clone())]),
             },
             not_started.clone(),
         ),
@@ -874,7 +956,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 graph_data: graph_data.clone(),
                 graph_summary: graph_summary.clone(),
                 pubnonces: pubnonces.clone(),
-                agg_nonces: vec![generate_agg_nonce()],
+                agg_nonces: agg_nonces.clone(),
                 partial_signatures: partial_signatures.clone(),
                 stake_spent: None,
             },
@@ -886,7 +968,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 last_block_height: 100,
                 graph_data: graph_data.clone(),
                 graph_summary: graph_summary.clone(),
-                agg_nonces: Some(vec![generate_agg_nonce()]),
+                agg_nonces: Some(agg_nonces),
                 signatures: signatures.clone(),
                 stake_spent: None,
             },
@@ -933,6 +1015,7 @@ fn reimbursement_status_reports_each_graph_state() {
                 claim_block_height: 100,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
@@ -948,123 +1031,174 @@ fn reimbursement_status_reports_each_graph_state() {
                 signatures: signatures.clone(),
                 fulfillment_txid: Some(fulfillment_txid),
                 fulfillment_block_height: Some(95),
-                contest_block_height: 100,
+                contest_block_height: contest_height,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
-                phase: RpcClaimPhase::Contested,
+                phase: RpcClaimPhase::Contested {
+                    contest_txid: graph_summary.contest,
+                },
             },
         ),
         (
             "BridgeProofPosted",
             GraphState::BridgeProofPosted {
-                last_block_height: 100,
+                last_block_height: proof_height,
                 graph_data: graph_data.clone(),
                 graph_summary: graph_summary.clone(),
                 signatures: signatures.clone(),
                 fulfillment_txid: Some(fulfillment_txid),
-                contest_block_height: 100,
-                bridge_proof_tx: generate_tx(1, 1),
-                bridge_proof_block_height: 101,
-                proof: dummy_proof_receipt(),
+                contest_block_height: contest_height,
+                bridge_proof_tx: generate_spending_tx(
+                    OutPoint::new(graph_summary.contest, ContestTx::PROOF_VOUT),
+                    &[],
+                ),
+                bridge_proof_block_height: proof_height,
+                proof,
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
-                phase: RpcClaimPhase::BridgeProofPosted,
+                phase: RpcClaimPhase::BridgeProofPosted {
+                    contest_txid: graph_summary.contest,
+                },
             },
         ),
         (
             "BridgeProofTimedout",
             GraphState::BridgeProofTimedout {
-                last_block_height: 100,
+                last_block_height: timeout_height,
                 graph_data: graph_data.clone(),
                 graph_summary: graph_summary.clone(),
                 signatures: signatures.clone(),
                 fulfillment_txid: Some(fulfillment_txid),
-                contest_block_height: 100,
-                expected_slash_txid: slash_txid,
+                contest_block_height: contest_height,
+                expected_slash_txid: graph_summary.slash,
                 claim_txid,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
-                phase: RpcClaimPhase::BridgeProofTimedout,
+                phase: RpcClaimPhase::BridgeProofTimedout {
+                    contest_txid: graph_summary.contest,
+                },
             },
         ),
         (
             "CounterProofPosted",
             GraphState::CounterProofPosted {
-                last_block_height: 100,
+                last_block_height: counterproof_height,
                 graph_data: graph_data.clone(),
                 graph_summary: graph_summary.clone(),
                 signatures: signatures.clone(),
                 fulfillment_txid: Some(fulfillment_txid),
-                contest_block_height: 100,
+                contest_block_height: contest_height,
                 refuted_bridge_proof: None,
-                counterproofs_and_confs: BTreeMap::new(),
+                counterproofs_and_confs: BTreeMap::from([(
+                    0,
+                    CounterproofData {
+                        txid: graph_summary.counterproofs[0].counterproof,
+                        conf_height: counterproof_height,
+                        completed_signatures: std::array::from_fn(|_| {
+                            Signature::from_slice(&[0x0c; 64]).expect("valid signature")
+                        }),
+                    },
+                )]),
                 counterproof_nacks: BTreeMap::new(),
                 stake_spent: None,
                 payout_connector_spent: None,
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
-                phase: RpcClaimPhase::CounterProofPosted,
+                phase: RpcClaimPhase::CounterProofPosted {
+                    contest_txid: graph_summary.contest,
+                },
             },
         ),
         (
             "AllNackd",
             GraphState::AllNackd {
-                last_block_height: 100,
+                last_block_height: ack_height,
                 graph_data: graph_data.clone(),
                 signatures: signatures.clone(),
                 claim_txid,
+                contest_txid: Some(graph_summary.contest),
                 fulfillment_txid: Some(fulfillment_txid),
-                contest_block_height: 100,
-                expected_payout_txid: payout_txid,
-                possible_slash_txid: slash_txid,
+                contest_block_height: contest_height,
+                expected_payout_txid: graph_summary.contested_payout,
+                possible_slash_txid: graph_summary.slash,
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
-                phase: RpcClaimPhase::AllNackd,
+                phase: RpcClaimPhase::AllNackd {
+                    contest_txid: graph_summary.contest,
+                },
             },
         ),
         (
             "Acked",
             GraphState::Acked {
-                last_block_height: 100,
+                last_block_height: ack_height,
                 graph_data,
                 signatures,
-                contest_block_height: 100,
-                expected_slash_txid: slash_txid,
+                contest_block_height: contest_height,
+                expected_slash_txid: graph_summary.slash,
                 claim_txid,
+                contest_txid: Some(graph_summary.contest),
                 fulfillment_txid: Some(fulfillment_txid),
+                payout_block_data: Default::default(),
             },
             RpcReimbursementStatus::InProgress {
                 claim_txid,
-                phase: RpcClaimPhase::Acked,
+                phase: RpcClaimPhase::Acked {
+                    contest_txid: graph_summary.contest,
+                },
             },
         ),
         (
             "Withdrawn",
             GraphState::Withdrawn {
                 claim_txid,
-                payout_txid,
+                payout_txid: graph_summary.uncontested_payout,
+                payout_kind: Some(PayoutKind::Uncontested),
             },
             RpcReimbursementStatus::Complete {
+                claim_txid: Some(claim_txid),
+                payout_txid: graph_summary.uncontested_payout,
+                payout_kind: Some(RpcPayoutKind::Uncontested),
+            },
+        ),
+        (
+            "WithdrawnContested",
+            GraphState::Withdrawn {
                 claim_txid,
-                payout_txid,
+                payout_txid: graph_summary.contested_payout,
+                payout_kind: Some(PayoutKind::Contested),
+            },
+            RpcReimbursementStatus::Complete {
+                claim_txid: Some(claim_txid),
+                payout_txid: graph_summary.contested_payout,
+                payout_kind: Some(RpcPayoutKind::Contested),
             },
         ),
         (
             "Slashed",
             GraphState::Slashed {
                 claim_txid,
-                slash_txid,
+                contest_txid: graph_summary.contest,
+                slash_txid: graph_summary.slash,
             },
-            RpcReimbursementStatus::Slashed { claim_txid },
+            RpcReimbursementStatus::Slashed {
+                claim_txid,
+                contest_txid: graph_summary.contest,
+                slash_txid: graph_summary.slash,
+            },
         ),
         (
             "Aborted",
@@ -1080,7 +1214,7 @@ fn reimbursement_status_reports_each_graph_state() {
             "AbortedWithoutClaim",
             GraphState::Aborted {
                 claim_txid: None,
-                reason: AbortReason::PayoutConnectorSpent {
+                reason: AbortReason::DepositRequestTakenBack {
                     spending_txid: generate_txid(),
                 },
             },
@@ -1088,11 +1222,233 @@ fn reimbursement_status_reports_each_graph_state() {
         ),
     ];
 
+    // Both monitoring views must agree on the phase; terminal states have no active claim.
     for (state_name, state, expected_status) in cases {
+        let active = active_claim_from_state(OPERATOR_IDX, &state).expect(state_name);
+        match &expected_status {
+            RpcReimbursementStatus::InProgress { claim_txid, phase } => {
+                let active = active.expect("active claim");
+                assert_eq!(active.claim_txid, *claim_txid);
+                assert_eq!(&active.phase, phase);
+            }
+            _ => assert!(active.is_none()),
+        }
         assert_eq!(
-            reimbursement_status(&state),
+            reimbursement_status(&state).expect(state_name),
             expected_status,
             "unexpected reimbursement status for {state_name}",
         );
+        if let GraphState::Withdrawn { payout_kind, .. } = &state {
+            let wire = serde_json::to_value(&expected_status).unwrap();
+            assert_eq!(
+                wire["payout_kind"],
+                match payout_kind.unwrap() {
+                    PayoutKind::Uncontested => "uncontested",
+                    PayoutKind::Contested => "contested",
+                }
+            );
+            // Missing evidence must produce an error rather than a guessed payout kind.
+            let mut missing_kind = state.clone();
+            if let GraphState::Withdrawn { payout_kind, .. } = &mut missing_kind {
+                *payout_kind = None;
+            }
+            assert!(reimbursement_status(&missing_kind).is_err());
+        }
+        // Retained connector spends override the active phase. For ACK/timeout
+        // states, this evidence was accepted before entering that state.
+        if matches!(
+            state,
+            GraphState::Claimed { .. }
+                | GraphState::Contested { .. }
+                | GraphState::BridgeProofPosted { .. }
+                | GraphState::CounterProofPosted { .. }
+                | GraphState::BridgeProofTimedout { .. }
+                | GraphState::Acked { .. }
+        ) {
+            let admin_txid =
+                generate_spending_tx(OutPoint::new(claim_txid, ClaimTx::ADMIN_PAYOUT_VOUT), &[])
+                    .compute_txid();
+            let unstaking_txid = generate_spending_tx(
+                OutPoint::new(claim_txid, ClaimTx::UNSTAKING_PAYOUT_VOUT),
+                &[],
+            )
+            .compute_txid();
+            for (retained_payout_block_data, reason) in [
+                (
+                    PayoutBlockData {
+                        admin_block_txid: Some(admin_txid),
+                        unstaking_block_txid: None,
+                    },
+                    RpcPayoutBlock::Admin,
+                ),
+                (
+                    PayoutBlockData {
+                        admin_block_txid: None,
+                        unstaking_block_txid: Some(unstaking_txid),
+                    },
+                    RpcPayoutBlock::Unstaking,
+                ),
+                (
+                    PayoutBlockData {
+                        admin_block_txid: Some(admin_txid),
+                        unstaking_block_txid: Some(unstaking_txid),
+                    },
+                    RpcPayoutBlock::AdminAndUnstaking,
+                ),
+            ] {
+                let mut blocked = state.clone();
+                match &mut blocked {
+                    GraphState::Claimed {
+                        payout_connector_spent,
+                        payout_block_data,
+                        ..
+                    }
+                    | GraphState::Contested {
+                        payout_connector_spent,
+                        payout_block_data,
+                        ..
+                    }
+                    | GraphState::BridgeProofPosted {
+                        payout_connector_spent,
+                        payout_block_data,
+                        ..
+                    }
+                    | GraphState::CounterProofPosted {
+                        payout_connector_spent,
+                        payout_block_data,
+                        ..
+                    } => {
+                        *payout_connector_spent = retained_payout_block_data
+                            .admin_block_txid
+                            .or(retained_payout_block_data.unstaking_block_txid);
+                        *payout_block_data = retained_payout_block_data;
+                    }
+                    GraphState::BridgeProofTimedout {
+                        payout_block_data, ..
+                    }
+                    | GraphState::Acked {
+                        payout_block_data, ..
+                    } => {
+                        *payout_block_data = retained_payout_block_data;
+                    }
+                    _ => unreachable!(),
+                }
+                let phase = RpcClaimPhase::Blocked {
+                    contest_txid: (!matches!(state, GraphState::Claimed { .. }))
+                        .then_some(graph_summary.contest),
+                    reason,
+                };
+                assert_eq!(
+                    reimbursement_status(&blocked).unwrap(),
+                    RpcReimbursementStatus::InProgress {
+                        claim_txid,
+                        phase: phase.clone()
+                    }
+                );
+                assert_eq!(
+                    active_claim_from_state(OPERATOR_IDX, &blocked)
+                        .unwrap()
+                        .unwrap()
+                        .phase,
+                    phase
+                );
+            }
+        }
+        // These states discard the graph summary, so they require the retained contest ID.
+        let mut missing_contest = state.clone();
+        if let GraphState::AllNackd { contest_txid, .. } | GraphState::Acked { contest_txid, .. } =
+            &mut missing_contest
+        {
+            *contest_txid = None;
+            assert!(reimbursement_status(&missing_contest).is_err());
+            assert!(active_claim_from_state(OPERATOR_IDX, &missing_contest).is_err());
+        }
+    }
+}
+
+#[test]
+fn cooperative_reimbursement_status_requires_confirmed_payout() {
+    let fulfillment_txid = generate_txid();
+    let payout_txid = test_cooperative_payout_tx().as_ref().compute_txid();
+    let cases = [
+        (
+            DepositState::CooperativePathFailed {
+                assignee: OPERATOR_IDX,
+                fulfillment_txid,
+                last_block_height: 100
+                    + test_sm_config().deposit.cooperative_payout_timeout_blocks(),
+                expected_cooperative_payout_txid: Some(payout_txid),
+            },
+            None,
+        ),
+        (
+            DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: None,
+            },
+            None,
+        ),
+        (
+            DepositState::Spent {
+                fulfillment_txid: Some(fulfillment_txid),
+                assignee: Some(OPERATOR_IDX),
+                cooperative_payout_txid: Some(payout_txid),
+            },
+            Some(RpcReimbursementStatus::Complete {
+                claim_txid: None,
+                payout_txid,
+                payout_kind: None,
+            }),
+        ),
+    ];
+    for (state, expected) in cases {
+        assert_eq!(cooperative_reimbursement_status(&state), expected);
+    }
+}
+
+#[test]
+fn claim_phase_requires_contest_for_challenged_variants() {
+    let contest_txid = generate_txid();
+    for phase in [
+        "contested",
+        "bridge_proof_posted",
+        "bridge_proof_timedout",
+        "counter_proof_posted",
+        "all_nackd",
+        "acked",
+    ] {
+        let wire = serde_json::json!({"phase": phase, "contest_txid": contest_txid});
+        let decoded: RpcClaimPhase = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        assert!(
+            serde_json::from_value::<RpcClaimPhase>(serde_json::json!({"phase": phase})).is_err()
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(RpcClaimPhase::Claimed).unwrap(),
+        serde_json::json!({"phase": "claimed"})
+    );
+}
+
+#[test]
+fn blocked_claim_phase_reports_reason_with_optional_contest() {
+    for (reason, label) in [
+        (RpcPayoutBlock::Admin, "admin"),
+        (RpcPayoutBlock::Unstaking, "unstaking"),
+        (RpcPayoutBlock::AdminAndUnstaking, "admin_and_unstaking"),
+    ] {
+        for contest_txid in [None, Some(generate_txid())] {
+            let phase = RpcClaimPhase::Blocked {
+                contest_txid,
+                reason,
+            };
+            let wire = serde_json::json!({"phase": "blocked", "contest_txid": contest_txid, "reason": label});
+            assert_eq!(serde_json::to_value(&phase).unwrap(), wire);
+            assert_eq!(
+                serde_json::from_value::<RpcClaimPhase>(wire).unwrap(),
+                phase
+            );
+        }
     }
 }

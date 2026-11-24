@@ -63,6 +63,7 @@ impl GraphSM {
                     contest_block_height: event.contest_block_height,
                     stake_spent,
                     payout_connector_spent,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 // The graph owner must publish a bridge proof to defend against the contest
@@ -157,6 +158,7 @@ impl GraphSM {
                     proof: bridge_proof,
                     stake_spent,
                     payout_connector_spent,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::with_duties(duties))
@@ -218,6 +220,7 @@ impl GraphSM {
                     counterproof_nacks,
                     stake_spent,
                     payout_connector_spent,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::with_duties(duties))
@@ -244,6 +247,7 @@ impl GraphSM {
                 contest_block_height,
                 stake_spent,
                 payout_connector_spent: _,
+                payout_block_data: _,
             } => {
                 if event.bridge_proof_timeout_txid != graph_summary.bridge_proof_timeout {
                     return Err(GSMError::rejected(
@@ -264,15 +268,18 @@ impl GraphSM {
                     return Ok(GSMOutput::default());
                 }
 
+                let expected_slash_txid = graph_summary.slash;
+                let claim_txid = graph_summary.claim;
                 self.state = GraphState::BridgeProofTimedout {
                     last_block_height: event.bridge_proof_timeout_block_height,
                     graph_data,
+                    graph_summary,
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
-                    expected_slash_txid: graph_summary.slash,
-                    claim_txid: graph_summary.claim,
-                    graph_summary,
+                    expected_slash_txid,
+                    claim_txid,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::default())
@@ -303,15 +310,18 @@ impl GraphSM {
                     return Ok(GSMOutput::default());
                 }
 
+                let expected_slash_txid = graph_summary.slash;
+                let claim_txid = graph_summary.claim;
                 self.state = GraphState::BridgeProofTimedout {
                     last_block_height: event.bridge_proof_timeout_block_height,
                     graph_data,
+                    graph_summary,
                     signatures,
                     fulfillment_txid,
                     contest_block_height,
-                    expected_slash_txid: graph_summary.slash,
-                    claim_txid: graph_summary.claim,
-                    graph_summary,
+                    expected_slash_txid,
+                    claim_txid,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::default())
@@ -343,6 +353,7 @@ impl GraphSM {
                 mut counterproof_nacks,
                 stake_spent,
                 payout_connector_spent,
+                payout_block_data: _,
             } => {
                 // Validate that the NACK tx spends the correct counterproof
                 // ACK/NACK output and is not a known counterproof ACK.
@@ -399,6 +410,7 @@ impl GraphSM {
                         graph_data,
                         signatures,
                         claim_txid: graph_summary.claim,
+                        contest_txid: Some(graph_summary.contest),
                         fulfillment_txid,
                         contest_block_height,
                         expected_payout_txid: graph_summary.contested_payout,
@@ -417,6 +429,7 @@ impl GraphSM {
                         counterproof_nacks,
                         stake_spent,
                         payout_connector_spent,
+                        payout_block_data: self.state.payout_block_data(),
                     };
                 }
 
@@ -505,7 +518,9 @@ impl GraphSM {
                     contest_block_height,
                     expected_slash_txid: graph_summary.slash,
                     claim_txid: graph_summary.claim,
+                    contest_txid: Some(graph_summary.contest),
                     fulfillment_txid,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::new())
@@ -555,11 +570,26 @@ impl GraphSM {
         // membership and stake readiness are driven directly by on-chain
         // slash and unstake observations.
         if self.state.expected_slash_txid() == Some(spend_txid) {
+            // The expected slash spends the contest connector in its first input.
+            let contest_txid = event
+                .tx
+                .input
+                .first()
+                .ok_or_else(|| {
+                    GSMError::rejected(
+                        self.state.clone(),
+                        event.clone().into(),
+                        "slash transaction has no contest input",
+                    )
+                })?
+                .previous_output
+                .txid;
             self.state = GraphState::Slashed {
                 claim_txid: self
                     .state
                     .claim_txid()
                     .expect("slashing states must have a claim txid"),
+                contest_txid,
                 slash_txid: spend_txid,
             };
             return Ok(GSMOutput::new());

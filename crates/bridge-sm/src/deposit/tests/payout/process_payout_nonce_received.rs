@@ -366,6 +366,9 @@ mod tests {
     /// event
     #[test]
     fn test_payout_nonce_received_invalid_from_other_states() {
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
+
         let desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(desc.clone());
 
@@ -420,18 +423,20 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
-                payout_aggregated_nonce: generate_agg_nonce(),
+                payout_nonces,
+                payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];

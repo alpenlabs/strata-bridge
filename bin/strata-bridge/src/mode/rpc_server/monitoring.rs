@@ -1,5 +1,6 @@
 //! Helpers that derive monitoring RPC responses from recovered state-machine state.
 
+use anyhow::{Context, Result, bail};
 use bitcoin::{PublicKey, Txid};
 use secp256k1::schnorr;
 use strata_bridge_orchestrator::{
@@ -10,12 +11,16 @@ use strata_bridge_orchestrator::{
 use strata_bridge_primitives::types::{DepositIdx, GraphIdx, OperatorIdx};
 use strata_bridge_rpc::types::{
     RpcActiveClaim, RpcAggregateSignatures, RpcBridgeDutyStatus, RpcClaimPhase,
-    RpcCovenantAdmission, RpcCurrentCovenant, RpcGraphData, RpcMemberShortfall,
-    RpcReimbursementStatus, RpcStakeShortfall, RpcStakeState, RpcWithdrawalStatus,
+    RpcCovenantAdmission, RpcCurrentCovenant, RpcGraphData, RpcMemberShortfall, RpcPayoutBlock,
+    RpcPayoutKind, RpcReimbursementStatus, RpcStakeShortfall, RpcStakeState, RpcWithdrawalStatus,
 };
 use strata_bridge_sm::{
     deposit::state::DepositState,
-    graph::{config::GraphSMCfg, context::GraphSMCtx, state::GraphState},
+    graph::{
+        config::GraphSMCfg,
+        context::GraphSMCtx,
+        state::{GraphState, PayoutKind},
+    },
     stake::state::StakeState,
 };
 
@@ -235,48 +240,65 @@ pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<Rp
     }
 }
 
-/// Converts a graph state into the reimbursement status exposed by the monitoring RPC.
-pub(super) const fn reimbursement_status(state: &GraphState) -> RpcReimbursementStatus {
+/// Returns completion for an observed cooperative payout, before claim-graph lookup.
+pub(super) const fn cooperative_reimbursement_status(
+    state: &DepositState,
+) -> Option<RpcReimbursementStatus> {
     match state {
-        GraphState::Claimed { graph_summary, .. } => RpcReimbursementStatus::InProgress {
-            claim_txid: graph_summary.claim,
-            phase: RpcClaimPhase::Claimed,
-        },
-        GraphState::Contested { graph_summary, .. } => RpcReimbursementStatus::InProgress {
-            claim_txid: graph_summary.claim,
-            phase: RpcClaimPhase::Contested,
-        },
-        GraphState::BridgeProofPosted { graph_summary, .. } => RpcReimbursementStatus::InProgress {
-            claim_txid: graph_summary.claim,
-            phase: RpcClaimPhase::BridgeProofPosted,
-        },
-        GraphState::BridgeProofTimedout { claim_txid, .. } => RpcReimbursementStatus::InProgress {
-            claim_txid: *claim_txid,
-            phase: RpcClaimPhase::BridgeProofTimedout,
-        },
-        GraphState::CounterProofPosted { graph_summary, .. } => {
+        DepositState::Spent {
+            cooperative_payout_txid: Some(payout_txid),
+            ..
+        } => Some(RpcReimbursementStatus::Complete {
+            claim_txid: None,
+            payout_txid: *payout_txid,
+            payout_kind: None,
+        }),
+        _ => None,
+    }
+}
+
+/// Converts retained graph evidence into a reimbursement response.
+pub(super) fn reimbursement_status(state: &GraphState) -> Result<RpcReimbursementStatus> {
+    let status = match state {
+        GraphState::Claimed { .. }
+        | GraphState::Contested { .. }
+        | GraphState::BridgeProofPosted { .. }
+        | GraphState::BridgeProofTimedout { .. }
+        | GraphState::CounterProofPosted { .. }
+        | GraphState::AllNackd { .. }
+        | GraphState::Acked { .. } => {
+            let claim_txid = state
+                .claim_txid()
+                .context("active reimbursement has no claim")?;
             RpcReimbursementStatus::InProgress {
-                claim_txid: graph_summary.claim,
-                phase: RpcClaimPhase::CounterProofPosted,
+                claim_txid,
+                phase: claim_phase(state)?,
             }
         }
-        GraphState::AllNackd { claim_txid, .. } => RpcReimbursementStatus::InProgress {
-            claim_txid: *claim_txid,
-            phase: RpcClaimPhase::AllNackd,
-        },
-        GraphState::Acked { claim_txid, .. } => RpcReimbursementStatus::InProgress {
-            claim_txid: *claim_txid,
-            phase: RpcClaimPhase::Acked,
-        },
         GraphState::Withdrawn {
             claim_txid,
             payout_txid,
+            payout_kind,
+            ..
         } => RpcReimbursementStatus::Complete {
-            claim_txid: *claim_txid,
+            claim_txid: Some(*claim_txid),
             payout_txid: *payout_txid,
+            payout_kind: Some(
+                match payout_kind.context("completed claim has no payout kind")? {
+                    PayoutKind::Uncontested => RpcPayoutKind::Uncontested,
+                    PayoutKind::Contested => RpcPayoutKind::Contested,
+                },
+            ),
         },
-        GraphState::Slashed { claim_txid, .. } => RpcReimbursementStatus::Slashed {
+        GraphState::Slashed {
+            claim_txid,
+            contest_txid,
+            slash_txid,
+            ..
+        } => RpcReimbursementStatus::Slashed {
             claim_txid: *claim_txid,
+            contest_txid: *contest_txid,
+            slash_txid: *slash_txid,
         },
         GraphState::Aborted {
             claim_txid: Some(claim_txid),
@@ -284,82 +306,93 @@ pub(super) const fn reimbursement_status(state: &GraphState) -> RpcReimbursement
         } => RpcReimbursementStatus::Aborted {
             claim_txid: *claim_txid,
         },
-        GraphState::Aborted {
-            claim_txid: None, ..
-        } => RpcReimbursementStatus::NotStarted,
         _ => RpcReimbursementStatus::NotStarted,
-    }
+    };
+    Ok(status)
 }
 
-pub(super) const fn active_claim_from_state(
+/// Converts an active graph using the same phase checks as reimbursement status.
+pub(super) fn active_claim_from_state(
     operator: OperatorIdx,
     state: &GraphState,
-) -> Option<RpcActiveClaim> {
-    let (claim_txid, fulfillment_txid, phase) = match state {
+) -> Result<Option<RpcActiveClaim>> {
+    let fulfillment_txid = match state {
         GraphState::Claimed {
-            graph_summary,
-            fulfillment_txid,
-            ..
-        } => (
-            graph_summary.claim,
-            fulfillment_txid,
-            RpcClaimPhase::Claimed,
-        ),
-        GraphState::Contested {
-            graph_summary,
-            fulfillment_txid,
-            ..
-        } => (
-            graph_summary.claim,
-            fulfillment_txid,
-            RpcClaimPhase::Contested,
-        ),
-        GraphState::BridgeProofPosted {
-            graph_summary,
-            fulfillment_txid,
-            ..
-        } => (
-            graph_summary.claim,
-            fulfillment_txid,
-            RpcClaimPhase::BridgeProofPosted,
-        ),
-        GraphState::BridgeProofTimedout {
-            claim_txid,
-            fulfillment_txid,
-            ..
-        } => (
-            *claim_txid,
-            fulfillment_txid,
-            RpcClaimPhase::BridgeProofTimedout,
-        ),
-        GraphState::CounterProofPosted {
-            graph_summary,
-            fulfillment_txid,
-            ..
-        } => (
-            graph_summary.claim,
-            fulfillment_txid,
-            RpcClaimPhase::CounterProofPosted,
-        ),
-        GraphState::AllNackd {
-            claim_txid,
-            fulfillment_txid,
-            ..
-        } => (*claim_txid, fulfillment_txid, RpcClaimPhase::AllNackd),
-        GraphState::Acked {
-            claim_txid,
-            fulfillment_txid,
-            ..
-        } => (*claim_txid, fulfillment_txid, RpcClaimPhase::Acked),
-        _ => return None,
+            fulfillment_txid, ..
+        }
+        | GraphState::Contested {
+            fulfillment_txid, ..
+        }
+        | GraphState::BridgeProofPosted {
+            fulfillment_txid, ..
+        }
+        | GraphState::BridgeProofTimedout {
+            fulfillment_txid, ..
+        }
+        | GraphState::CounterProofPosted {
+            fulfillment_txid, ..
+        }
+        | GraphState::AllNackd {
+            fulfillment_txid, ..
+        }
+        | GraphState::Acked {
+            fulfillment_txid, ..
+        } => fulfillment_txid,
+        _ => return Ok(None),
     };
-
-    Some(RpcActiveClaim {
+    Ok(Some(RpcActiveClaim {
         operator,
-        claim_txid,
+        claim_txid: state
+            .claim_txid()
+            .context("active reimbursement has no claim")?,
         fulfilled: fulfillment_txid.is_some(),
-        phase,
-    })
+        phase: claim_phase(state)?,
+    }))
+}
+
+fn claim_phase(state: &GraphState) -> Result<RpcClaimPhase> {
+    let contest_txid = match state {
+        GraphState::Claimed { .. } => None,
+        GraphState::Contested { graph_summary, .. }
+        | GraphState::BridgeProofPosted { graph_summary, .. }
+        | GraphState::BridgeProofTimedout { graph_summary, .. }
+        | GraphState::CounterProofPosted { graph_summary, .. } => Some(graph_summary.contest),
+        GraphState::AllNackd { contest_txid, .. } | GraphState::Acked { contest_txid, .. } => {
+            Some(contest_txid.context("active challenge has no contest transaction ID")?)
+        }
+        _ => bail!("graph has no active claim phase"),
+    };
+    let payout_block_data = state.payout_block_data();
+    let reason = match (
+        payout_block_data.admin_block_txid.is_some(),
+        payout_block_data.unstaking_block_txid.is_some(),
+    ) {
+        (true, false) => Some(RpcPayoutBlock::Admin),
+        (false, true) => Some(RpcPayoutBlock::Unstaking),
+        (true, true) => Some(RpcPayoutBlock::AdminAndUnstaking),
+        (false, false) => None,
+    };
+    if let Some(reason) = reason {
+        return Ok(RpcClaimPhase::Blocked {
+            contest_txid,
+            reason,
+        });
+    }
+    let Some(contest_txid) = contest_txid else {
+        return Ok(RpcClaimPhase::Claimed);
+    };
+    let phase = match state {
+        GraphState::Contested { .. } => RpcClaimPhase::Contested { contest_txid },
+        GraphState::BridgeProofPosted { .. } => RpcClaimPhase::BridgeProofPosted { contest_txid },
+        GraphState::BridgeProofTimedout { .. } => {
+            RpcClaimPhase::BridgeProofTimedout { contest_txid }
+        }
+        GraphState::CounterProofPosted { .. } => RpcClaimPhase::CounterProofPosted { contest_txid },
+        GraphState::AllNackd { .. } => RpcClaimPhase::AllNackd { contest_txid },
+        GraphState::Acked { .. } => RpcClaimPhase::Acked { contest_txid },
+        _ => bail!("graph has no active claim phase"),
+    };
+    Ok(phase)
 }
 
 pub(super) fn graph_data_response(

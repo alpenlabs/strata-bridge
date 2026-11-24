@@ -34,6 +34,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx,
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             expected_duties: vec![DepositDuty::PublishSweepNonce {
                 deposit_idx: TEST_DEPOSIT_IDX,
@@ -54,6 +55,9 @@ mod tests {
     /// deposit is spent
     #[test]
     fn test_sweep_request_duplicate_in_sweep_and_spent_states() {
+        let sweep_nonces = test_operator_nonces();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
+
         let desc = random_p2tr_desc();
 
         let duplicate_states = [
@@ -61,17 +65,20 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(desc.clone()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(desc.clone()),
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce,
+                sweep_nonces,
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
         ];
 
@@ -87,11 +94,16 @@ mod tests {
     }
 
     /// tests that a sweep request from every assigned/mid-payout live-UTXO state builds the same
-    /// sweep tx as from Deposited, discarding the withdrawal-progress fields
+    /// sweep tx as from Deposited, retaining agreed payout evidence for a racing confirmation.
     #[test]
-    fn test_sweep_request_from_withdrawal_states_discards_progress() {
+    fn test_sweep_request_from_withdrawal_states_retains_agreed_payout() {
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
+
         let desc = random_p2tr_desc();
 
+        let deadline =
+            INITIAL_BLOCK_HEIGHT + test_deposit_sm_cfg().cooperative_payout_timeout_blocks();
         let source_states = [
             DepositState::Assigned {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -104,13 +116,13 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
                 fulfillment_height: INITIAL_BLOCK_HEIGHT,
-                cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
+                cooperative_payout_deadline: deadline,
             },
             DepositState::PayoutDescriptorReceived {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
+                cooperative_payment_deadline: deadline,
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
                 payout_nonces: BTreeMap::new(),
             },
@@ -119,19 +131,32 @@ mod tests {
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: test_cooperative_payout_txn(desc.clone()),
-                cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
-                payout_aggregated_nonce: generate_agg_nonce(),
+                cooperative_payment_deadline: deadline,
+                payout_nonces,
+                payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: deadline,
+                expected_cooperative_payout_txid: None,
+            },
+            DepositState::CooperativePathFailed {
+                assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
+                last_block_height: deadline,
+                expected_cooperative_payout_txid: Some(
+                    test_cooperative_payout_txn(desc.clone())
+                        .as_ref()
+                        .compute_txid(),
+                ),
             },
         ];
 
         for from_state in source_states {
+            let last_block_height = *from_state.last_processed_block_height().unwrap();
+            let cooperative_payout_data = from_state.cooperative_payout_data();
             let sweep_tx = test_sweep_txn(desc.clone());
             let sweep_sighash = sweep_tx
                 .signing_info()
@@ -145,9 +170,10 @@ mod tests {
                     safe_harbour_desc: desc.clone(),
                 }),
                 expected_state: DepositState::SweepNoncesPending {
-                    last_block_height: INITIAL_BLOCK_HEIGHT,
+                    last_block_height,
                     sweep_tx,
                     sweep_nonces: BTreeMap::new(),
+                    cooperative_payout_data,
                 },
                 expected_duties: vec![DepositDuty::PublishSweepNonce {
                     deposit_idx: TEST_DEPOSIT_IDX,

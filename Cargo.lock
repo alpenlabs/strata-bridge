@@ -12198,6 +12198,7 @@ dependencies = [
  "metrics",
  "mosaic-rpc-api",
  "mosaic-rpc-types",
+ "musig2",
  "operator-wallet",
  "rustls-pemfile",
  "secp256k1 0.29.1",

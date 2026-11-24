@@ -164,6 +164,21 @@ pub(super) fn test_operator_signers() -> Vec<TestMusigSigner> {
     ]
 }
 
+/// Complete deterministic pubnonces for the test operator set.
+pub(super) fn test_operator_nonces() -> BTreeMap<OperatorIdx, PubNonce> {
+    let signers = test_operator_signers();
+    let (key_agg_ctx, _) = get_deposit_signing_info(&test_deposit_txn(), &signers);
+    signers
+        .iter()
+        .map(|signer| {
+            (
+                signer.operator_idx(),
+                signer.pubnonce(key_agg_ctx.aggregated_pubkey(), 0),
+            )
+        })
+        .collect()
+}
+
 /// Retrieves the key aggregation context and message for signing a deposit transaction.
 pub(super) fn get_deposit_signing_info(
     deposit_tx: &DepositTx,
@@ -502,6 +517,7 @@ impl Arbitrary for DepositState {
                     last_block_height: height,
                     sweep_tx: test_sweep_txn(random_p2tr_desc()),
                     sweep_nonces: BTreeMap::new(),
+                    cooperative_payout_data: None,
                 }
             }),
             block_height.clone().prop_map(move |height| {
@@ -516,16 +532,19 @@ impl Arbitrary for DepositState {
                     sweep_agg_nonce: agg_nonce,
                     sweep_nonces: nonces,
                     sweep_partials: BTreeMap::new(),
+                    cooperative_payout_data: None,
                 }
             }),
             block_height.prop_map(|height| DepositState::CooperativePathFailed {
-                last_block_height: height,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: height,
+                expected_cooperative_payout_txid: None,
             }),
             Just(DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             }),
             Just(DepositState::Aborted),
             Just(DepositState::Skipped),
@@ -627,10 +646,12 @@ pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
         Just(DepositState::Spent {
             fulfillment_txid: Some(generate_txid()),
             assignee: Some(TEST_ASSIGNEE),
+            cooperative_payout_txid: None,
         }),
         Just(DepositState::Spent {
             fulfillment_txid: None,
             assignee: None,
+            cooperative_payout_txid: None,
         }),
         Just(DepositState::Aborted),
         Just(DepositState::Skipped),

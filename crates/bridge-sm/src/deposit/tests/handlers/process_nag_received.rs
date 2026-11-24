@@ -226,8 +226,8 @@ mod tests {
             .map(|pk| pk.x_only_public_key().0)
             .collect();
 
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
 
         let payout_sighash = cooperative_payout_tx
             .signing_info()
@@ -254,7 +254,7 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces,
                 payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
@@ -274,8 +274,8 @@ mod tests {
             .map(|pk| pk.x_only_public_key().0)
             .collect();
 
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
 
         let payout_sighash = cooperative_payout_tx
             .signing_info()
@@ -302,7 +302,7 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces,
                 payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
@@ -342,8 +342,8 @@ mod tests {
     fn test_nag_received_payout_partial_when_pov_is_assignee_rejected_with_reason() {
         let operator_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(operator_desc);
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
 
         let nag_event = create_nag_event(NagRequestPayload::PayoutPartial {
             deposit_idx: TEST_DEPOSIT_IDX,
@@ -356,7 +356,7 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx,
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces,
                 payout_aggregated_nonce,
                 payout_partial_signatures: BTreeMap::new(),
             },
@@ -377,8 +377,8 @@ mod tests {
     fn test_nag_received_deposit_nonce_rejected_in_all_other_states() {
         let recipient_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(recipient_desc.clone());
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
 
         let invalid_states = [
             DepositState::Created {
@@ -420,18 +420,20 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces,
                 payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
-                fulfillment_txid: generate_txid(),
                 assignee: TEST_ASSIGNEE,
+                fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];
@@ -453,8 +455,8 @@ mod tests {
     fn test_nag_received_deposit_partial_rejected_in_all_other_states() {
         let recipient_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(recipient_desc.clone());
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
 
         let invalid_states = [
             DepositState::Created {
@@ -502,18 +504,20 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces,
                 payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];
@@ -576,13 +580,15 @@ mod tests {
                 cooperative_payout_deadline: LATER_BLOCK_HEIGHT,
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];
@@ -604,8 +610,8 @@ mod tests {
     fn test_nag_received_payout_partial_rejected_in_all_other_states() {
         let recipient_desc = random_p2tr_desc();
         let cooperative_payout_tx = test_cooperative_payout_txn(recipient_desc.clone());
-        let payout_aggregated_nonce =
-            AggNonce::sum((0..N_TEST_OPERATORS).map(|_| generate_pubnonce()));
+        let payout_nonces = test_operator_nonces();
+        let payout_aggregated_nonce = AggNonce::sum(payout_nonces.values().cloned());
 
         let invalid_states = [
             DepositState::Created {
@@ -661,18 +667,20 @@ mod tests {
                 fulfillment_txid: generate_txid(),
                 cooperative_payout_tx: cooperative_payout_tx.clone(),
                 cooperative_payment_deadline: LATER_BLOCK_HEIGHT,
-                payout_nonces: BTreeMap::new(),
+                payout_nonces,
                 payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                 payout_partial_signatures: BTreeMap::new(),
             },
             DepositState::CooperativePathFailed {
-                last_block_height: INITIAL_BLOCK_HEIGHT,
                 assignee: TEST_ASSIGNEE,
                 fulfillment_txid: generate_txid(),
+                last_block_height: INITIAL_BLOCK_HEIGHT,
+                expected_cooperative_payout_txid: None,
             },
             DepositState::Spent {
                 fulfillment_txid: Some(generate_txid()),
                 assignee: Some(TEST_ASSIGNEE),
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];
@@ -694,6 +702,9 @@ mod tests {
 
     #[test]
     fn test_nag_received_sweep_nonce_in_sweep_states_emits_publish_sweep_nonce() {
+        let sweep_nonces = test_operator_nonces();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
+
         let sweep_tx = test_sweep_txn(random_p2tr_desc());
         let sweep_sighash = sweep_tx
             .signing_info()
@@ -719,13 +730,15 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: sweep_tx.clone(),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::SweepNoncesCollected {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx,
-                sweep_agg_nonce: generate_agg_nonce(),
-                sweep_nonces: BTreeMap::new(),
+                sweep_agg_nonce,
+                sweep_nonces,
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
         ];
 
@@ -750,7 +763,8 @@ mod tests {
             .first()
             .expect("sweep transaction must have signing info")
             .sighash;
-        let sweep_agg_nonce = generate_agg_nonce();
+        let sweep_nonces = test_operator_nonces();
+        let sweep_agg_nonce = AggNonce::sum(sweep_nonces.values().cloned());
         let ordered_pubkeys: Vec<_> = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)
             .btc_keys()
             .into_iter()
@@ -770,8 +784,9 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx,
                 sweep_agg_nonce,
-                sweep_nonces: BTreeMap::new(),
+                sweep_nonces,
                 sweep_partials: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             event: DepositEvent::NagReceived(create_nag_event(NagRequestPayload::SweepPartial {
                 deposit_idx: TEST_DEPOSIT_IDX,
@@ -789,6 +804,7 @@ mod tests {
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];
@@ -821,6 +837,7 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             event: DepositEvent::NagReceived(create_nag_event(NagRequestPayload::SweepPartial {
                 deposit_idx: TEST_DEPOSIT_IDX,

@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -9,8 +9,8 @@ class RpcOperatorStatus(Enum):
     OFFLINE = "offline"
 
 
-class RpcClaimPhase(Enum):
-    """Where an active claim sits in the challenge-response game."""
+class RpcClaimPhaseKind(Enum):
+    """Discriminator for a claim's phase payload."""
 
     CLAIMED = "claimed"
     CONTESTED = "contested"
@@ -19,6 +19,97 @@ class RpcClaimPhase(Enum):
     COUNTER_PROOF_POSTED = "counter_proof_posted"
     ALL_NACKD = "all_nackd"
     ACKED = "acked"
+    BLOCKED = "blocked"
+
+
+@dataclass
+class RpcClaimPhaseClaimed:
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.CLAIMED)
+
+
+@dataclass
+class RpcClaimPhaseContested:
+    contest_txid: str
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.CONTESTED)
+
+
+@dataclass
+class RpcClaimPhaseBridgeProofPosted:
+    contest_txid: str
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.BRIDGE_PROOF_POSTED)
+
+
+@dataclass
+class RpcClaimPhaseBridgeProofTimedout:
+    contest_txid: str
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.BRIDGE_PROOF_TIMEDOUT)
+
+
+@dataclass
+class RpcClaimPhaseCounterProofPosted:
+    contest_txid: str
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.COUNTER_PROOF_POSTED)
+
+
+@dataclass
+class RpcClaimPhaseAllNackd:
+    contest_txid: str
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.ALL_NACKD)
+
+
+@dataclass
+class RpcClaimPhaseAcked:
+    contest_txid: str
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.ACKED)
+
+
+class RpcPayoutBlock(Enum):
+    """The classified paths that prevent a reimbursement payout."""
+
+    ADMIN = "admin"
+    UNSTAKING = "unstaking"
+    ADMIN_AND_UNSTAKING = "admin_and_unstaking"
+
+
+@dataclass
+class RpcClaimPhaseBlocked:
+    contest_txid: str | None
+    reason: RpcPayoutBlock
+    phase: RpcClaimPhaseKind = field(init=False, default=RpcClaimPhaseKind.BLOCKED)
+
+
+RpcClaimPhase = (
+    RpcClaimPhaseClaimed
+    | RpcClaimPhaseContested
+    | RpcClaimPhaseBridgeProofPosted
+    | RpcClaimPhaseBridgeProofTimedout
+    | RpcClaimPhaseCounterProofPosted
+    | RpcClaimPhaseAllNackd
+    | RpcClaimPhaseAcked
+    | RpcClaimPhaseBlocked
+)
+
+
+def claim_phase_from_json(data: dict) -> RpcClaimPhase:
+    """Decode the current phase and its contest transaction, when challenged."""
+    kind = RpcClaimPhaseKind(data["phase"])
+    match kind:
+        case RpcClaimPhaseKind.CLAIMED:
+            return RpcClaimPhaseClaimed()
+        case RpcClaimPhaseKind.CONTESTED:
+            return RpcClaimPhaseContested(data["contest_txid"])
+        case RpcClaimPhaseKind.BRIDGE_PROOF_POSTED:
+            return RpcClaimPhaseBridgeProofPosted(data["contest_txid"])
+        case RpcClaimPhaseKind.BRIDGE_PROOF_TIMEDOUT:
+            return RpcClaimPhaseBridgeProofTimedout(data["contest_txid"])
+        case RpcClaimPhaseKind.COUNTER_PROOF_POSTED:
+            return RpcClaimPhaseCounterProofPosted(data["contest_txid"])
+        case RpcClaimPhaseKind.ALL_NACKD:
+            return RpcClaimPhaseAllNackd(data["contest_txid"])
+        case RpcClaimPhaseKind.ACKED:
+            return RpcClaimPhaseAcked(data["contest_txid"])
+        case RpcClaimPhaseKind.BLOCKED:
+            return RpcClaimPhaseBlocked(data["contest_txid"], RpcPayoutBlock(data["reason"]))
 
 
 @dataclass
@@ -29,10 +120,10 @@ class RpcDepositStatusInProgress:
 
 
 @dataclass
-class RpcDepositStatusFailed:
-    """Deposit exists, but was never completed (can be reclaimed)."""
+class RpcDepositStatusReclaimable:
+    """Deposit was not completed and can be reclaimed."""
 
-    status: str = "failed"
+    status: str = "reclaimable"
     reason: str = ""
 
 
@@ -44,7 +135,9 @@ class RpcDepositStatusComplete:
     deposit_txid: str = ""
 
 
-RpcDepositStatus = RpcDepositStatusInProgress | RpcDepositStatusFailed | RpcDepositStatusComplete
+RpcDepositStatus = (
+    RpcDepositStatusInProgress | RpcDepositStatusReclaimable | RpcDepositStatusComplete
+)
 
 
 @dataclass
@@ -76,34 +169,44 @@ class RpcReimbursementStatusNotStarted:
 class RpcReimbursementStatusInProgress:
     """Reimbursement claim is in a non-terminal challenge-response phase."""
 
-    status: str = "in_progress"
-    claim_txid: str = ""
-    phase: str = ""
+    claim_txid: str
+    phase: RpcClaimPhase
+    status: str = field(init=False, default="in_progress")
 
 
 @dataclass
 class RpcReimbursementStatusSlashed:
     """Operator was slashed for this reimbursement claim."""
 
-    status: str = "slashed"
-    claim_txid: str = ""
+    claim_txid: str
+    contest_txid: str
+    slash_txid: str
+    status: str = field(init=False, default="slashed")
 
 
 @dataclass
 class RpcReimbursementStatusAborted:
     """Reimbursement claim path was aborted before payout or slashing completed."""
 
-    status: str = "aborted"
-    claim_txid: str = ""
+    claim_txid: str
+    status: str = field(init=False, default="aborted")
+
+
+class RpcPayoutKind(Enum):
+    """The payout path for a reimbursement claim."""
+
+    UNCONTESTED = "uncontested"
+    CONTESTED = "contested"
 
 
 @dataclass
 class RpcReimbursementStatusComplete:
-    """Reimbursement claim completed and paid out."""
+    """Reimbursement completed, with no claim for a cooperative payout."""
 
-    status: str = "complete"
-    claim_txid: str = ""
-    payout_txid: str = ""
+    claim_txid: str | None
+    payout_txid: str
+    payout_kind: RpcPayoutKind | None
+    status: str = field(init=False, default="complete")
 
 
 RpcReimbursementStatus = (
@@ -113,6 +216,31 @@ RpcReimbursementStatus = (
     | RpcReimbursementStatusAborted
     | RpcReimbursementStatusComplete
 )
+
+
+def reimbursement_status_from_json(data: dict) -> RpcReimbursementStatus:
+    """Decode reimbursement status and its phase-specific evidence."""
+    match data["status"]:
+        case "not_started":
+            return RpcReimbursementStatusNotStarted()
+        case "in_progress":
+            return RpcReimbursementStatusInProgress(
+                data["claim_txid"], claim_phase_from_json(data["phase"])
+            )
+        case "slashed":
+            return RpcReimbursementStatusSlashed(
+                data["claim_txid"], data["contest_txid"], data["slash_txid"]
+            )
+        case "aborted":
+            return RpcReimbursementStatusAborted(data["claim_txid"])
+        case "complete":
+            return RpcReimbursementStatusComplete(
+                data["claim_txid"],
+                data["payout_txid"],
+                RpcPayoutKind(data["payout_kind"]) if data["payout_kind"] is not None else None,
+            )
+        case _:
+            raise ValueError(f"Unknown reimbursement status: {data['status']}")
 
 
 @dataclass
@@ -139,7 +267,7 @@ class RpcActiveClaim:
             operator=int(data["operator"]),
             claim_txid=data["claim_txid"],
             fulfilled=bool(data["fulfilled"]),
-            phase=RpcClaimPhase(data["phase"]),
+            phase=claim_phase_from_json(data["phase"]),
         )
 
 

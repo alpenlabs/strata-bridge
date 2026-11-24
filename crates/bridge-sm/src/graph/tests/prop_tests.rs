@@ -6,7 +6,7 @@ use strata_bridge_test_utils::prelude::generate_txid;
 use super::{get_state, mock_states::TEST_GRAPH_SUMMARY};
 use crate::graph::{
     events::{GraphEvent, NagTickEvent, RetryTickEvent},
-    state::{AbortReason, GraphState},
+    state::{AbortReason, GraphState, PayoutKind},
 };
 
 /// Strategy for generating terminal states, covering every abort reason and an abort before any
@@ -20,9 +20,11 @@ fn arb_terminal_state() -> impl Strategy<Value = GraphState> {
         Just(GraphState::Withdrawn {
             claim_txid: summary.claim,
             payout_txid: summary.uncontested_payout,
+            payout_kind: Some(PayoutKind::Uncontested),
         }),
         Just(GraphState::Slashed {
             claim_txid: summary.claim,
+            contest_txid: summary.contest,
             slash_txid: summary.slash,
         }),
         Just(aborted(

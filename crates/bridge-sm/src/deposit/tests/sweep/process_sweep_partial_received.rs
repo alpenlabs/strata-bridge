@@ -48,6 +48,7 @@ mod tests {
             sweep_agg_nonce: agg_nonce.clone(),
             sweep_nonces: nonces,
             sweep_partials: BTreeMap::new(),
+            cooperative_payout_data: None,
         };
 
         (state, signers, key_agg_ctx, agg_nonce, message, sweep_tx)
@@ -90,6 +91,7 @@ mod tests {
                 sweep_agg_nonce: agg_nonce,
                 sweep_nonces: nonces,
                 sweep_partials: expected_partials,
+                cooperative_payout_data: None,
             },
             expected_duties: vec![],
             expected_signals: vec![],
@@ -149,6 +151,7 @@ mod tests {
                 sweep_agg_nonce: agg_nonce.clone(),
                 sweep_nonces: nonces,
                 sweep_partials: all_partials.clone(),
+                cooperative_payout_data: None,
             },
             expected_duties: vec![DepositDuty::PublishSweep {
                 deposit_outpoint: test_deposit_outpoint(),
@@ -263,10 +266,12 @@ mod tests {
                 last_block_height: INITIAL_BLOCK_HEIGHT,
                 sweep_tx: test_sweep_txn(random_p2tr_desc()),
                 sweep_nonces: BTreeMap::new(),
+                cooperative_payout_data: None,
             },
             DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             },
             DepositState::Aborted,
         ];

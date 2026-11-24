@@ -61,6 +61,7 @@ impl GraphSM {
                     counterproof_nacks: BTreeMap::new(),
                     stake_spent,
                     payout_connector_spent,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::with_duties(nack_duties))
@@ -72,8 +73,8 @@ impl GraphSM {
                 signatures,
                 fulfillment_txid,
                 contest_block_height,
-                proof,
                 bridge_proof_tx,
+                proof,
                 stake_spent,
                 payout_connector_spent,
                 ..
@@ -103,6 +104,7 @@ impl GraphSM {
                     counterproof_nacks: BTreeMap::new(),
                     stake_spent,
                     payout_connector_spent,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::with_duties(nack_duties))
@@ -148,6 +150,7 @@ impl GraphSM {
                     counterproof_nacks,
                     stake_spent,
                     payout_connector_spent,
+                    payout_block_data: self.state.payout_block_data(),
                 };
 
                 Ok(GSMOutput::with_duties(nack_duties))

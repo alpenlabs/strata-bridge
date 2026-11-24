@@ -20,7 +20,7 @@ import flexitest
 from envs import BridgeNetworkEnv
 from envs.base_test import StrataTestBase
 from factory.bridge_operator.config_cfg import BridgeConfigParams
-from rpc.types import RpcDepositStatusComplete, RpcDepositStatusFailed
+from rpc.types import RpcDepositStatusComplete, RpcDepositStatusReclaimable
 from utils.bridge import bridge_rpc_url, get_bridge_nodes_and_rpcs
 from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
@@ -59,7 +59,7 @@ class SafeHarbourAbortsSafeWindowTest(StrataTestBase):
 
         # --- The live operators abort the deposit; it never completes ---
         for idx, rpc in enumerate(live_rpcs):
-            deposit_info = wait_until_deposit_status(rpc, deposit_id, RpcDepositStatusFailed)
+            deposit_info = wait_until_deposit_status(rpc, deposit_id, RpcDepositStatusReclaimable)
             self.logger.info(f"Operator {idx} aborted the deposit: {deposit_info}")
 
         # --- The held-down operator converges after restart ---
@@ -85,7 +85,7 @@ class SafeHarbourAbortsSafeWindowTest(StrataTestBase):
             if status == RpcDepositStatusComplete.status:
                 completed["deposit_info"] = deposit_info
                 return True
-            return status == RpcDepositStatusFailed.status
+            return status == RpcDepositStatusReclaimable.status
 
         wait_until(
             restarted_converged,

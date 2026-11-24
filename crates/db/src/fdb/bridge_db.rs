@@ -483,11 +483,15 @@ mod tests {
         types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
     };
     use strata_bridge_sm::{
-        deposit::{config::DepositSMCfg, context::DepositSMCtx, state::DepositState},
+        deposit::{
+            config::DepositSMCfg,
+            context::DepositSMCtx,
+            state::{CooperativePayoutData, DepositState},
+        },
         graph::{
             config::GraphSMCfg,
             context::GraphSMCtx,
-            state::{AbortReason, GraphState},
+            state::{AbortReason, GraphState, PayoutBlockData, PayoutKind},
         },
         operator_set::{
             ConfirmedExit, ExitKind, OperatorSetEvent, OperatorSetSM, OperatorSetSignal,
@@ -1319,16 +1323,27 @@ mod tests {
             // Implement `Arbitrary` for `DepositSM` to allow testing of all variants.
             let state = match variant_selector {
                 0 => DepositState::Deposited { last_block_height },
-                1 => DepositState::CooperativePathFailed { last_block_height, fulfillment_txid: generate_txid(), assignee: 0 },
+                1 => DepositState::CooperativePathFailed {
+                    assignee: 0,
+                    fulfillment_txid: generate_txid(),
+                    last_block_height,
+                    expected_cooperative_payout_txid: Some(generate_txid()),
+                },
                 2 => DepositState::Spent {
                     fulfillment_txid: Some(generate_txid()),
                     assignee: Some(0),
+                    cooperative_payout_txid: Some(generate_txid()),
                 },
                 // exercises the postcard round-trip of a Psbt-carrying variant
                 3 => DepositState::SweepNoncesPending {
                     last_block_height,
                     sweep_tx: make_sweep_tx(outpoint),
                     sweep_nonces: BTreeMap::new(),
+                    cooperative_payout_data: Some(CooperativePayoutData {
+                        txid: generate_txid(),
+                        assignee: 0,
+                        fulfillment_txid: generate_txid(),
+                    }),
                 },
                 _ => DepositState::Aborted,
             };
@@ -1426,36 +1441,62 @@ mod tests {
             operator_idx in any::<OperatorIdx>(),
             block_height in any::<u64>(),
             txid in arb_txid(),
-            variant_selector in 0u8..4,
+            payout_txid in arb_txid(),
+            payout_kind in prop_oneof![Just(PayoutKind::Uncontested), Just(PayoutKind::Contested)],
+            variant_selector in 0u8..5,
             operator_table in arb_operator_table(),
         ) {
             // Only includes simple variants for testing, as the more complex ones would require constructing valid GraphSMs.
             // TODO: <https://alpenlabs.atlassian.net/browse/STR-2697>
             // Implement `Arbitrary` for `GraphSM` to allow testing of all variants.
+            prop_assume!(txid != payout_txid);
             let state = match variant_selector {
                 0 => GraphState::Created { last_block_height: block_height },
-                1 => GraphState::Withdrawn { claim_txid: txid, payout_txid: txid },
+                1 => GraphState::Withdrawn {
+                    claim_txid: txid,
+                    payout_txid,
+                    payout_kind: Some(payout_kind),
+                },
                 2 => GraphState::Aborted {
                     claim_txid: Some(txid),
                     reason: AbortReason::PayoutConnectorSpent { spending_txid: txid },
                 },
                 _ => {
                     let outpoint = OutPoint { txid, vout: 0 };
-                    GraphState::AllNackd {
-                        last_block_height: block_height,
-                        graph_data: DepositParams {
-                            game_index: NonZero::new(1).unwrap(),
-                            claim_funds: outpoint,
-                            deposit_outpoint: outpoint,
-                            adaptor_pubkeys: vec![generate_xonly_pubkey()],
-                            fault_pubkeys: vec![generate_xonly_pubkey()]
-                        },
-                        signatures: Default::default(),
-                        claim_txid: txid,
-                        fulfillment_txid: Some(txid),
-                        contest_block_height: block_height,
-                        expected_payout_txid: txid,
-                        possible_slash_txid: txid
+                    let graph_data = DepositParams {
+                        game_index: NonZero::new(1).unwrap(),
+                        claim_funds: outpoint,
+                        deposit_outpoint: outpoint,
+                        adaptor_pubkeys: vec![generate_xonly_pubkey()],
+                        fault_pubkeys: vec![generate_xonly_pubkey()],
+                    };
+                    if variant_selector == 3 {
+                        GraphState::AllNackd {
+                            last_block_height: block_height,
+                            graph_data,
+                            signatures: Default::default(),
+                            claim_txid: txid,
+                            contest_txid: Some(generate_txid()),
+                            fulfillment_txid: Some(generate_txid()),
+                            contest_block_height: block_height,
+                            expected_payout_txid: generate_txid(),
+                            possible_slash_txid: generate_txid(),
+                        }
+                    } else {
+                        GraphState::Acked {
+                            last_block_height: block_height,
+                            graph_data,
+                            signatures: Default::default(),
+                            contest_block_height: block_height,
+                            expected_slash_txid: generate_txid(),
+                            claim_txid: txid,
+                            contest_txid: Some(generate_txid()),
+                            fulfillment_txid: Some(generate_txid()),
+                            payout_block_data: PayoutBlockData {
+                                admin_block_txid: Some(generate_txid()),
+                                unstaking_block_txid: Some(generate_txid()),
+                            },
+                        }
                     }
                 },
             };

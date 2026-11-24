@@ -130,6 +130,7 @@ mod tests {
             .assert_final_state(&DepositState::Spent {
                 fulfillment_txid: None,
                 assignee: None,
+                cooperative_payout_txid: None,
             });
     }
 }

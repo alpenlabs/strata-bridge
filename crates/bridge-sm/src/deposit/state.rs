@@ -176,6 +176,11 @@ pub enum DepositState {
 
         /// The height of the latest block that this state machine is aware of.
         last_block_height: u64,
+
+        /// Transaction ID of the agreed cooperative payout, if available.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection
+        // purposes.
+        expected_cooperative_payout_txid: Option<Txid>,
     },
     /// This represents the terminal state where the deposit has been spent.
     Spent {
@@ -186,6 +191,11 @@ pub enum DepositState {
         /// The operator assigned to fulfill the withdrawal, if known.
         // NOTE: (@Rajil1213) this field is required purely for monitoring/introspection purposes.
         assignee: Option<OperatorIdx>,
+
+        /// Transaction ID of the confirmed cooperative payout, if observed.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection
+        // purposes.
+        cooperative_payout_txid: Option<Txid>,
     },
     /// This represents the terminal state where the deposit request has been spent elsewhere.
     Aborted,
@@ -198,6 +208,10 @@ pub enum DepositState {
         sweep_tx: SweepTx,
         /// The pubnonces, indexed by operator, required to sign the sweep transaction.
         sweep_nonces: BTreeMap<OperatorIdx, PubNonce>,
+        /// Expected cooperative payout agreed before the sweep.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection
+        // purposes.
+        cooperative_payout_data: Option<CooperativePayoutData>,
     },
     /// This state indicates that all pubnonces required for the sweep have been collected and
     /// partial signatures are being collected from *every* operator.
@@ -212,12 +226,27 @@ pub enum DepositState {
         sweep_nonces: BTreeMap<OperatorIdx, PubNonce>,
         /// The partial signatures, indexed by operator, for signing the sweep transaction.
         sweep_partials: BTreeMap<OperatorIdx, PartialSignature>,
+        /// Expected cooperative payout agreed before the sweep.
+        // NOTE: (@krsnapaudel) this field is required purely for monitoring/introspection
+        // purposes.
+        cooperative_payout_data: Option<CooperativePayoutData>,
     },
     /// This represents the terminal state for a deposit request this node declined to take part
     /// in because its deposit cap was reached. The request is registered so the deposit index
     /// stays aligned across operators, but no graph is generated and nothing is signed; the
     /// depositor takes the request back after the recovery delay.
     Skipped,
+}
+
+/// An agreed cooperative payout and the withdrawal it reimburses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CooperativePayoutData {
+    /// Expected cooperative payout transaction ID.
+    pub txid: Txid,
+    /// Operator reimbursed by the payout.
+    pub assignee: OperatorIdx,
+    /// Fulfillment transaction paying the withdrawing user.
+    pub fulfillment_txid: Txid,
 }
 
 impl Display for DepositState {
@@ -253,6 +282,47 @@ impl DepositState {
             deposit_transaction,
             last_block_height: block_height,
             claim_txids: BTreeMap::new(),
+        }
+    }
+
+    /// Returns the agreed cooperative payout and its withdrawal, if recorded.
+    pub(crate) fn cooperative_payout_data(&self) -> Option<CooperativePayoutData> {
+        match self {
+            Self::PayoutDescriptorReceived {
+                assignee,
+                fulfillment_txid,
+                cooperative_payout_tx,
+                ..
+            }
+            | Self::PayoutNoncesCollected {
+                assignee,
+                fulfillment_txid,
+                cooperative_payout_tx,
+                ..
+            } => Some(CooperativePayoutData {
+                txid: cooperative_payout_tx.as_ref().compute_txid(),
+                assignee: *assignee,
+                fulfillment_txid: *fulfillment_txid,
+            }),
+            Self::CooperativePathFailed {
+                assignee,
+                fulfillment_txid,
+                expected_cooperative_payout_txid,
+                ..
+            } => expected_cooperative_payout_txid.map(|txid| CooperativePayoutData {
+                txid,
+                assignee: *assignee,
+                fulfillment_txid: *fulfillment_txid,
+            }),
+            Self::SweepNoncesPending {
+                cooperative_payout_data,
+                ..
+            }
+            | Self::SweepNoncesCollected {
+                cooperative_payout_data,
+                ..
+            } => *cooperative_payout_data,
+            _ => None,
         }
     }
 

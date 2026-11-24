@@ -4,14 +4,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     use strata_bridge_primitives::types::GraphIdx;
-    use strata_bridge_test_utils::bitcoin::generate_txid;
 
     use crate::{
         graph::{
             duties::GraphDuty,
             errors::GSMError,
             events::{GraphDataGeneratedEvent, GraphEvent},
-            state::GraphState,
+            state::{GraphState, PayoutKind},
             tests::{
                 GraphInvalidTransition, INITIAL_BLOCK_HEIGHT, TEST_NONPOV_IDX, create_nonpov_sm,
                 create_sm, get_state, test_deposit_params, test_graph_invalid_transition,
@@ -134,8 +133,9 @@ mod tests {
     fn test_invalid_process_graph_data_from_withdrawn() {
         // Peer-provided graph data should be rejected once the graph is terminal.
         let state = GraphState::Withdrawn {
-            claim_txid: generate_txid(),
-            payout_txid: generate_txid(),
+            claim_txid: test_graph_summary().claim,
+            payout_txid: test_graph_summary().uncontested_payout,
+            payout_kind: Some(PayoutKind::Uncontested),
         };
 
         test_graph_invalid_transition(GraphInvalidTransition {

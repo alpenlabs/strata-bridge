@@ -1022,6 +1022,7 @@ mod tests {
         registry.deposits.get_mut(&0).unwrap().state = DepositState::Spent {
             fulfillment_txid: None,
             assignee: None,
+            cooperative_payout_txid: None,
         };
         registry.deposits.get_mut(&1).unwrap().state = DepositState::Aborted;
         registry.deposits.get_mut(&2).unwrap().state = DepositState::Skipped;
@@ -1722,6 +1723,7 @@ mod tests {
             claim_block_height: INITIAL_BLOCK_HEIGHT,
             stake_spent: None,
             payout_connector_spent: None,
+            payout_block_data: Default::default(),
         };
     }
 
@@ -2681,8 +2683,9 @@ mod recovery_height_tests {
         registry.deposits.get_mut(&0).unwrap().state = DepositState::Aborted;
         for sm in registry.graphs.values_mut() {
             sm.state = GraphState::Slashed {
-                claim_txid: Txid::all_zeros(),
-                slash_txid: Txid::all_zeros(),
+                claim_txid: Txid::from_byte_array([1; 32]),
+                contest_txid: Txid::from_byte_array([2; 32]),
+                slash_txid: Txid::from_byte_array([3; 32]),
             };
         }
         let mut stake = make_confirmed_stake_sm(
