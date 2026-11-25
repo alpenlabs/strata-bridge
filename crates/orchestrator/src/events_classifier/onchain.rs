@@ -528,7 +528,7 @@ mod tests {
         deposit::{events::UserTakeBackEvent, state::DepositState},
         graph::duties::GraphDuty,
         operator_set::{ConfirmedExit, ExitKind, MembershipUpdate, OperatorSetSM},
-        stake::{context::StakeSMCtx, state::StakeState},
+        stake::state::StakeState,
     };
     use strata_bridge_test_utils::{
         bitcoin::{
@@ -1807,16 +1807,10 @@ mod tests {
         );
     }
 
-    /// Inserts a confirmed stake for `operator` in the covenant of `table` activated at
-    /// `activation_height`, with an unstaking image unique to that stake.
-    fn insert_bound_stake(
-        registry: &mut SMRegistry,
-        operator: OperatorIdx,
-        table: &OperatorTable,
-        activation_height: BitcoinBlockHeight,
-    ) {
+    /// Inserts a confirmed stake for `operator` in the signing set of `table`, with an unstaking
+    /// image unique to that stake.
+    fn insert_bound_stake(registry: &mut SMRegistry, operator: OperatorIdx, table: &OperatorTable) {
         let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
-        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
         if let StakeState::Confirmed { stake_data, .. } = &mut sm.state {
             stake_data.unstaking_image = sha256::Hash::hash(generate_txid().as_byte_array());
         }
@@ -1887,15 +1881,9 @@ mod tests {
             .with_pov(TEST_POV_IDX)
             .unwrap();
         let mut registry = test_empty_registry();
-        for (table, block_covenant) in [(&initial_table, &initial), (&successor_table, &successor)]
-        {
+        for table in [&initial_table, &successor_table] {
             for operator in table.operator_idxs() {
-                insert_bound_stake(
-                    &mut registry,
-                    operator,
-                    table,
-                    block_covenant.covenant.activation_height,
-                );
+                insert_bound_stake(&mut registry, operator, table);
             }
         }
         let cfg = registry.cfg().deposit.clone();
@@ -1940,7 +1928,7 @@ mod tests {
     }
 
     #[test]
-    fn a_later_activation_of_the_same_signing_set_uses_fresh_stakes() {
+    fn a_later_activation_of_the_same_signing_set_reuses_its_stakes() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let earlier = block_covenant_for(&table);
         let later = BlockCovenant {
@@ -1951,15 +1939,8 @@ mod tests {
             operator_table: earlier.operator_table.clone(),
         };
         let mut registry = test_empty_registry();
-        for block_covenant in [&earlier, &later] {
-            for operator in table.operator_idxs() {
-                insert_bound_stake(
-                    &mut registry,
-                    operator,
-                    &table,
-                    block_covenant.covenant.activation_height,
-                );
-            }
+        for operator in table.operator_idxs() {
+            insert_bound_stake(&mut registry, operator, &table);
         }
         let cfg = registry.cfg().deposit.clone();
 
@@ -1985,10 +1966,10 @@ mod tests {
                     .context()
                     .stake_outpoint
             };
-            assert_ne!(
+            assert_eq!(
                 stake_outpoint(0),
                 stake_outpoint(1),
-                "operator {operator}'s graphs at different activations must use different stakes"
+                "operator {operator}'s graphs at different activations of one signing set must share its stake"
             );
         }
     }
@@ -2084,12 +2065,7 @@ mod tests {
         let mut registry = test_empty_registry();
         registry.insert_operator_set(membership).unwrap();
         for operator in successor_table.operator_idxs() {
-            insert_bound_stake(
-                &mut registry,
-                operator,
-                &successor_table,
-                successor.covenant.activation_height,
-            );
+            insert_bound_stake(&mut registry, operator, &successor_table);
         }
         let request = DrtBuilder::aligned(&successor_table, &registry.cfg().deposit).build();
         let mut block = generate_block_with_height(exit_height);
@@ -2118,17 +2094,15 @@ mod tests {
         );
     }
 
-    /// Inserts `operator`'s signed stake in the covenant of `table` activated at
-    /// `activation_height` and returns the transaction that confirms it.
+    /// Inserts `operator`'s signed stake in the signing set of `table` and returns the transaction
+    /// that confirms it.
     fn insert_signed_stake(
         registry: &mut SMRegistry,
         operator: OperatorIdx,
         table: &OperatorTable,
-        activation_height: BitcoinBlockHeight,
     ) -> Transaction {
         let stake_tx = generate_spending_tx(OutPoint::new(generate_txid(), 0), &[]);
         let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
-        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
         let StakeState::Confirmed {
             last_block_height,
             mut stake_data,
@@ -2202,11 +2176,10 @@ mod tests {
         initial.insert_operator_set(membership).unwrap();
         let historical_idx = 40;
         let historical = insert_deposit_activated_at(&mut initial, historical_idx, 1);
-        let final_stake =
-            insert_signed_stake(&mut initial, TEST_POV_IDX, &successor_table, activation);
+        let final_stake = insert_signed_stake(&mut initial, TEST_POV_IDX, &successor_table);
         for operator in successor_table.operator_idxs() {
             if operator != TEST_POV_IDX {
-                insert_bound_stake(&mut initial, operator, &successor_table, activation);
+                insert_bound_stake(&mut initial, operator, &successor_table);
             }
         }
         let cfg = initial.cfg().deposit.clone();
@@ -2552,11 +2525,8 @@ mod covenant_routing_tests {
         let historical = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
         let old_key = historical.context().stake_key();
         let mut successor = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
-        successor.context = StakeSMCtx::new(
-            TEST_POV_IDX,
-            test_extended_operator_table(TEST_POV_IDX),
-            200,
-        );
+        successor.context =
+            StakeSMCtx::new(TEST_POV_IDX, test_extended_operator_table(TEST_POV_IDX));
         let new_key = successor.context().stake_key();
         let source = OutPoint::new(
             historical.state().stake_txid().unwrap(),
@@ -2585,11 +2555,7 @@ mod covenant_routing_tests {
         let first = make_confirmed_stake_sm(TEST_POV_IDX, table.clone(), generate_txid());
         let source = OutPoint::new(first.state().stake_txid().unwrap(), StakeTx::STAKE_VOUT);
         let mut second = first.clone();
-        second.context = StakeSMCtx::new(
-            TEST_POV_IDX,
-            test_extended_operator_table(TEST_POV_IDX),
-            200,
-        );
+        second.context = StakeSMCtx::new(TEST_POV_IDX, test_extended_operator_table(TEST_POV_IDX));
         let mut registry = test_empty_registry();
         registry.insert_stake(first).unwrap();
         registry.insert_stake(second).unwrap();

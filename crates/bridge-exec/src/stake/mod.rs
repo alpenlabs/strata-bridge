@@ -22,7 +22,7 @@ pub async fn execute_stake_duty(
     stake_key: StakeKey,
     duty: &StakeDuty,
 ) -> Result<(), ExecutorError> {
-    info!(%stake_key, "executing covenant-qualified stake duty");
+    info!(%stake_key, "executing stake duty");
     match duty {
         StakeDuty::PublishStakeData {
             operator_idx,

@@ -53,14 +53,13 @@ pub struct Directories {
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     pub graphs: DirectorySubspace,
 
-    /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
+    /// Subspace for storing Stake SM states, keyed by signing set and owner.
     pub stakes: DirectorySubspace,
 
     /// Subspace for storing claim-funding reservations, keyed by covenant and graph.
     pub claim_funding_reservations: DirectorySubspace,
 
-    /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
-    /// identity.
+    /// Subspace for storing stake-funding reservations, keyed by signing set and owner.
     pub stake_funding_reservations: DirectorySubspace,
 
     /// Subspace for storing withdrawal-funding outpoints, keyed by `DepositIdx`.
@@ -146,12 +145,11 @@ pub enum SubSpaceId {
     Deposits,
     /// Subspace for storing Graph SM states, keyed by (`DepositIdx`, `OperatorIdx`).
     Graphs,
-    /// Subspace for storing Stake SM states, keyed by covenant-qualified stake identity.
+    /// Subspace for storing Stake SM states, keyed by signing set and owner.
     Stakes,
     /// Subspace for storing claim-funding reservations, keyed by covenant and graph.
     ClaimFundingReservations,
-    /// Subspace for storing stake-funding reservations, keyed by covenant-qualified stake
-    /// identity.
+    /// Subspace for storing stake-funding reservations, keyed by signing set and owner.
     StakeFundingReservations,
     /// Subspace for storing withdrawal-funding outpoints.
     FulfillmentFunds,

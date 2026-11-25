@@ -115,7 +115,7 @@ pub enum RegistryInsertError {
     /// A graph SM already exists at this key.
     #[error("graph state machine already exists at index {0:?}")]
     GraphAlreadyExists(GraphIdx),
-    /// A stake SM already exists at this covenant-qualified key.
+    /// A stake SM already exists at this key.
     #[error("stake state machine already exists for operator {0}")]
     StakeAlreadyExists(StakeKey),
     /// Equal identities must have the same full indexed membership.
@@ -239,7 +239,7 @@ impl SMRegistry {
         self.graphs.keys().copied().collect()
     }
 
-    /// Gets the covenant-qualified keys of all stake state machines.
+    /// Gets the keys of all stake state machines.
     pub fn get_stake_ids(&self) -> Vec<StakeKey> {
         self.stakes.keys().copied().collect()
     }
@@ -336,7 +336,7 @@ impl SMRegistry {
         matches.next().is_none().then_some(key)
     }
 
-    /// Looks up an exact covenant-qualified stake instance.
+    /// Looks up a stake by its key.
     pub fn get_stake(&self, operator_idx: &StakeKey) -> Option<&StakeSM> {
         self.stakes.get(operator_idx)
     }
@@ -472,11 +472,11 @@ impl SMRegistry {
 
     /// Inserts a stake under its immutable context identity.
     ///
-    /// Rejects duplicate identities and conflicting indexed membership for the same covenant.
+    /// Rejects duplicate identities and conflicting indexed membership for the same signing set.
     pub fn insert_stake(&mut self, sm: StakeSM) -> Result<(), RegistryInsertError> {
         let operator_idx = sm.context().stake_key();
         if self.stakes.values().any(|existing| {
-            existing.context().stake_key().covenant == operator_idx.covenant
+            existing.context().stake_key().aggregate_pubkey == operator_idx.aggregate_pubkey
                 && !existing
                     .context()
                     .operator_table()
@@ -508,8 +508,7 @@ impl SMRegistry {
             .is_some_and(|sm| sm.state().is_stake_available())
     }
 
-    /// Assesses whether every member of `block_covenant` holds a usable stake for exactly that
-    /// covenant.
+    /// Assesses whether every member of `block_covenant` holds a usable stake for its signing set.
     pub fn covenant_readiness(
         &self,
         block_covenant: &BlockCovenant,
@@ -1813,7 +1812,7 @@ mod tests {
         summary.unstaking = unstaking.compute_txid();
         // A prepared successor must not supply the historical graph's preimage.
         let mut successor = preimage_revealed_stake_sm(1, table.clone(), [0x24; 32]);
-        successor.context = StakeSMCtx::new(1, test_extended_operator_table(TEST_POV_IDX), 200);
+        successor.context = StakeSMCtx::new(1, test_extended_operator_table(TEST_POV_IDX));
         registry.insert_stake(successor).unwrap();
         let mut block = BlockEvent {
             block: generate_block_with_height(101),
@@ -1909,11 +1908,8 @@ mod tests {
         let historical_key = historical.context().stake_key();
         // Matching images must not allow a successor to substitute for a missing historical stake.
         let mut successor = preimage_revealed_stake_sm(TEST_POV_IDX, table, preimage);
-        successor.context = StakeSMCtx::new(
-            TEST_POV_IDX,
-            test_extended_operator_table(TEST_POV_IDX),
-            INITIAL_BLOCK_HEIGHT + 100,
-        );
+        successor.context =
+            StakeSMCtx::new(TEST_POV_IDX, test_extended_operator_table(TEST_POV_IDX));
         registry.insert_stake(historical).unwrap();
         registry.insert_stake(successor).unwrap();
         bind_graph_stake(&mut registry, graph_idx, preimage);
@@ -1966,17 +1962,15 @@ mod tests {
 
     // ===== Covenant-scoped preimage delivery tests =====
 
-    /// Inserts a confirmed stake for `operator` in the covenant of `table` activated at
-    /// `activation_height`, locked to the image of `preimage`.
+    /// Inserts a confirmed stake for `operator` in the signing set of `table`, locked to the image
+    /// of `preimage`.
     fn insert_stake_with_image(
         registry: &mut SMRegistry,
         operator: OperatorIdx,
         table: &OperatorTable,
-        activation_height: BitcoinBlockHeight,
         preimage: [u8; 32],
     ) -> StakeKey {
         let mut sm = make_confirmed_stake_sm(operator, table.clone(), generate_txid());
-        sm.context = StakeSMCtx::new(operator, table.clone(), activation_height);
         if let StakeState::Confirmed { stake_data, .. } = &mut sm.state {
             stake_data.unstaking_image = sha256::Hash::hash(&preimage);
         }
@@ -2025,7 +2019,7 @@ mod tests {
             state => panic!("graphs are bound to staked stakes, not {state}"),
         };
         let ctx = &mut registry.graphs.get_mut(&graph_idx).unwrap().context;
-        ctx.covenant = key.covenant;
+        ctx.covenant.aggregate_pubkey = key.aggregate_pubkey;
         ctx.operator_table = operator_table;
         ctx.stake_outpoint = OutPoint::new(summary.stake, StakeTx::STAKE_VOUT);
         ctx.unstaking_image = stake_data.unstaking_image;
@@ -2067,12 +2061,11 @@ mod tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let operator = 1;
         let (p0, p1) = ([0x10; 32], [0x11; 32]);
-        let c0 = insert_stake_with_image(&mut registry, operator, &table, INITIAL_BLOCK_HEIGHT, p0);
+        let c0 = insert_stake_with_image(&mut registry, operator, &table, p0);
         let c1 = insert_stake_with_image(
             &mut registry,
             operator,
             &test_extended_operator_table(TEST_POV_IDX),
-            INITIAL_BLOCK_HEIGHT + 100,
             p1,
         );
         let g0 = GraphIdx {
@@ -2119,10 +2112,8 @@ mod tests {
             deposit: 0,
             operator: 1,
         };
-        let own =
-            insert_stake_with_image(&mut registry, 1, &table, INITIAL_BLOCK_HEIGHT, [0x21; 32]);
-        let other =
-            insert_stake_with_image(&mut registry, 2, &table, INITIAL_BLOCK_HEIGHT, [0x22; 32]);
+        let own = insert_stake_with_image(&mut registry, 1, &table, [0x21; 32]);
+        let other = insert_stake_with_image(&mut registry, 2, &table, [0x22; 32]);
         reveal(&mut registry, &own, [0x21; 32]);
         reveal(&mut registry, &other, [0x22; 32]);
         bind_to(&mut registry, graph_idx, &own);
@@ -2342,17 +2333,12 @@ mod covenant_tests {
             StakeSMCtx::new(
                 TEST_POV_IDX,
                 test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
-                100,
             ),
             101,
         );
         let (second, _) = StakeSM::new(
             test_stake_sm_cfg(),
-            StakeSMCtx::new(
-                TEST_POV_IDX,
-                test_extended_operator_table(TEST_POV_IDX),
-                200,
-            ),
+            StakeSMCtx::new(TEST_POV_IDX, test_extended_operator_table(TEST_POV_IDX)),
             101,
         );
         (first, second)
@@ -2447,7 +2433,6 @@ mod covenant_tests {
         let ctx = StakeSMCtx::new(
             key.operator + 10,
             remapped.with_pov(table.pov_idx() + 10).unwrap(),
-            key.covenant.activation_height,
         );
         let (other, _) = StakeSM::new(test_stake_sm_cfg(), ctx, 101);
         let mut registry = test_empty_registry();
@@ -2531,7 +2516,7 @@ mod operator_set_tests {
         for operator_idx in table.operator_idxs() {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(operator_idx, table.clone(), 100),
+                StakeSMCtx::new(operator_idx, table.clone()),
                 100,
             );
             participant.insert_stake(stake).unwrap();
@@ -2746,7 +2731,6 @@ mod recovery_height_tests {
             StakeSMCtx::new(
                 TEST_POV_IDX,
                 test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
-                100,
             ),
             100,
         );
@@ -2809,7 +2793,7 @@ mod recovery_height_tests {
         ] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table, height),
+                StakeSMCtx::new(TEST_POV_IDX, table),
                 height,
             );
             registry.insert_stake(stake).unwrap();

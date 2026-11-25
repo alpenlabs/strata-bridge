@@ -305,11 +305,7 @@ impl<'a> Applicator<'a> {
             ?table,
             "initializing stake state machine for local operator"
         );
-        let context = StakeSMCtx::new(
-            stake_key.operator,
-            table,
-            stake_key.covenant.activation_height,
-        );
+        let context = StakeSMCtx::new(stake_key.operator, table);
         let (sm, initial_duty) =
             StakeSM::new(self.registry.cfg().stake.clone(), context, block_height);
 

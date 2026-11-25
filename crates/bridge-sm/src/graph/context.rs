@@ -47,7 +47,7 @@ pub struct GraphSMCtx {
 }
 
 impl GraphSMCtx {
-    /// Returns the exact stake instance bound to this graph.
+    /// Returns the owner's stake for the signing set of this graph's covenant.
     pub const fn stake_key(&self) -> StakeKey {
         StakeKey::new(self.covenant, self.graph_idx.operator)
     }

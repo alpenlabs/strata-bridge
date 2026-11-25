@@ -16,12 +16,12 @@ fn key(height: u64) -> StakeKey {
 #[test]
 #[should_panic(expected = "The operator index must be included in the operator table")]
 fn context_rejects_absent_stake_owner() {
-    StakeSMCtx::new(u32::MAX, TEST_OPERATOR_TABLE.clone(), 101);
+    StakeSMCtx::new(u32::MAX, TEST_OPERATOR_TABLE.clone());
 }
 
 #[test]
 fn participants_emit_duties_for_their_own_covenant() {
-    for (height, members) in [(101, TEST_N_OPERATORS), (202, TEST_N_OPERATORS), (303, 2)] {
+    for members in [TEST_N_OPERATORS, 2] {
         for local in [TEST_POV_IDX, TEST_NONPOV_IDX] {
             let entries = TEST_OPERATOR_TABLE
                 .operator_idxs()
@@ -42,7 +42,7 @@ fn participants_emit_duties_for_their_own_covenant() {
                 .into_iter()
                 .map(|key| key.x_only_public_key().0)
                 .collect();
-            let ctx = StakeSMCtx::new(TEST_POV_IDX, table, height);
+            let ctx = StakeSMCtx::new(TEST_POV_IDX, table);
             let (mut sm, duty) = StakeSM::new(TEST_CFG.clone(), ctx, 200);
             if local == TEST_POV_IDX {
                 assert!(
@@ -91,7 +91,7 @@ fn participants_emit_duties_for_their_own_covenant() {
 }
 
 #[test]
-fn context_preserves_activation_height_and_table_pov_through_serialization() {
+fn context_key_ignores_activation_height_and_survives_serialization() {
     for height in [101, 202] {
         for local in [TEST_POV_IDX, TEST_NONPOV_IDX] {
             let table = TEST_OPERATOR_TABLE
@@ -99,9 +99,13 @@ fn context_preserves_activation_height_and_table_pov_through_serialization() {
                 .into_public()
                 .with_pov(local)
                 .unwrap();
-            let ctx = StakeSMCtx::new(TEST_POV_IDX, table, height);
+            let ctx = StakeSMCtx::new(TEST_POV_IDX, table);
             let (sm, _) = StakeSM::new(TEST_CFG.clone(), ctx, 999);
-            assert_eq!(sm.context().stake_key(), key(height));
+            assert_eq!(
+                sm.context().stake_key(),
+                key(height),
+                "the stake must be identified by its signing set at any activation height"
+            );
             assert_eq!(sm.context().operator_table().pov_idx(), local);
             let bytes = postcard::to_allocvec(&sm).unwrap();
             assert_eq!(postcard::from_bytes::<StakeSM>(&bytes).unwrap(), sm);

@@ -4,46 +4,42 @@ use bitcoin::{OutPoint, hashes::sha256};
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
-    covenant::{CovenantId, StakeKey},
-    operator_table::OperatorTable,
-    types::OperatorIdx,
+    covenant::StakeKey, operator_table::OperatorTable, types::OperatorIdx,
 };
 use strata_bridge_tx_graph::stake_graph::{SetupParams, StakeData};
 
 use crate::stake::config::StakeSMCfg;
 
-/// Immutable execution context for one operator's stake in one covenant.
+/// Immutable execution context for one operator's stake for one covenant signing set.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StakeSMCtx {
-    /// The covenant and operator whose stake this state machine tracks.
+    /// The signing set and operator whose stake this state machine tracks.
     stake_key: StakeKey,
     /// The immutable covenant membership and this node's signing participant.
     operator_table: OperatorTable,
 }
 
 impl StakeSMCtx {
-    /// Creates a participant context with an explicit admin activation boundary.
+    /// Creates a participant context for the signing set of `operator_table`.
     ///
     /// # Panics
     /// Panics if the owner is absent or the keys cannot be aggregated.
-    pub fn new(
-        operator_idx: OperatorIdx,
-        operator_table: OperatorTable,
-        activation_height: u64,
-    ) -> Self {
+    pub fn new(operator_idx: OperatorIdx, operator_table: OperatorTable) -> Self {
         assert!(
             operator_table.contains_idx(&operator_idx),
             "The operator index must be included in the operator table"
         );
-        let covenant = CovenantId::from_operator_table(&operator_table, activation_height)
-            .expect("valid covenant signing keys");
+        let aggregate_pubkey = operator_table.aggregated_btc_key().x_only_public_key().0;
         Self {
-            stake_key: StakeKey::new(covenant, operator_idx),
+            stake_key: StakeKey {
+                aggregate_pubkey,
+                operator: operator_idx,
+            },
             operator_table,
         }
     }
 
-    /// Returns the exact covenant-qualified stake identity.
+    /// Returns the signing-set-qualified stake identity.
     pub const fn stake_key(&self) -> StakeKey {
         self.stake_key
     }

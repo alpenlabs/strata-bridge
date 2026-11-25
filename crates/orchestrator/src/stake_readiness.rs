@@ -80,8 +80,7 @@ pub enum ReadinessError {
     },
 }
 
-/// Assesses whether every member of `block_covenant` holds a usable stake for exactly that
-/// covenant.
+/// Assesses whether every member of `block_covenant` holds a usable stake for its signing set.
 ///
 /// Every member is checked, so a [`ReadinessError::Unready`] error lists all shortfalls rather
 /// than the first one found. Membership is never empty: [`BlockCovenant`] tables cannot be
@@ -171,7 +170,6 @@ fn describe_shortfalls(shortfalls: &BTreeMap<OperatorIdx, StakeShortfall>) -> St
 mod tests {
     use bitcoin::hashes::Hash;
     use strata_bridge_primitives::operator_table::OperatorTable;
-    use strata_bridge_sm::stake::context::StakeSMCtx;
     use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
@@ -358,19 +356,34 @@ mod tests {
     }
 
     #[test]
-    fn stakes_of_an_earlier_activation_do_not_count() {
+    fn stakes_of_an_earlier_activation_of_the_same_signing_set_count() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let stakes = all_confirmed(&table);
-        let successor = block_covenant(&table, INITIAL_BLOCK_HEIGHT + 100);
+        let later = block_covenant(&table, INITIAL_BLOCK_HEIGHT + 100);
+
+        let ready = assess(&later, &stakes)
+            .expect("a later activation of the same signing set must reuse its stakes");
+        assert_eq!(
+            ready.covenant, later.covenant,
+            "readiness must report the later covenant"
+        );
+    }
+
+    #[test]
+    fn stakes_of_another_signing_set_do_not_count() {
+        let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let stakes = all_confirmed(&table);
+        let extended_table = test_extended_operator_table(TEST_POV_IDX);
+        let extended = block_covenant(&extended_table, INITIAL_BLOCK_HEIGHT + 100);
 
         assert_eq!(
-            shortfalls(assess(&successor, &stakes)),
-            table
+            shortfalls(assess(&extended, &stakes)),
+            extended_table
                 .operator_idxs()
                 .into_iter()
                 .map(|operator| (operator, StakeShortfall::Missing))
                 .collect(),
-            "the same signing set at a later activation needs fresh stakes from every member"
+            "a different signing set needs its own stakes from every member"
         );
     }
 
@@ -382,9 +395,7 @@ mod tests {
         let successor = block_covenant(&successor_table, successor_height);
         let mut stakes = all_confirmed(&table);
         for operator in successor_table.operator_idxs() {
-            let mut sm = confirmed(operator, &successor_table);
-            sm.context = StakeSMCtx::new(operator, successor_table.clone(), successor_height);
-            insert(&mut stakes, sm);
+            insert(&mut stakes, confirmed(operator, &successor_table));
         }
 
         let ready = assess(&successor, &stakes).expect("successor stakes are confirmed");

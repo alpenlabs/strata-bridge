@@ -1647,10 +1647,8 @@ mod tests {
             let mut registry = test_empty_registry();
             let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
             insert_stakes_for_all_operators(&mut registry, &operator_table);
-            let stake_key_of = |operator_idx| {
-                StakeSMCtx::new(operator_idx, operator_table.clone(), INITIAL_BLOCK_HEIGHT)
-                    .stake_key()
-            };
+            let stake_key_of =
+                |operator_idx| StakeSMCtx::new(operator_idx, operator_table.clone()).stake_key();
             let owner_p2p_key = operator_table.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
 
             let owned = classify_unsigned_gossip(
@@ -1700,18 +1698,18 @@ mod tests {
             let historical = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
             let successor = table_without(&historical, TEST_NONPOV);
             let mut registry = test_empty_registry();
-            let mut stake_key_in = |table: &OperatorTable, activation_height| {
+            let mut stake_key_in = |table: &OperatorTable| {
                 let (stake, _) = StakeSM::new(
                     test_stake_sm_cfg(),
-                    StakeSMCtx::new(TEST_POV_IDX, table.clone(), activation_height),
+                    StakeSMCtx::new(TEST_POV_IDX, table.clone()),
                     INITIAL_BLOCK_HEIGHT,
                 );
                 let stake_key = stake.context().stake_key();
                 registry.insert_stake(stake).unwrap();
                 stake_key
             };
-            let historical_key = stake_key_in(&historical, 100);
-            let successor_key = stake_key_in(&successor, 200);
+            let historical_key = stake_key_in(&historical);
+            let successor_key = stake_key_in(&successor);
             let removed_p2p_key = historical.idx_to_p2p_key(&TEST_NONPOV).unwrap().clone();
             let nag_from_removed = |stake_key| {
                 classify_unsigned_gossip(
@@ -1748,9 +1746,7 @@ mod tests {
                 .unwrap()
                 .clone();
 
-            let stake_key =
-                StakeSMCtx::new(operator_idx, operator_table.clone(), INITIAL_BLOCK_HEIGHT)
-                    .stake_key();
+            let stake_key = StakeSMCtx::new(operator_idx, operator_table.clone()).stake_key();
             let nag_request = NagRequest {
                 recipient: pov_p2p_key,
                 payload: NagRequestPayload::UnstakingNonces { stake_key },

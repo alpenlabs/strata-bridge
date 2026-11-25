@@ -167,7 +167,7 @@ impl KVRowSpec for ClaimFundingReservationRowSpec {
     type Value = ClaimFundingReservationValue;
 }
 
-/// Key for stake-funding reservation rows: covenant-qualified `StakeKey`.
+/// Key for stake-funding reservation rows: a `StakeKey`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeFundingReservationKey {
     /// Covenant and permanent stake owner.

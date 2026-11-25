@@ -223,7 +223,7 @@ mod tests {
         );
 
         let stake = UnifiedDuty::Stake {
-            stake_key: StakeSMCtx::new(0, test_operator_table(3, 0), 100).stake_key(),
+            stake_key: StakeSMCtx::new(0, test_operator_table(3, 0)).stake_key(),
             duty: StakeDuty::PublishStakeData {
                 operator_idx: 0,
                 cfg: test_stake_sm_cfg(),

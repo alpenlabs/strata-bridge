@@ -147,7 +147,7 @@ class OperatorSetChangesTest(StrataTestBase):
             "the successor covenant before it activates"
         )
         for idx in addition_members:
-            self._wait_until_staked_for(rpcs[idx], addition_members, addition_height)
+            self._wait_until_staked_for(rpcs[idx], addition_members)
         self._assert_before(addition_height, "the successor covenant's stakes confirm")
 
         self.logger.info(
@@ -339,26 +339,21 @@ class OperatorSetChangesTest(StrataTestBase):
         wait_until_asm_deposit(self.asm_rpc, self.bitcoin_rpc, expected_idx)
         return deposit_txid
 
-    def _wait_until_staked_for(self, rpc, members: list[int], activation_height: int):
+    def _wait_until_staked_for(self, rpc, members: list[int]):
         """Wait until `rpc`'s node reports a confirmed stake from every one of `members` for the
-        covenant activating at `activation_height`."""
+        signing set made of exactly `members`."""
 
         def staked() -> bool:
-            confirmed = {
-                stake.operator_idx
-                for stake in get_stake_status(rpc)
-                if stake.covenant.activation_height == activation_height
-                and stake.state is RpcStakeStateLabel.CONFIRMED
-            }
-            return confirmed == set(members)
+            confirmed: dict[str, set[int]] = {}
+            for stake in get_stake_status(rpc):
+                if stake.state is RpcStakeStateLabel.CONFIRMED:
+                    confirmed.setdefault(stake.aggregate_pubkey, set()).add(stake.operator_idx)
+            return set(members) in confirmed.values()
 
         wait_until(
             staked,
             timeout=300,
-            error_msg=(
-                f"operators {members} must confirm their stakes for the covenant activating at "
-                f"{activation_height}"
-            ),
+            error_msg=f"operators {members} must confirm their stakes for their signing set",
         )
 
     def _wait_until_stake_state(

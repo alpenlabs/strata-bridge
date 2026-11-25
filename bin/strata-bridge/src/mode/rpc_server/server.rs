@@ -499,7 +499,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .stakes()
             .map(|(&stake_key, sm)| RpcOperatorStakeInfo {
                 operator_idx: stake_key.operator,
-                covenant: stake_key.covenant,
+                aggregate_pubkey: stake_key.aggregate_pubkey,
                 state: stake_state_to_rpc(sm.state()),
             })
             .collect())
