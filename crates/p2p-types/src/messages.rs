@@ -85,11 +85,10 @@ enum NagPayloadKind {
     SweepPartial = 0x0B,
 }
 
-/// Appends the signing encoding of a stake key: the covenant's x-only aggregate key, its
-/// activation height (little-endian), and the operator index (little-endian).
+/// Appends the signing encoding of a stake key: the x-only aggregate key and the operator index
+/// (little-endian).
 fn extend_stake_key(buf: &mut Vec<u8>, stake_key: &StakeKey) {
-    buf.extend(stake_key.covenant.aggregate_pubkey.serialize());
-    buf.extend(stake_key.covenant.activation_height.to_le_bytes());
+    buf.extend(stake_key.aggregate_pubkey.serialize());
     buf.extend(stake_key.operator.to_le_bytes());
 }
 
@@ -849,7 +848,6 @@ mod tests {
     use bitcoin::{hashes::sha256, OutPoint, Txid, XOnlyPublicKey};
     use libp2p_identity::ed25519::Keypair;
     use secp256k1::rand::{rngs::OsRng, Rng};
-    use strata_bridge_primitives::covenant::CovenantId;
     use strata_bridge_test_utils::{
         bitcoin::generate_xonly_pubkey,
         musig2::{generate_partial_signature, generate_pubnonce},
@@ -903,22 +901,18 @@ mod tests {
         0x17, 0x98,
     ];
 
-    // Helper to create a stake key in a covenant activated at `activation_height`.
-    fn test_stake_key(activation_height: u64, operator: OperatorIdx) -> StakeKey {
-        StakeKey::new(
-            CovenantId {
-                aggregate_pubkey: XOnlyPublicKey::from_slice(&TEST_COVENANT_KEY)
-                    .expect("valid x-only key"),
-                activation_height,
-            },
+    // Helper to create a stake key for the test covenant signing set.
+    fn test_stake_key(operator: OperatorIdx) -> StakeKey {
+        StakeKey {
+            aggregate_pubkey: XOnlyPublicKey::from_slice(&TEST_COVENANT_KEY)
+                .expect("valid x-only key"),
             operator,
-        )
+        }
     }
 
     // Helper to create the expected signing bytes of `test_stake_key`.
-    fn test_stake_key_bytes(activation_height: u64, operator: OperatorIdx) -> Vec<u8> {
+    fn test_stake_key_bytes(operator: OperatorIdx) -> Vec<u8> {
         let mut bytes = TEST_COVENANT_KEY.to_vec();
-        bytes.extend(activation_height.to_le_bytes());
         bytes.extend(operator.to_le_bytes());
         bytes
     }
@@ -964,7 +958,7 @@ mod tests {
             (
                 "Unstake",
                 MuSig2Nonce::Unstake {
-                    stake_key: test_stake_key(101, 13),
+                    stake_key: test_stake_key(13),
                     nonces: vec![test_pubnonce()],
                 },
                 SigningContext::Unstake as u8,
@@ -1024,7 +1018,7 @@ mod tests {
             (
                 "Unstake",
                 MuSig2Partial::Unstake {
-                    stake_key: test_stake_key(101, 13),
+                    stake_key: test_stake_key(13),
                     partials: vec![test_partial_signature()],
                 },
                 SigningContext::Unstake as u8,
@@ -1079,7 +1073,7 @@ mod tests {
             (
                 "UnstakingDataExchange",
                 UnsignedGossipsubMsg::UnstakingDataExchange {
-                    stake_key: test_stake_key(101, 6),
+                    stake_key: test_stake_key(6),
                     unstaking_input: UnstakingInput {
                         stake_funds: OutPoint {
                             txid: Txid::from_byte_array([0xCD; 32]),
@@ -1184,21 +1178,21 @@ mod tests {
             (
                 "UnstakingData",
                 NagRequestPayload::UnstakingData {
-                    stake_key: test_stake_key(101, 11),
+                    stake_key: test_stake_key(11),
                 },
                 NagPayloadKind::UnstakingData as u8,
             ),
             (
                 "UnstakingNonces",
                 NagRequestPayload::UnstakingNonces {
-                    stake_key: test_stake_key(101, 12),
+                    stake_key: test_stake_key(12),
                 },
                 NagPayloadKind::UnstakingNonces as u8,
             ),
             (
                 "UnstakingPartials",
                 NagRequestPayload::UnstakingPartials {
-                    stake_key: test_stake_key(101, 13),
+                    stake_key: test_stake_key(13),
                 },
                 NagPayloadKind::UnstakingPartials as u8,
             ),
@@ -1390,13 +1384,13 @@ mod tests {
         };
 
         let msg = UnsignedGossipsubMsg::UnstakingDataExchange {
-            stake_key: test_stake_key(101, 3),
+            stake_key: test_stake_key(3),
             unstaking_input,
         };
         let content = msg.content_bytes();
 
-        // Structure: discriminator (1) + stake_key (44) + txid (32) + vout (4) + image (32) + desc
-        let expected_len = 1 + 44 + 32 + 4 + 32 + desc_bytes.len();
+        // Structure: discriminator (1) + stake_key (36) + txid (32) + vout (4) + image (32) + desc
+        let expected_len = 1 + 36 + 32 + 4 + 32 + desc_bytes.len();
         assert_eq!(
             content.len(),
             expected_len,
@@ -1411,11 +1405,11 @@ mod tests {
         );
         offset += 1;
         assert_eq!(
-            &content[offset..offset + 44],
-            test_stake_key_bytes(101, 3).as_slice(),
+            &content[offset..offset + 36],
+            test_stake_key_bytes(3).as_slice(),
             "stake_key should follow the discriminator"
         );
-        offset += 44;
+        offset += 36;
         assert_eq!(
             &content[offset..offset + 32],
             &stake_funds_txid,
@@ -1527,22 +1521,22 @@ mod tests {
     fn musig2_nonce_unstake_serializes_multiple_nonces() {
         let nonces = vec![test_pubnonce(), test_pubnonce(), test_pubnonce()];
         let nonce = MuSig2Nonce::Unstake {
-            stake_key: test_stake_key(101, 10),
+            stake_key: test_stake_key(10),
             nonces: nonces.clone(),
         };
         let content = nonce.content_bytes();
 
-        // Check structure: kind (1) + discriminator (1) + stake_key (44) + nonces (3 * 66)
+        // Check structure: kind (1) + discriminator (1) + stake_key (36) + nonces (3 * 66)
         assert_eq!(
             content.len(),
-            1 + 1 + 44 + 3 * 66,
-            "Unstake nonce content should be 244 bytes: kind (1) + discriminator (1) + stake_key (44) + 3 nonces (198)"
+            1 + 1 + 36 + 3 * 66,
+            "Unstake nonce content should be 236 bytes: kind (1) + discriminator (1) + stake_key (36) + 3 nonces (198)"
         );
         assert_eq!(content[0], 0x01, "kind byte should be 0x01");
         assert_eq!(content[1], 0x03, "Unstake discriminator should be 0x03");
         assert_eq!(
-            &content[2..46],
-            test_stake_key_bytes(101, 10).as_slice(),
+            &content[2..38],
+            test_stake_key_bytes(10).as_slice(),
             "stake_key should follow the discriminator"
         );
     }
@@ -1552,22 +1546,22 @@ mod tests {
     fn musig2_partial_unstake_serializes_multiple_partials() {
         let partials = vec![test_partial_signature(), test_partial_signature()];
         let partial = MuSig2Partial::Unstake {
-            stake_key: test_stake_key(101, 5),
+            stake_key: test_stake_key(5),
             partials: partials.clone(),
         };
         let content = partial.content_bytes();
 
-        // Check structure: kind (1) + discriminator (1) + stake_key (44) + partials (2 * 32)
+        // Check structure: kind (1) + discriminator (1) + stake_key (36) + partials (2 * 32)
         assert_eq!(
             content.len(),
-            1 + 1 + 44 + 2 * 32,
-            "Unstake partial content should be 110 bytes: kind (1) + discriminator (1) + stake_key (44) + 2 partials (64)"
+            1 + 1 + 36 + 2 * 32,
+            "Unstake partial content should be 102 bytes: kind (1) + discriminator (1) + stake_key (36) + 2 partials (64)"
         );
         assert_eq!(content[0], 0x02, "kind byte should be 0x02");
         assert_eq!(content[1], 0x03, "Unstake discriminator should be 0x03");
         assert_eq!(
-            &content[2..46],
-            test_stake_key_bytes(101, 5).as_slice(),
+            &content[2..38],
+            test_stake_key_bytes(5).as_slice(),
             "stake_key should follow the discriminator"
         );
     }
@@ -1622,7 +1616,7 @@ mod tests {
     #[test]
     fn empty_nonces_unstake() {
         let nonce = MuSig2Nonce::Unstake {
-            stake_key: test_stake_key(101, 1),
+            stake_key: test_stake_key(1),
             nonces: vec![],
         };
         let content = nonce.content_bytes();
@@ -1630,8 +1624,8 @@ mod tests {
         // Should just have kind + discriminator + stake_key
         assert_eq!(
             content.len(),
-            1 + 1 + 44,
-            "Empty unstake nonces should be 46 bytes: kind (1) + discriminator (1) + stake_key (44)"
+            1 + 1 + 36,
+            "Empty unstake nonces should be 38 bytes: kind (1) + discriminator (1) + stake_key (36)"
         );
     }
 
@@ -1639,7 +1633,7 @@ mod tests {
     #[test]
     fn empty_partials_unstake() {
         let partial = MuSig2Partial::Unstake {
-            stake_key: test_stake_key(101, 1),
+            stake_key: test_stake_key(1),
             partials: vec![],
         };
         let content = partial.content_bytes();
@@ -1647,8 +1641,8 @@ mod tests {
         // Should just have kind + discriminator + stake_key
         assert_eq!(
             content.len(),
-            1 + 1 + 44,
-            "Empty unstake partials should be 46 bytes: kind (1) + discriminator (1) + stake_key (44)"
+            1 + 1 + 36,
+            "Empty unstake partials should be 38 bytes: kind (1) + discriminator (1) + stake_key (36)"
         );
     }
 
@@ -1874,14 +1868,14 @@ mod tests {
     }
 
     // Verifies unstaking nag payload bytes are stable and ordered as
-    // [discriminator][aggregate key][activation height LE][operator_idx LE].
+    // [discriminator][aggregate key][operator_idx LE].
     #[test]
     fn nag_payload_unstaking_content_bytes_stability() {
-        let stake_key = test_stake_key(0x0102_0304_0506_0708, 1);
+        let stake_key = test_stake_key(1);
         let data = NagRequestPayload::UnstakingData { stake_key };
         let nonces = NagRequestPayload::UnstakingNonces { stake_key };
         let partials = NagRequestPayload::UnstakingPartials { stake_key };
-        let key_bytes = test_stake_key_bytes(0x0102_0304_0506_0708, 1);
+        let key_bytes = test_stake_key_bytes(1);
 
         assert_eq!(
             data.content_bytes(),
@@ -1897,24 +1891,6 @@ mod tests {
             partials.content_bytes(),
             [vec![0x09], key_bytes].concat(),
             "UnstakingPartials must serialize as [0x09][stake key]"
-        );
-    }
-
-    // Verifies a stake nag signed for one covenant is not valid for a covenant that shares its
-    // aggregate key but activated at another height.
-    #[test]
-    fn nag_payload_unstaking_binds_the_covenant_activation_height() {
-        let earlier = NagRequestPayload::UnstakingData {
-            stake_key: test_stake_key(100, 1),
-        };
-        let later = NagRequestPayload::UnstakingData {
-            stake_key: test_stake_key(200, 1),
-        };
-
-        assert_ne!(
-            earlier.content_bytes(),
-            later.content_bytes(),
-            "equal aggregates at different activation heights must sign different bytes"
         );
     }
 

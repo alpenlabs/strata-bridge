@@ -641,9 +641,10 @@ mod stake_initialization_tests {
         GossipsubMsg, NagRequest, NagRequestPayload, UnsignedGossipsubMsg,
     };
     use strata_bridge_primitives::{
-        covenant::{CovenantId, StakeKey},
+        covenant::StakeKey,
         operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
         operator_table::PublicOperatorTable,
+        types::OperatorIdx,
     };
     use strata_bridge_sm::{
         deposit::state::DepositState,
@@ -682,10 +683,10 @@ mod stake_initialization_tests {
         sm_registry::{RegistryInsertError, SMRegistry},
         sm_types::{SMId, UnifiedDuty},
         testing::{
-            DrtBuilder, INITIAL_BLOCK_HEIGHT, TEST_MAGIC_BYTES, make_confirmed_stake_sm,
-            mock_bitcoin_rpc, random_p2tr_desc, test_empty_registry, test_fdb_config,
-            test_membership, test_membership_table, test_operator_table, test_populated_registry,
-            test_slash, unavailable_bitcoin_client,
+            DrtBuilder, INITIAL_BLOCK_HEIGHT, N_TEST_OPERATORS, TEST_MAGIC_BYTES, TEST_POV_IDX,
+            make_confirmed_stake_sm, mock_bitcoin_rpc, random_p2tr_desc, test_empty_registry,
+            test_fdb_config, test_membership, test_membership_table, test_operator_table,
+            test_populated_registry, test_registration, test_slash, unavailable_bitcoin_client,
         },
     };
 
@@ -900,7 +901,7 @@ mod stake_initialization_tests {
             .unwrap()
             .signals
             .into_iter()
-            .map(|OperatorSetSignal::InitializeStake { stake_key, .. }| stake_key.covenant)
+            .map(|OperatorSetSignal::InitializeStake { stake_key, .. }| stake_key.aggregate_pubkey)
             .next()
             .expect("the configured update changes membership");
         let mut block = BlockEvent {
@@ -919,7 +920,7 @@ mod stake_initialization_tests {
         assert_eq!(membership.current_covenant(), before);
         assert!(!membership.exited_operators().contains(&1));
         assert_eq!(
-            published_covenants(&batch.duties),
+            published_signing_sets(&batch.duties),
             vec![target],
             "A forged slash must not initialize a successor; only the configured target is prepared"
         );
@@ -1247,7 +1248,7 @@ mod stake_initialization_tests {
         onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
             .await
             .unwrap();
-        let [prepared] = published_covenants(&applicator.finish().duties)[..] else {
+        let [prepared] = published_signing_sets(&applicator.finish().duties)[..] else {
             panic!("the configured successor must be prepared before its activation");
         };
         let prepared_keys = registry.get_stake_ids();
@@ -1267,7 +1268,7 @@ mod stake_initialization_tests {
         let batch = applicator.finish();
         let final_key = publication_key(&batch.duties);
         assert_ne!(
-            final_key.covenant, prepared,
+            final_key.aggregate_pubkey, prepared,
             "exits in the activation block must not reuse stakes prepared for another covenant"
         );
         assert_eq!(
@@ -1281,9 +1282,10 @@ mod stake_initialization_tests {
         let membership = registry.get_operator_set().unwrap();
         assert_ne!(
             membership
-                .covenant_at(prepared.activation_height)
+                .covenant_at(102)
                 .unwrap()
-                .covenant,
+                .covenant
+                .aggregate_pubkey,
             prepared,
             "the prepared covenant must never become current"
         );
@@ -1491,12 +1493,13 @@ mod stake_initialization_tests {
             .unwrap();
         let initial = applicator.finish();
         let membership = registry.get_operator_set().unwrap();
-        let [current, prepared] = published_covenants(&initial.duties)[..] else {
+        let [current, prepared] = published_signing_sets(&initial.duties)[..] else {
             panic!("startup must publish for the current covenant and the configured successor");
         };
-        assert_eq!(current, membership.current_covenant());
+        assert_eq!(current, membership.current_covenant().aggregate_pubkey);
         assert_eq!(
-            prepared.activation_height, 102,
+            prepared,
+            prepared_signing_set(membership, 102),
             "startup must prepare the configured successor before its activation"
         );
         assert_eq!(
@@ -1590,18 +1593,30 @@ mod stake_initialization_tests {
         }
     }
 
-    /// Returns the covenants of `duties`' stake publications, in emission order.
-    fn published_covenants(duties: &[UnifiedDuty]) -> Vec<CovenantId> {
+    /// Returns the signing sets of `duties`' stake publications, in emission order.
+    fn published_signing_sets(duties: &[UnifiedDuty]) -> Vec<XOnlyPublicKey> {
         duties
             .iter()
             .map(|duty| match duty {
                 UnifiedDuty::Stake {
                     stake_key,
                     duty: StakeDuty::PublishStakeData { .. },
-                } => stake_key.covenant,
+                } => stake_key.aggregate_pubkey,
                 other => panic!("expected constructor duty, got {other:?}"),
             })
             .collect()
+    }
+
+    /// Returns the signing set that `membership` prepares for its update at `height`.
+    fn prepared_signing_set(membership: &OperatorSetSM, height: u64) -> XOnlyPublicKey {
+        let OperatorSetSignal::InitializeStake { stake_key, .. } = membership
+            .prepare_covenant(height)
+            .unwrap()
+            .signals
+            .into_iter()
+            .next()
+            .expect("the update at the height changes membership");
+        stake_key.aggregate_pubkey
     }
 
     #[tokio::test]
@@ -1647,12 +1662,19 @@ mod stake_initialization_tests {
         };
 
         let first = process(&mut registry, 101, vec![]).await;
-        let [target] = published_covenants(&first.duties)[..] else {
+        let [target] = published_signing_sets(&first.duties)[..] else {
             panic!("the local owner must publish exactly one prepared stake");
         };
-        assert_eq!(target.activation_height, activation);
+        assert_eq!(
+            target,
+            prepared_signing_set(registry.get_operator_set().unwrap(), activation),
+            "the prepared stake must belong to the signing set of the configured update"
+        );
         let target_keys: Vec<_> = [0, 2]
-            .map(|operator| StakeKey::new(target, operator))
+            .map(|operator| StakeKey {
+                aggregate_pubkey: target,
+                operator,
+            })
             .into();
         assert_eq!(
             registry.get_stake_ids(),
@@ -1689,18 +1711,22 @@ mod stake_initialization_tests {
 
         let revised = process(&mut registry, 102, vec![test_slash(2)]).await;
         let membership = registry.get_operator_set().unwrap();
-        let [successor, revised_target] = published_covenants(&revised.duties)[..] else {
+        let [successor, revised_target] = published_signing_sets(&revised.duties)[..] else {
             panic!("an exit must request both its automatic successor and the revised target");
         };
-        assert_eq!(successor, membership.current_covenant());
-        assert_eq!(revised_target.activation_height, activation);
+        assert_eq!(successor, membership.current_covenant().aggregate_pubkey);
+        assert_eq!(
+            revised_target,
+            prepared_signing_set(membership, activation),
+            "the revised stake must belong to the revised projection"
+        );
         assert_ne!(revised_target, target);
         let projected: BTreeSet<_> = membership
             .prepare_covenant(activation)
             .unwrap()
             .signals
             .into_iter()
-            .map(|OperatorSetSignal::InitializeStake { stake_key, .. }| stake_key.covenant)
+            .map(|OperatorSetSignal::InitializeStake { stake_key, .. }| stake_key.aggregate_pubkey)
             .collect();
         assert_eq!(
             projected,
@@ -1720,8 +1746,196 @@ mod stake_initialization_tests {
             "Activation must reuse the revised prepared stake"
         );
         assert_eq!(
-            registry.get_operator_set().unwrap().current_covenant(),
-            revised_target
+            registry
+                .get_operator_set()
+                .unwrap()
+                .current_covenant()
+                .aggregate_pubkey,
+            revised_target,
+            "activation must make the revised signing set current"
+        );
+    }
+
+    /// Operator admitted after startup and scheduled to leave again.
+    const TEMPORARY_MEMBER: OperatorIdx = 3;
+
+    /// Initializes the standard members plus [`TEMPORARY_MEMBER`] for `[admission, departure)`
+    /// and returns the registry with its startup duties.
+    fn registry_with_temporary_member(
+        admission: u64,
+        departure: u64,
+    ) -> (SMRegistry, Vec<UnifiedDuty>) {
+        let mut registrations: Vec<_> = test_membership().registrations().iter().cloned().collect();
+        registrations.push(test_registration(
+            TEMPORARY_MEMBER,
+            admission,
+            Some(departure),
+        ));
+        let mut registry = test_empty_registry();
+        let mut applicator = Applicator::new(&mut registry, Some(TEST_POV_IDX));
+        applicator
+            .initialize_operator_set(
+                OperatorSetSchedule::new(registrations).unwrap(),
+                INITIAL_BLOCK_HEIGHT,
+            )
+            .unwrap();
+        let duties = applicator.finish().duties;
+        (registry, duties)
+    }
+
+    /// Runs the stake pass over a buried block at `height` that confirms `exits`, each spending
+    /// an output locked to `script`.
+    async fn process_stake_block(
+        registry: &mut SMRegistry,
+        height: u64,
+        exits: Vec<Transaction>,
+        script: &ScriptBuf,
+    ) -> BatchOutput {
+        let mut block = BlockEvent {
+            block: generate_block_with_height(height),
+            status: BlockStatus::Buried,
+        };
+        let count = exits.len();
+        block.block.txdata.extend(exits);
+        let (bitcoin_client, server) =
+            mock_exit_inputs(&mut block, repeat_n(script.clone(), count)).await;
+        let mut applicator = Applicator::new(registry, Some(TEST_POV_IDX));
+        onchain::process_stake_pass(&mut applicator, &block, &bitcoin_client)
+            .await
+            .unwrap();
+        server.await.unwrap();
+        applicator.finish()
+    }
+
+    /// Returns the stakes whose data `duties` publish.
+    fn published_stakes(duties: &[UnifiedDuty]) -> Vec<StakeKey> {
+        duties
+            .iter()
+            .filter_map(|duty| match duty {
+                UnifiedDuty::Stake {
+                    stake_key,
+                    duty: StakeDuty::PublishStakeData { .. },
+                } => Some(*stake_key),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_returning_signing_set_reuses_its_stakes() {
+        let (mut registry, startup) = registry_with_temporary_member(102, 104);
+        let membership = registry.get_operator_set().unwrap();
+        let original = membership.current_covenant();
+        let script = nn_script(&membership.current_operator_table().unwrap());
+        assert_eq!(
+            published_stakes(&startup).len(),
+            2,
+            "startup must stake in the current covenant and the one admitting the new member"
+        );
+
+        let mut later = Vec::new();
+        for height in INITIAL_BLOCK_HEIGHT + 1..=104 {
+            later.extend(
+                process_stake_block(&mut registry, height, vec![], &script)
+                    .await
+                    .duties,
+            );
+        }
+
+        let returned = registry.get_operator_set().unwrap().current_covenant();
+        assert_eq!(
+            returned.aggregate_pubkey, original.aggregate_pubkey,
+            "the departure must restore the original signing set"
+        );
+        assert_ne!(
+            returned, original,
+            "the departure must be a separate admin activation"
+        );
+        assert!(
+            published_stakes(&later).is_empty(),
+            "a returning signing set must reuse its stakes instead of publishing new ones"
+        );
+        assert_eq!(
+            registry.num_stakes(),
+            N_TEST_OPERATORS + N_TEST_OPERATORS + 1,
+            "only the original and the extended signing sets may hold stakes"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_early_exit_returns_the_signing_set_to_its_original_stakes() {
+        let (mut registry, startup) = registry_with_temporary_member(102, 105);
+        let original = registry.get_operator_set().unwrap().current_covenant();
+        let mut later = Vec::new();
+        for height in INITIAL_BLOCK_HEIGHT + 1..=102 {
+            let script = nn_script(
+                &registry
+                    .get_operator_set()
+                    .unwrap()
+                    .current_operator_table()
+                    .unwrap(),
+            );
+            later.extend(
+                process_stake_block(&mut registry, height, vec![], &script)
+                    .await
+                    .duties,
+            );
+        }
+        let extended_script = nn_script(
+            &registry
+                .get_operator_set()
+                .unwrap()
+                .current_operator_table()
+                .unwrap(),
+        );
+        later.extend(
+            process_stake_block(
+                &mut registry,
+                103,
+                vec![test_slash(TEMPORARY_MEMBER)],
+                &extended_script,
+            )
+            .await
+            .duties,
+        );
+
+        let survivor = registry.get_operator_set().unwrap().current_covenant();
+        assert_eq!(
+            survivor.aggregate_pubkey, original.aggregate_pubkey,
+            "the exit must restore the original signing set"
+        );
+        assert_eq!(
+            survivor.activation_height, 102,
+            "the exit must keep the admin activation height of the extended covenant"
+        );
+
+        for height in 104..=105 {
+            let script = nn_script(
+                &registry
+                    .get_operator_set()
+                    .unwrap()
+                    .current_operator_table()
+                    .unwrap(),
+            );
+            later.extend(
+                process_stake_block(&mut registry, height, vec![], &script)
+                    .await
+                    .duties,
+            );
+        }
+        assert_eq!(
+            published_stakes(&startup).len(),
+            2,
+            "startup must stake in the current covenant and the one admitting the new member"
+        );
+        assert!(
+            published_stakes(&later).is_empty(),
+            "neither the exit nor the cancelled departure may publish new stakes"
+        );
+        assert_eq!(
+            registry.num_stakes(),
+            N_TEST_OPERATORS + N_TEST_OPERATORS + 1,
+            "only the original and the extended signing sets may hold stakes"
         );
     }
 
@@ -1732,7 +1946,11 @@ mod stake_initialization_tests {
         let signals = membership.prepare_covenant(102).unwrap().signals;
         let BatchOutput { duties, tracker } = prepare(&mut registry);
         let key = publication_key(&duties);
-        assert_eq!(key.covenant.activation_height, 102);
+        assert_eq!(
+            key.aggregate_pubkey,
+            prepared_signing_set(&membership, 102),
+            "the owner must stake in the prepared signing set"
+        );
         assert_eq!(
             registry
                 .get_stake(&key)
@@ -1803,12 +2021,13 @@ mod stake_initialization_tests {
         let future = publication_key(&prepare(&mut registry).duties);
 
         assert_eq!(
-            current.covenant,
-            membership.current_covenant(),
+            current.aggregate_pubkey,
+            membership.current_covenant().aggregate_pubkey,
             "the owner stakes in the current covenant"
         );
         assert_eq!(
-            future.covenant.activation_height, 102,
+            future.aggregate_pubkey,
+            prepared_signing_set(&membership, 102),
             "the owner also stakes in the prepared successor"
         );
 
@@ -1935,8 +2154,13 @@ mod stake_initialization_tests {
                 "activation after recovery must reuse the prepared stakes"
             );
             assert_eq!(
-                restored.get_operator_set().unwrap().current_covenant(),
-                prepared.covenant
+                restored
+                    .get_operator_set()
+                    .unwrap()
+                    .current_covenant()
+                    .aggregate_pubkey,
+                prepared.aggregate_pubkey,
+                "activation after recovery must make the prepared signing set current"
             );
         }
         drop(persister);
@@ -2448,7 +2672,7 @@ mod stake_initialization_tests {
             "recover the duty without resetting progress"
         );
 
-        // The executor's covenant-qualified reservation path keeps the original funding on retry,
+        // The executor's stake-keyed reservation path keeps the original funding on retry,
         // including a crash after reservation but before stake data is delivered back to the SM.
         let mut tx = generate_spending_tx(OutPoint::null(), &[]);
         tx.output.push(TxOut::NULL);

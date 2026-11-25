@@ -248,7 +248,7 @@ pub(crate) fn insert_created_stake(
     operator_idx: OperatorIdx,
     operator_table: OperatorTable,
 ) {
-    let ctx = StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT);
+    let ctx = StakeSMCtx::new(operator_idx, operator_table);
     let (ssm, _duty) = StakeSM::new(test_stake_sm_cfg(), ctx, INITIAL_BLOCK_HEIGHT);
     registry
         .insert_stake(ssm)
@@ -284,7 +284,7 @@ pub(crate) fn make_confirmed_stake_sm(
         unstaking: generate_txid(),
     };
     StakeSM {
-        context: StakeSMCtx::new(operator_idx, operator_table, INITIAL_BLOCK_HEIGHT),
+        context: StakeSMCtx::new(operator_idx, operator_table),
         cfg: test_stake_sm_cfg(),
         state: StakeState::Confirmed {
             last_block_height: INITIAL_BLOCK_HEIGHT,
@@ -400,7 +400,7 @@ impl DrtBuilder {
     }
 }
 
-/// Covenant-qualified identity for the standard test membership.
+/// Stake identity for the standard test membership.
 pub(crate) fn test_stake_key(operator: OperatorIdx) -> StakeKey {
     StakeKey::new(
         CovenantId::from_operator_table(
@@ -449,28 +449,8 @@ pub(crate) fn test_operator_set_sm() -> OperatorSetSM {
 ///
 /// Signing keys match [`test_operator_table`]; P2P keys are deterministic Ed25519 keys.
 pub(crate) fn test_membership() -> OperatorSetSM {
-    let signing_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
-    let registrations = signing_table
-        .operator_idxs()
-        .into_iter()
-        .map(|index| {
-            let p2p = Keypair::ed25519_from_bytes([index as u8 + 1; 32])
-                .expect("valid Ed25519 seed")
-                .public()
-                .try_into_ed25519()
-                .expect("Ed25519 key");
-            ScheduledOperator::new(
-                index,
-                signing_table
-                    .idx_to_btc_x_only_key(&index)
-                    .expect("registered operator"),
-                P2POperatorPubKey::from(p2p.to_bytes().to_vec()),
-                random_p2tr_desc(),
-                INITIAL_BLOCK_HEIGHT,
-                None,
-            )
-            .expect("valid registration")
-        })
+    let registrations = (0..N_TEST_OPERATORS as OperatorIdx)
+        .map(|index| test_registration(index, INITIAL_BLOCK_HEIGHT, None))
         .collect();
     OperatorSetSM::new(
         INITIAL_BLOCK_HEIGHT,
@@ -478,6 +458,32 @@ pub(crate) fn test_membership() -> OperatorSetSM {
         vec![],
     )
     .expect("valid membership")
+}
+
+/// Registers operator `index` for `[activation_height, deactivation_height)`.
+///
+/// The signing key matches [`test_operator_table`]; the P2P key is a deterministic Ed25519 key.
+pub(crate) fn test_registration(
+    index: OperatorIdx,
+    activation_height: BitcoinBlockHeight,
+    deactivation_height: Option<BitcoinBlockHeight>,
+) -> ScheduledOperator {
+    let p2p = Keypair::ed25519_from_bytes([index as u8 + 1; 32])
+        .expect("valid Ed25519 seed")
+        .public()
+        .try_into_ed25519()
+        .expect("Ed25519 key");
+    ScheduledOperator::new(
+        index,
+        test_operator_table(index as usize + 1, TEST_POV_IDX)
+            .idx_to_btc_x_only_key(&index)
+            .expect("registered operator"),
+        P2POperatorPubKey::from(p2p.to_bytes().to_vec()),
+        random_p2tr_desc(),
+        activation_height,
+        deactivation_height,
+    )
+    .expect("valid registration")
 }
 
 /// Returns the local participant's view of the [`test_membership`] covenant.

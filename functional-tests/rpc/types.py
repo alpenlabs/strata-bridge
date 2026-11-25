@@ -251,9 +251,13 @@ class RpcCurrentCovenant:
 
 @dataclass
 class RpcOperatorStakeInfo:
-    """Per-operator stake status returned by `stratabridge_stakeStatus`."""
+    """Per-operator stake status returned by `stratabridge_stakeStatus`.
 
-    covenant: RpcCovenantId
+    `aggregate_pubkey` names the covenant signing set the stake backs; covenants that share it
+    share the stake.
+    """
+
+    aggregate_pubkey: str
     operator_idx: int
     state: RpcStakeStateLabel
     stake_txid: str | None = None
@@ -263,7 +267,7 @@ class RpcOperatorStakeInfo:
     @classmethod
     def from_json(cls, data: dict) -> "RpcOperatorStakeInfo":
         return cls(
-            covenant=RpcCovenantId.from_json(data["covenant"]),
+            aggregate_pubkey=data["aggregate_pubkey"],
             operator_idx=int(data["operator_idx"]),
             state=RpcStakeStateLabel(data["state"]),
             stake_txid=data.get("stake_txid"),

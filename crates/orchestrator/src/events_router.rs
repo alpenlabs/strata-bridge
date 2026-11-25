@@ -478,17 +478,14 @@ mod covenant_wire_tests {
     };
 
     #[test]
-    fn unstaking_signatures_route_to_the_exact_covenant_stake() {
+    fn unstaking_signatures_route_to_the_named_stake() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for (members, activation_height) in [
-            (table.clone(), 100),
-            (test_extended_operator_table(TEST_POV_IDX), 200),
-        ] {
+        for members in [table.clone(), test_extended_operator_table(TEST_POV_IDX)] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members),
                 100,
             );
             keys.push(stake.context().stake_key());
@@ -507,28 +504,25 @@ mod covenant_wire_tests {
             assert_eq!(
                 route_gossipsub_msg(&registry, &nonces),
                 vec![SMId::Stake(*key)],
-                "unstaking nonces must reach only the stake of the covenant they name"
+                "unstaking nonces must reach only the stake of the signing set they name"
             );
             assert_eq!(
                 route_gossipsub_msg(&registry, &partials),
                 vec![SMId::Stake(*key)],
-                "unstaking partials must reach only the stake of the covenant they name"
+                "unstaking partials must reach only the stake of the signing set they name"
             );
         }
     }
 
     #[test]
-    fn unstaking_data_routes_to_the_exact_covenant_stake() {
+    fn unstaking_data_routes_to_the_named_stake() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for (members, activation_height) in [
-            (table.clone(), 100),
-            (test_extended_operator_table(TEST_POV_IDX), 200),
-        ] {
+        for members in [table.clone(), test_extended_operator_table(TEST_POV_IDX)] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members),
                 100,
             );
             keys.push(stake.context().stake_key());
@@ -547,23 +541,20 @@ mod covenant_wire_tests {
             assert_eq!(
                 route_gossipsub_msg(&registry, &msg),
                 vec![SMId::Stake(*key)],
-                "stake data must reach only the stake of the covenant it names"
+                "stake data must reach only the stake of the signing set it names"
             );
         }
     }
 
     #[test]
-    fn stake_nags_route_to_the_exact_covenant_stake() {
+    fn stake_nags_route_to_the_named_stake() {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for (members, activation_height) in [
-            (table.clone(), 100),
-            (test_extended_operator_table(TEST_POV_IDX), 200),
-        ] {
+        for members in [table.clone(), test_extended_operator_table(TEST_POV_IDX)] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members),
                 100,
             );
             keys.push(stake.context().stake_key());
@@ -580,7 +571,7 @@ mod covenant_wire_tests {
             assert_eq!(
                 route_gossipsub_msg(&registry, &nag(*key)),
                 vec![SMId::Stake(*key)],
-                "a stake nag must reach only the stake of the covenant it names"
+                "a stake nag must reach only the stake of the signing set it names"
             );
         }
         let unknown = StakeKey::new(
@@ -593,7 +584,7 @@ mod covenant_wire_tests {
         );
         assert!(
             route_gossipsub_msg(&registry, &nag(unknown)).is_empty(),
-            "a stake nag for an untracked covenant must not reach another covenant's stake"
+            "a stake nag for an untracked signing set must not reach another signing set's stake"
         );
     }
 
@@ -602,13 +593,10 @@ mod covenant_wire_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let mut registry = test_empty_registry();
         let mut keys = Vec::new();
-        for (members, activation_height) in [
-            (table.clone(), 100),
-            (test_extended_operator_table(TEST_POV_IDX), 200),
-        ] {
+        for members in [table.clone(), test_extended_operator_table(TEST_POV_IDX)] {
             let (stake, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, members, activation_height),
+                StakeSMCtx::new(TEST_POV_IDX, members),
                 100,
             );
             keys.push(stake.context().stake_key());

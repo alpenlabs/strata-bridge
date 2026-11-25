@@ -286,8 +286,8 @@ pub enum RpcStakeState {
 /// under a sub-object. This keeps the JSON readable and easy to parse in consumers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcOperatorStakeInfo {
-    /// Covenant whose stake is being reported.
-    pub covenant: CovenantId,
+    /// Aggregate key of the covenant signing set whose stake is being reported.
+    pub aggregate_pubkey: XOnlyPublicKey,
     /// The operator this stake belongs to.
     pub operator_idx: OperatorIdx,
 

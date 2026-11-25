@@ -4,8 +4,6 @@ use std::fmt;
 
 use bitcoin::XOnlyPublicKey;
 use musig2::{errors::KeyAggError, KeyAggContext};
-#[cfg(feature = "proptest")]
-use proptest_derive::Arbitrary;
 use rkyv::{
     rancor::{Fallible, Source},
     with::{ArchiveWith, DeserializeWith, SerializeWith},
@@ -25,8 +23,8 @@ use crate::{
 /// registered earlier. Exit block heights and hashes belong to transition provenance separately.
 ///
 /// Equality does not establish equal operator-index mappings, P2P keys, payout descriptors, or
-/// protocol settings. Validate those against the exact target context before reusing prepared
-/// stakes; [`OperatorTable::has_same_membership`] compares the indexed signing and P2P keys.
+/// protocol settings. Validate those against the exact target context before reusing a stake;
+/// [`OperatorTable::has_same_membership`] compares the indexed signing and P2P keys.
 #[derive(
     Debug,
     Clone,
@@ -158,12 +156,12 @@ impl fmt::Display for CovenantId {
     }
 }
 
-/// Identifies one operator's stake in an exact covenant.
+/// Identifies one operator's stake for a covenant signing set.
 ///
-/// The same operator can have current, historical, and prepared stakes simultaneously. Always
-/// retain both fields when looking up a stake; equal signing aggregates at different admin
-/// activation heights still identify different stakes. The owning context must separately
-/// validate that the operator belongs to the covenant's full indexed membership.
+/// Covenants with equal aggregate keys share their members' stakes, whatever their admin
+/// activation heights. The same operator can hold stakes for several signing sets at once. The
+/// owning context must separately validate that the operator belongs to the covenant's full
+/// indexed membership.
 #[derive(
     Debug,
     Clone,
@@ -179,44 +177,61 @@ impl fmt::Display for CovenantId {
     RkyvSerialize,
     RkyvDeserialize,
 )]
-#[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct StakeKey {
-    /// The covenant to which this stake is bound.
-    pub covenant: CovenantId,
+    /// The untweaked aggregate of the covenant's signing keys.
+    #[rkyv(with = XOnlyPublicKeyBytes)]
+    pub aggregate_pubkey: XOnlyPublicKey,
     /// The permanent registration index of the stake owner.
     pub operator: OperatorIdx,
 }
 
 impl StakeKey {
-    /// Identifies `operator`'s stake in `covenant`.
+    /// Identifies `operator`'s stake for the signing set of `covenant`.
     pub const fn new(covenant: CovenantId, operator: OperatorIdx) -> Self {
-        Self { covenant, operator }
+        Self {
+            aggregate_pubkey: covenant.aggregate_pubkey,
+            operator,
+        }
     }
 
-    /// Encodes the covenant's 40 bytes followed by the four-byte big-endian operator index.
-    pub fn to_bytes(self) -> [u8; 44] {
-        let mut bytes = [0; 44];
-        bytes[..40].copy_from_slice(&self.covenant.to_bytes());
-        bytes[40..].copy_from_slice(&self.operator.to_be_bytes());
+    /// Encodes the 32-byte x-only aggregate key followed by the four-byte big-endian operator
+    /// index.
+    pub fn to_bytes(self) -> [u8; 36] {
+        let mut bytes = [0; 36];
+        bytes[..32].copy_from_slice(&self.aggregate_pubkey.serialize());
+        bytes[32..].copy_from_slice(&self.operator.to_be_bytes());
         bytes
     }
 
-    /// Decodes the fixed-width representation, rejecting invalid covenant public keys.
-    pub fn from_bytes(bytes: [u8; 44]) -> Result<Self, secp256k1::Error> {
-        let mut covenant = [0; 40];
-        covenant.copy_from_slice(&bytes[..40]);
+    /// Decodes the fixed-width representation, rejecting invalid x-only public keys.
+    pub fn from_bytes(bytes: [u8; 36]) -> Result<Self, secp256k1::Error> {
+        let aggregate_pubkey = XOnlyPublicKey::from_slice(&bytes[..32])?;
         let mut operator = [0; 4];
-        operator.copy_from_slice(&bytes[40..]);
+        operator.copy_from_slice(&bytes[32..]);
         Ok(Self {
-            covenant: CovenantId::from_bytes(covenant)?,
+            aggregate_pubkey,
             operator: OperatorIdx::from_be_bytes(operator),
         })
     }
 }
 
+#[cfg(feature = "proptest")]
+impl proptest::arbitrary::Arbitrary for StakeKey {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
+        use proptest::prelude::*;
+
+        (any::<CovenantId>(), any::<OperatorIdx>())
+            .prop_map(|(covenant, operator)| Self::new(covenant, operator))
+            .boxed()
+    }
+}
+
 impl fmt::Display for StakeKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/operator:{}", self.covenant, self.operator)
+        write!(f, "{}/operator:{}", self.aggregate_pubkey, self.operator)
     }
 }
 
@@ -394,16 +409,14 @@ mod tests {
     }
 
     #[test]
-    fn stake_keys_isolate_operators_and_covenants_in_a_registry() {
+    fn stake_keys_isolate_operators_and_signing_sets_in_a_registry() {
         let members = table_at(registrations(), 200);
         let covenant = CovenantId::from_operator_table(&members, 200).unwrap();
-        let later = CovenantId::from_operator_table(&members, 300).unwrap();
         let successor =
             CovenantId::from_operator_table(&table_at(registrations(), 300), 200).unwrap();
         let keys = [
             StakeKey::new(covenant, 0),
             StakeKey::new(covenant, 2),
-            StakeKey::new(later, 0),
             StakeKey::new(successor, 0),
         ];
         let stakes: std::collections::HashMap<_, _> = keys
@@ -412,10 +425,18 @@ mod tests {
             .map(|(i, key)| (key, i))
             .collect();
 
-        assert_eq!(stakes.len(), 4);
+        assert_eq!(
+            stakes.len(),
+            3,
+            "different owners or signing sets must identify different stakes"
+        );
         let encoded: std::collections::BTreeSet<_> =
             keys.iter().map(|key| key.to_bytes()).collect();
-        assert_eq!(encoded.len(), 4);
+        assert_eq!(
+            encoded.len(),
+            3,
+            "different stakes must have different encodings"
+        );
         for (i, key) in keys.into_iter().enumerate() {
             let decoded = StakeKey::from_bytes(key.to_bytes()).unwrap();
             assert_eq!(stakes.get(&decoded), Some(&i));
@@ -425,7 +446,23 @@ mod tests {
     }
 
     #[test]
-    fn stake_key_encoding_and_formatting_preserve_both_identifiers() {
+    fn equal_signing_sets_at_different_activation_heights_share_stakes() {
+        let members = table_at(registrations(), 200);
+        let covenant = CovenantId::from_operator_table(&members, 200).unwrap();
+        let later = CovenantId::from_operator_table(&members, 300).unwrap();
+        assert_ne!(
+            covenant, later,
+            "the covenants must differ in activation height"
+        );
+        assert_eq!(
+            StakeKey::new(covenant, 0),
+            StakeKey::new(later, 0),
+            "a recurring signing set must identify the same stake"
+        );
+    }
+
+    #[test]
+    fn stake_key_encoding_and_formatting_preserve_aggregate_key_and_owner() {
         let covenant = CovenantId {
             aggregate_pubkey: SIGNING_KEYS[0].parse().unwrap(),
             activation_height: 0x0102_0304_0506_0708,
@@ -433,21 +470,34 @@ mod tests {
         let key = StakeKey::new(covenant, 0x090a_0b0c);
         assert_eq!(
             hex::encode(key.to_bytes()),
-            format!("{}0102030405060708090a0b0c", SIGNING_KEYS[0])
+            format!("{}090a0b0c", SIGNING_KEYS[0]),
+            "the encoding must be the aggregate key followed by the big-endian owner"
         );
-        assert_eq!(key.to_string(), format!("{covenant}/operator:151653132"));
+        assert_eq!(
+            key.to_string(),
+            format!("{}/operator:151653132", SIGNING_KEYS[0]),
+            "the display must name the aggregate key and the owner"
+        );
         assert_eq!(
             serde_json::to_value(key).unwrap(),
             serde_json::json!({
-                "covenant": { "aggregate_pubkey": SIGNING_KEYS[0], "activation_height": 0x0102_0304_0506_0708u64 },
+                "aggregate_pubkey": SIGNING_KEYS[0],
                 "operator": 0x090a_0b0cu32,
-            })
+            }),
+            "JSON must carry the aggregate key and the owner"
         );
         for operator in [0, u32::MAX] {
             let boundary = StakeKey::new(covenant, operator);
-            assert_eq!(StakeKey::from_bytes(boundary.to_bytes()).unwrap(), boundary);
+            assert_eq!(
+                StakeKey::from_bytes(boundary.to_bytes()).unwrap(),
+                boundary,
+                "operator {operator} must survive an encoding round trip"
+            );
         }
-        assert!(StakeKey::from_bytes([0xff; 44]).is_err());
+        assert!(
+            StakeKey::from_bytes([0xff; 36]).is_err(),
+            "bytes that are not an x-only public key must not decode"
+        );
     }
 
     #[test]
@@ -503,7 +553,7 @@ mod tests {
         let mut bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&key)
             .expect("serialize")
             .to_vec();
-        let key_bytes = key.covenant.aggregate_pubkey.serialize();
+        let key_bytes = key.aggregate_pubkey.serialize();
         let offset = bytes
             .windows(key_bytes.len())
             .position(|window| window == key_bytes)

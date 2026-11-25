@@ -146,12 +146,12 @@ mod tests {
 
     #[test]
     fn stake_nags_for_different_covenants_are_tracked_separately() {
-        let stake_nag = |table, activation_height| NagRequestPayload::UnstakingData {
-            stake_key: StakeSMCtx::new(TEST_POV_IDX, table, activation_height).stake_key(),
+        let stake_nag = |table| NagRequestPayload::UnstakingData {
+            stake_key: StakeSMCtx::new(TEST_POV_IDX, table).stake_key(),
         };
         let (earlier, later) = (
-            stake_nag(test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX), 100),
-            stake_nag(test_extended_operator_table(TEST_POV_IDX), 200),
+            stake_nag(test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX)),
+            stake_nag(test_extended_operator_table(TEST_POV_IDX)),
         );
         let dedup = dedup();
         let t0 = Instant::now();

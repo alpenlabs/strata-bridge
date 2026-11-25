@@ -11,7 +11,8 @@ use strata_asm_proto_bridge_txs::slash::{SlashInfo, SlashTxHeaderAux};
 use strata_bridge_primitives::{
     covenant::{CovenantId, StakeKey},
     operator_set_schedule::{OperatorSetSchedule, ScheduledOperator},
-    types::P2POperatorPubKey,
+    scripts::prelude::get_aggregated_pubkey,
+    types::{OperatorIdx, P2POperatorPubKey},
 };
 
 use super::{
@@ -50,6 +51,18 @@ fn schedule() -> OperatorSetSchedule {
         operator(2, 20, None),
     ])
     .unwrap()
+}
+
+/// Aggregates the covenant keys of the given [`schedule`] registrations without going through an
+/// operator table.
+fn signing_set_key(members: &[OperatorIdx]) -> XOnlyPublicKey {
+    let registrations = schedule();
+    get_aggregated_pubkey(members.iter().map(|&index| {
+        registrations
+            .get(index)
+            .expect("member must be registered in the schedule")
+            .covenant_public_key()
+    }))
 }
 
 fn update(height: u64, additions: &[u32], removals: &[u32]) -> MembershipUpdate {
@@ -677,6 +690,7 @@ fn block_stf_emits_only_final_covenant_members_and_no_external_duties() {
 #[test]
 fn preparation_uses_future_identity_without_advancing_membership_or_clock() {
     let mut sm = OperatorSetSM::new(10, schedule(), vec![update(20, &[2], &[1])]).unwrap();
+    let future_signing_set_key = signing_set_key(&[0, 2]);
     let before = sm.clone();
     let prepared = sm.prepare_covenant(20).unwrap();
     assert_eq!(
@@ -696,8 +710,8 @@ fn preparation_uses_future_identity_without_advancing_membership_or_clock() {
             operator_table,
         } = signal;
         assert_eq!(
-            stake_key.covenant.activation_height, 20,
-            "Prepared stake identities must use the future admin activation height"
+            stake_key.aggregate_pubkey, future_signing_set_key,
+            "Prepared stake identities must use the future signing set"
         );
         assert_eq!(
             operator_table.operator_idxs(),
@@ -784,8 +798,9 @@ fn automatic_exit_changes_future_projection_and_retains_current_admin_height() {
         "Only the future registration at index {added_operator} should need a prepared stake"
     );
     assert_eq!(
-        stake_key.covenant.activation_height, activation_height,
-        "The projected covenant must retain its scheduled activation height after an intervening exit"
+        stake_key.aggregate_pubkey,
+        signing_set_key(&[added_operator]),
+        "The prepared stake must belong to the projected signing set after an intervening exit"
     );
     assert_eq!(
         operator_table.operator_idxs(),

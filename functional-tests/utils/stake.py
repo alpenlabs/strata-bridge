@@ -8,13 +8,14 @@ from utils.utils import wait_for_tx_confirmation, wait_until
 def get_stake_status(
     bridge_rpc, covenant: RpcCovenantId | None = None
 ) -> list[RpcOperatorStakeInfo]:
-    """Return the bridge node's view of every stake's status, or only `covenant`'s stakes."""
+    """Return the bridge node's view of every stake's status, or only the stakes backing
+    `covenant`'s signing set."""
     stakes = [
         RpcOperatorStakeInfo.from_json(entry) for entry in bridge_rpc.stratabridge_stakeStatus()
     ]
     if covenant is None:
         return stakes
-    return [stake for stake in stakes if stake.covenant == covenant]
+    return [stake for stake in stakes if stake.aggregate_pubkey == covenant.aggregate_pubkey]
 
 
 def get_operator_stake_status(

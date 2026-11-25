@@ -545,13 +545,13 @@ mod covenant_storage_tests {
     fn write_batch_preserves_multiple_covenants_for_one_operator() {
         let mut registry = test_empty_registry();
         let mut keys = BTreeSet::new();
-        for (table, height) in [
-            (test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX), 100),
-            (test_extended_operator_table(TEST_POV_IDX), 200),
+        for table in [
+            test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX),
+            test_extended_operator_table(TEST_POV_IDX),
         ] {
             let (sm, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table, height),
+                StakeSMCtx::new(TEST_POV_IDX, table),
                 101,
             );
             keys.insert(SMId::Stake(sm.context().stake_key()));
@@ -607,7 +607,7 @@ mod covenant_storage_tests {
         ] {
             let (sm, _) = StakeSM::new(
                 test_stake_sm_cfg(),
-                StakeSMCtx::new(TEST_POV_IDX, table, height),
+                StakeSMCtx::new(TEST_POV_IDX, table),
                 height,
             );
             registry.insert_stake(sm).unwrap();
@@ -895,7 +895,7 @@ mod sm_config_tests {
         let table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
         let (stake, _) = StakeSM::new(
             original.stake.clone(),
-            StakeSMCtx::new(TEST_POV_IDX, table, 100),
+            StakeSMCtx::new(TEST_POV_IDX, table),
             101,
         );
         let stake_key = stake.context().stake_key();

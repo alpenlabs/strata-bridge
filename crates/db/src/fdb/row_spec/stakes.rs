@@ -9,7 +9,7 @@ use strata_bridge_sm::stake::machine::StakeSM;
 use super::kv::{KVRowSpec, PackableKey, SerializableValue};
 use crate::fdb::dirs::Directories;
 
-/// Key for a stake state row: a covenant-qualified [`StakeKey`].
+/// Key for a stake state row: a [`StakeKey`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeStateKey {
     /// Covenant and permanent stake owner.
@@ -56,7 +56,7 @@ impl KVRowSpec for StakeStateRowSpec {
     type Value = StakeSM;
 }
 
-/// Decodes the covenant-qualified storage identity.
+/// Decodes the stake storage identity.
 pub(super) fn decode_stake_key(bytes: Vec<u8>) -> Result<StakeKey, PackError> {
     let bytes = bytes
         .try_into()
