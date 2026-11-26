@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass
 
 from constants import (
@@ -127,16 +128,17 @@ def wait_until_claim_posted(
     return result["active_claim"]
 
 
-def _wait_until_claim_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase, timeout) -> None:
-    def check():
-        info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
-        if info_data is None:
-            return False
-        info = RpcPendingWithdrawalInfo.from_json(info_data)
-        return info.assigned_claim is not None and info.assigned_claim.phase == phase
+def _claim_in_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase) -> bool:
+    info_data = bridge_rpc.stratabridge_pendingWithdrawalInfo(deposit_idx)
+    if info_data is None:
+        return False
+    info = RpcPendingWithdrawalInfo.from_json(info_data)
+    return info.assigned_claim is not None and info.assigned_claim.phase == phase
 
+
+def _wait_until_claim_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase, timeout) -> None:
     wait_until(
-        check,
+        lambda: _claim_in_phase(bridge_rpc, deposit_idx, phase),
         timeout=timeout,
         step=1,
         error_msg=f"Claim phase for deposit {deposit_idx} did not advance to {phase.value}",
@@ -145,6 +147,66 @@ def _wait_until_claim_phase(bridge_rpc, deposit_idx: int, phase: RpcClaimPhase, 
 
 def wait_until_bridge_proof_posted(bridge_rpc, deposit_idx: int, timeout=450) -> None:
     _wait_until_claim_phase(bridge_rpc, deposit_idx, RpcClaimPhase.BRIDGE_PROOF_POSTED, timeout)
+
+
+def mine_until_bridge_proof_posted(
+    bitcoin_rpc,
+    asm_rpc,
+    bridge_rpc,
+    deposit_idx: int,
+    anchor_height: int,
+    bury_depth: int,
+    proof_retry_blocks: int,
+    timeout=7200,
+    attempt_timeout=1800,
+) -> None:
+    """Wait for the owner's bridge proof on a chain that only mines on demand.
+
+    Every owner attempt anchors at `anchor_height` (the contest block plus `proof_delay_blocks`)
+    and fires only on a newly buried block, which on-demand mining stops producing once the
+    mempool drains. So this waits for the ASM runner's Moho proof at the anchor, then mines just
+    enough for the owner to attempt with it: up to the anchor's burial if no attempt has fired,
+    otherwise `proof_retry_blocks` more. It mines again only after an attempt has had
+    `attempt_timeout` seconds to post.
+
+    `proof_retry_blocks` must exceed `bury_depth`, or the blocks burying the posted proof also
+    make another attempt due and the owner proves a second time.
+    """
+    assert proof_retry_blocks > bury_depth, "a retry would fire before the proof is buried"
+    mining_addr = bitcoin_rpc.proxy.getnewaddress()
+
+    def mine_to(height: int) -> None:
+        tip = bitcoin_rpc.proxy.getblockcount()
+        if height > tip:
+            bitcoin_rpc.proxy.generatetoaddress(height - tip, mining_addr)
+
+    deadline = time.monotonic() + timeout
+    mine_to(anchor_height)
+    anchor_hash = bitcoin_rpc.proxy.getblockhash(anchor_height)
+    wait_until(
+        lambda: asm_rpc.strata_asm_getMohoProof(anchor_hash) is not None,
+        timeout=timeout,
+        step=10,
+        error_msg=f"No Moho proof at bridge proof anchor {anchor_height} ({anchor_hash})",
+    )
+    logging.info(f"Moho proof available at bridge proof anchor {anchor_height}")
+
+    first_attempt_height = anchor_height + bury_depth
+    while not _claim_in_phase(bridge_rpc, deposit_idx, RpcClaimPhase.BRIDGE_PROOF_POSTED):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"Claim phase for deposit {deposit_idx} did not advance to "
+                f"{RpcClaimPhase.BRIDGE_PROOF_POSTED.value} (timeout: {timeout}s)"
+            )
+        tip = bitcoin_rpc.proxy.getblockcount()
+        mine_to(first_attempt_height if tip < first_attempt_height else tip + proof_retry_blocks)
+        try:
+            wait_until_bridge_proof_posted(
+                bridge_rpc, deposit_idx, timeout=min(attempt_timeout, remaining)
+            )
+        except TimeoutError:
+            logging.info(f"No bridge proof for deposit {deposit_idx} yet; mining a retry")
 
 
 def wait_until_counter_proof_posted(bridge_rpc, deposit_idx: int, timeout=450) -> None:
