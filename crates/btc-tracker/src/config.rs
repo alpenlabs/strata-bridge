@@ -1,7 +1,9 @@
 //! Configuration for the Bitcoin ZMQ client.
 use serde::{Deserialize, Serialize};
 
-use crate::constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH};
+use crate::constants::{
+    DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY, DEFAULT_BURY_DEPTH,
+};
 
 /// Main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
 ///
@@ -20,6 +22,10 @@ pub struct BtcNotifyConfig {
     /// Number of blocks backfilled, fetched and processed at once after a gap in the block
     /// stream, defaults to [`DEFAULT_BACKFILL_BATCH_SIZE`].
     pub(crate) backfill_batch_size: usize,
+
+    /// Number of block events each block subscription queues before the client waits for the
+    /// subscriber, defaults to [`DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY`].
+    pub(crate) block_subscription_capacity: usize,
 
     /// Connection string used in `bitcoin.conf => zmqpubhashblock`.
     pub(crate) hashblock_connection_string: Option<String>,
@@ -120,6 +126,26 @@ impl BtcNotifyConfig {
     pub const fn backfill_batch_size(&self) -> usize {
         self.backfill_batch_size
     }
+
+    /// Updates the [`BtcNotifyConfig`] with a new block subscription capacity and returns the
+    /// updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
+    ///
+    /// Note, this bounds how many block events each block subscription queues. Once a
+    /// subscription is full, the client stops processing blocks until that subscriber catches up,
+    /// so memory held for block subscribers stays bounded however far behind the chain tip the
+    /// client starts. A capacity of zero is treated as one.
+    pub const fn with_block_subscription_capacity(mut self, n: usize) -> Self {
+        self.block_subscription_capacity = n;
+        self
+    }
+
+    /// Returns the value configured with the
+    /// [`BtcNotifyConfig::with_block_subscription_capacity`] function.
+    pub const fn block_subscription_capacity(&self) -> usize {
+        self.block_subscription_capacity
+    }
 }
 
 impl Default for BtcNotifyConfig {
@@ -127,6 +153,7 @@ impl Default for BtcNotifyConfig {
         BtcNotifyConfig {
             bury_depth: DEFAULT_BURY_DEPTH,
             backfill_batch_size: DEFAULT_BACKFILL_BATCH_SIZE,
+            block_subscription_capacity: DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY,
             hashblock_connection_string: None,
             hashtx_connection_string: None,
             rawblock_connection_string: None,

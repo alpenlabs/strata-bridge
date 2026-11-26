@@ -90,9 +90,10 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 pub struct BtcNotifyClient<State = Disconnected> {
     bury_depth: usize,
     backfill_batch_size: usize,
+    block_subscription_capacity: usize,
     start_height: Option<u64>,
     sockets: Vec<String>,
-    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    block_subs: Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcNotifySM>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
@@ -144,7 +145,7 @@ async fn process_block_message<F>(
     start_height: u64,
     state_machine: &Mutex<BtcNotifySM>,
     fetcher: &Arc<F>,
-    block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    block_subs: &Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     backfill_batch_size: usize,
 ) where
@@ -243,7 +244,7 @@ async fn process_connected_block(
     block: Block,
     cursor: &mut u64,
     state_machine: &Mutex<BtcNotifySM>,
-    block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    block_subs: &Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
 ) {
     let height = block.bip34_block_height().unwrap_or(0);
@@ -289,16 +290,18 @@ async fn process_connected_block(
     }
 }
 
-/// Sends `event` to every block subscriber, and removes each subscriber whose receiver has been
-/// dropped.
-async fn send_block_event(
-    block_subs: &Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>,
-    event: BlockEvent,
-) {
-    block_subs
-        .lock()
-        .await
-        .retain(|sub| sub.send(event.clone()).is_ok());
+/// Sends `event` to every block subscriber, waiting for room in each subscriber's channel, and
+/// removes each subscriber whose receiver has been dropped.
+///
+/// `block_subs` is not locked while waiting, so a subscriber that is slow to drain its channel
+/// does not block new subscriptions.
+async fn send_block_event(block_subs: &Mutex<Vec<mpsc::Sender<BlockEvent>>>, event: BlockEvent) {
+    let subs = block_subs.lock().await.clone();
+    for sub in &subs {
+        // A send fails only once the receiver is dropped; such senders are pruned below.
+        let _ = sub.send(event.clone()).await;
+    }
+    block_subs.lock().await.retain(|sub| !sub.is_closed());
 }
 
 /// Sends `diff` to the matching subscribers, and removes each closed subscriber with its filter.
@@ -355,6 +358,7 @@ impl BtcNotifyClient<Disconnected> {
         Self {
             bury_depth: cfg.bury_depth,
             backfill_batch_size: cfg.backfill_batch_size,
+            block_subscription_capacity: cfg.block_subscription_capacity,
             sockets,
             block_subs,
             tx_subs,
@@ -559,6 +563,7 @@ impl BtcNotifyClient<Disconnected> {
         Ok(BtcNotifyClient {
             bury_depth: self.bury_depth,
             backfill_batch_size: self.backfill_batch_size,
+            block_subscription_capacity: self.block_subscription_capacity,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
             tx_subs: self.tx_subs.clone(),
@@ -596,6 +601,7 @@ impl BtcNotifyClient<Connected> {
         BtcNotifyClient {
             bury_depth: self.bury_depth,
             backfill_batch_size: self.backfill_batch_size,
+            block_subscription_capacity: self.block_subscription_capacity,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
             tx_subs: self.tx_subs.clone(),
@@ -649,15 +655,19 @@ impl BtcNotifyClient<Connected> {
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is
     /// connected to the main Bitcoin blockchain.
     ///
+    /// The subscription queues at most the configured block subscription capacity of events. Once
+    /// it is full, the client stops processing blocks until the subscriber reads from it, so a
+    /// subscription that is kept but not read holds back every other subscriber.
+    ///
     /// Only available when the client is in the Connected state.
     pub async fn subscribe_blocks(&self) -> Subscription<BlockEvent> {
-        let (send, recv) = mpsc::unbounded_channel();
+        let (send, recv) = mpsc::channel(self.block_subscription_capacity.max(1));
 
         trace!("subscribing to blocks");
 
         self.block_subs.lock().await.push(send);
 
-        Subscription::from_receiver(recv)
+        Subscription::from_bounded_receiver(recv)
     }
 
     /// Returns the number of active transaction subscriptions created with

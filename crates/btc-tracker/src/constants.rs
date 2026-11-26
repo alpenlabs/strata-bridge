@@ -12,3 +12,10 @@ pub(crate) const DEFAULT_BURY_DEPTH: usize = 6;
 ///
 /// This can be overridden everywhere it is used.
 pub(crate) const DEFAULT_BACKFILL_BATCH_SIZE: usize = 144;
+
+/// Default number of block events each block subscription queues before the client waits for the
+/// subscriber to catch up. Subscribers handle block events one at a time, so this only needs to
+/// absorb short bursts.
+///
+/// This can be overridden everywhere it is used.
+pub(crate) const DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY: usize = 16;
