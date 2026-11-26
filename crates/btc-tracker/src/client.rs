@@ -10,7 +10,7 @@ use std::{
 use algebra::retry::{retry_with, Strategy};
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
-use futures::{future::join_all, StreamExt};
+use futures::{stream, StreamExt};
 use strata_bridge_primitives::subscription::Subscription;
 use tokio::{
     sync::{mpsc, Mutex},
@@ -89,7 +89,7 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 #[derive(Debug, Clone)]
 pub struct BtcNotifyClient<State = Disconnected> {
     bury_depth: usize,
-    backfill_batch_size: usize,
+    backfill_fetch_concurrency: usize,
     block_subscription_capacity: usize,
     start_height: Option<u64>,
     sockets: Vec<String>,
@@ -129,9 +129,8 @@ pub trait BlockFetcher {
 /// The handler enforces the configured start height, backfills any height gap before the received
 /// block, and then processes the resulting contiguous block list in order. `cursor` is advanced by
 /// the lower-level block processor for each block that is accepted. Backfilled blocks are fetched
-/// and processed in batches of at most `backfill_batch_size` blocks (clamped to at least one),
-/// rather than all at once, so that a long backlog bounds memory use instead of holding every
-/// fetched block and every derived transaction event for the whole gap until the end.
+/// with at most `backfill_fetch_concurrency` fetches (clamped to at least one) running ahead of
+/// the block being processed, so a long backlog holds only that many fetched blocks at once.
 ///
 /// `state_machine` is locked only while a single block is applied, never while blocks are fetched
 /// or delivered to block subscribers.
@@ -147,7 +146,7 @@ async fn process_block_message<F>(
     fetcher: &Arc<F>,
     block_subs: &Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
-    backfill_batch_size: usize,
+    backfill_fetch_concurrency: usize,
 ) where
     F: BlockFetcher + Send + Sync + 'static,
     <F as BlockFetcher>::Error: std::fmt::Debug + Send,
@@ -188,46 +187,34 @@ async fn process_block_message<F>(
 
     debug!("received block at height {received_height}, expected {cursor}");
 
-    // A batch size of zero would never advance `batch_start` below, spinning forever on empty
-    // batches; clamp it to make progress regardless.
-    let backfill_batch_size = backfill_batch_size.max(1) as u64;
-
-    // Backfill any skipped blocks in the range [cursor, received_height), a batch of
-    // `backfill_batch_size` blocks at a time. Each batch is fetched, processed and delivered to
-    // subscribers before the next batch is fetched, so a long backlog never holds more than one
-    // batch's worth of blocks and their derived events in memory at once.
-    let mut batch_start = *cursor;
-    while batch_start < received_height {
-        let batch_end = batch_start
-            .saturating_add(backfill_batch_size)
-            .min(received_height);
-
-        let batch_blocks = match join_all((batch_start..batch_end).map(|height| {
+    // Backfill any skipped blocks in the range [cursor, received_height) in order. The stream is
+    // not polled while a block is being processed, so no new fetch starts while delivery waits on
+    // a full block subscription. A concurrency of zero would never start a fetch; clamp it to make
+    // progress regardless.
+    let mut lagged_blocks = stream::iter(*cursor..received_height)
+        .map(|height| {
             debug!(%height, "fetching lagged block");
             let fetcher = fetcher.clone();
             async move { fetcher.fetch_block(height).await }
-        }))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        {
-            Ok(batch_blocks) => batch_blocks,
+        })
+        .buffered(backfill_fetch_concurrency.max(1));
+
+    while let Some(lagged_block) = lagged_blocks.next().await {
+        match lagged_block {
+            Ok(lagged_block) => {
+                process_connected_block(lagged_block, cursor, state_machine, block_subs, tx_subs)
+                    .await;
+            }
             Err(e) => {
                 error!(?e, "failed to backfill lagged blocks");
                 // if we can't fetch any of the skipped blocks,
                 // then we wait for the next ZMQ event and try
                 // again since returning intermediate/broken stream
-                // of blocks may introduce unpredictable weirdness. Batches already processed
-                // above are kept; only this batch and beyond are retried next time.
+                // of blocks may introduce unpredictable weirdness. Blocks already processed
+                // above are kept; only the failed block and beyond are retried next time.
                 return;
             }
-        };
-
-        for batch_block in batch_blocks {
-            process_connected_block(batch_block, cursor, state_machine, block_subs, tx_subs).await;
         }
-
-        batch_start = batch_end;
     }
 
     process_connected_block(block, cursor, state_machine, block_subs, tx_subs).await; // the one from ZMQ
@@ -357,7 +344,7 @@ impl BtcNotifyClient<Disconnected> {
 
         Self {
             bury_depth: cfg.bury_depth,
-            backfill_batch_size: cfg.backfill_batch_size,
+            backfill_fetch_concurrency: cfg.backfill_fetch_concurrency,
             block_subscription_capacity: cfg.block_subscription_capacity,
             sockets,
             block_subs,
@@ -442,7 +429,7 @@ impl BtcNotifyClient<Disconnected> {
         let state_machine_thread = self.state_machine.clone();
         let fetcher = Arc::new(fetcher);
         let health_observer = self.health_observer.clone();
-        let backfill_batch_size = self.backfill_batch_size;
+        let backfill_fetch_concurrency = self.backfill_fetch_concurrency;
 
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
@@ -475,7 +462,7 @@ impl BtcNotifyClient<Disconnected> {
                                     &fetcher,
                                     &block_subs_thread,
                                     &tx_subs_thread,
-                                    backfill_batch_size,
+                                    backfill_fetch_concurrency,
                                 )
                                 .await;
                             }
@@ -562,7 +549,7 @@ impl BtcNotifyClient<Disconnected> {
 
         Ok(BtcNotifyClient {
             bury_depth: self.bury_depth,
-            backfill_batch_size: self.backfill_batch_size,
+            backfill_fetch_concurrency: self.backfill_fetch_concurrency,
             block_subscription_capacity: self.block_subscription_capacity,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
@@ -600,7 +587,7 @@ impl BtcNotifyClient<Connected> {
 
         BtcNotifyClient {
             bury_depth: self.bury_depth,
-            backfill_batch_size: self.backfill_batch_size,
+            backfill_fetch_concurrency: self.backfill_fetch_concurrency,
             block_subscription_capacity: self.block_subscription_capacity,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
@@ -715,7 +702,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH},
+        constants::{DEFAULT_BACKFILL_FETCH_CONCURRENCY, DEFAULT_BURY_DEPTH},
         event::BlockStatus,
     };
 
@@ -843,7 +830,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -856,7 +843,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 2);
@@ -898,7 +885,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -935,7 +922,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -966,7 +953,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -1005,7 +992,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -1036,7 +1023,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -1080,7 +1067,7 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -1122,7 +1109,7 @@ mod tests {
         async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
             let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
-            // Yield so overlapping fetches within the same batch actually overlap, instead of
+            // Yield so concurrent fetches actually overlap, instead of
             // each one resolving before the next is polled.
             tokio::time::sleep(Duration::from_millis(5)).await;
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
@@ -1135,9 +1122,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn backfill_fetches_at_most_a_batch_size_of_blocks_concurrently() {
+    async fn backfill_runs_at_most_the_fetch_concurrency_of_fetches_at_once() {
         const BASE_HEIGHT: u64 = 100;
-        const BATCH_SIZE: usize = 3;
+        const CONCURRENCY: usize = 3;
         const GAP: u64 = 10;
 
         let chain = test_chain(BASE_HEIGHT, GAP + 1);
@@ -1166,20 +1153,20 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            BATCH_SIZE,
+            CONCURRENCY,
         )
         .await;
 
         assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
         assert!(
-            fetcher.max_in_flight.load(Ordering::SeqCst) <= BATCH_SIZE,
-            "backfill must never hold more than one batch's worth of blocks in flight, saw {}",
+            fetcher.max_in_flight.load(Ordering::SeqCst) <= CONCURRENCY,
+            "backfill must never run more than the fetch concurrency of fetches at once, saw {}",
             fetcher.max_in_flight.load(Ordering::SeqCst)
         );
     }
 
     #[tokio::test]
-    async fn a_zero_batch_size_still_makes_progress() {
+    async fn a_zero_fetch_concurrency_still_makes_progress() {
         const BASE_HEIGHT: u64 = 100;
         const GAP: u64 = 3;
 
@@ -1215,7 +1202,7 @@ mod tests {
             ),
         )
         .await
-        .expect("a zero batch size must not spin forever");
+        .expect("a zero fetch concurrency must not stall forever");
 
         assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
     }
@@ -1240,6 +1227,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert(height, self.delivered_so_far.load(Ordering::SeqCst));
+            // Stay pending so every fetch the backfill starts early is observed here, instead of
+            // each one resolving before the next is polled.
+            tokio::time::sleep(Duration::from_millis(5)).await;
 
             self.blocks
                 .get(&height)
@@ -1249,9 +1239,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn backfill_delivers_each_batchs_tx_events_before_fetching_the_next() {
+    async fn backfill_delivers_tx_events_before_fetching_further_ahead() {
         const BASE_HEIGHT: u64 = 100;
-        const BATCH_SIZE: usize = 2;
+        const CONCURRENCY: usize = 2;
         const GAP: u64 = 4;
 
         let chain = test_chain(BASE_HEIGHT, GAP + 1);
@@ -1283,21 +1273,25 @@ mod tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            BATCH_SIZE,
+            CONCURRENCY,
         )
         .await;
 
         let delivered_before_fetch = fetcher.delivered_before_fetch.lock().unwrap().clone();
         assert_eq!(
-            delivered_before_fetch,
-            BTreeMap::from([
-                (BASE_HEIGHT, 0),
-                (BASE_HEIGHT + 1, 0),
-                (BASE_HEIGHT + 2, BATCH_SIZE),
-                (BASE_HEIGHT + 3, BATCH_SIZE),
-            ]),
-            "the first batch's tx events must be delivered before the second batch is fetched"
+            delivered_before_fetch.keys().copied().collect::<Vec<_>>(),
+            (BASE_HEIGHT..BASE_HEIGHT + GAP).collect::<Vec<_>>(),
+            "every lagged block must be fetched exactly once"
         );
+        for (height, delivered) in delivered_before_fetch {
+            let blocks_ahead = (height - BASE_HEIGHT) as usize;
+            let must_be_delivered = (blocks_ahead + 1).saturating_sub(CONCURRENCY);
+            assert!(
+                delivered >= must_be_delivered,
+                "the fetch at height {height} must wait for {must_be_delivered} earlier blocks to \
+                 deliver their tx events, saw {delivered}"
+            );
+        }
 
         while fetcher.receiver.lock().unwrap().try_recv().is_ok() {
             fetcher.delivered_so_far.fetch_add(1, Ordering::SeqCst);
@@ -1324,7 +1318,7 @@ mod e2e_tests {
 
     use super::*;
     use crate::{
-        constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH},
+        constants::{DEFAULT_BACKFILL_FETCH_CONCURRENCY, DEFAULT_BURY_DEPTH},
         event::TxStatus,
     };
 
@@ -1513,7 +1507,7 @@ mod e2e_tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, base_height + 1);
@@ -1534,7 +1528,7 @@ mod e2e_tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, base_height + 2);
@@ -1595,7 +1589,7 @@ mod e2e_tests {
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 

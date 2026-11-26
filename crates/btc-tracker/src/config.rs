@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY, DEFAULT_BURY_DEPTH,
+    DEFAULT_BACKFILL_FETCH_CONCURRENCY, DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY, DEFAULT_BURY_DEPTH,
 };
 
 /// Main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
@@ -19,9 +19,9 @@ pub struct BtcNotifyConfig {
     /// Depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
     pub(crate) bury_depth: usize,
 
-    /// Number of blocks backfilled, fetched and processed at once after a gap in the block
-    /// stream, defaults to [`DEFAULT_BACKFILL_BATCH_SIZE`].
-    pub(crate) backfill_batch_size: usize,
+    /// Number of block fetches that run ahead of the block being processed while backfilling a
+    /// gap in the block stream, defaults to [`DEFAULT_BACKFILL_FETCH_CONCURRENCY`].
+    pub(crate) backfill_fetch_concurrency: usize,
 
     /// Number of block events each block subscription queues before the client waits for the
     /// subscriber, defaults to [`DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY`].
@@ -107,24 +107,24 @@ impl BtcNotifyConfig {
         self.bury_depth
     }
 
-    /// Updates the [`BtcNotifyConfig`] with a new backfill batch size and returns the updated
-    /// config.
+    /// Updates the [`BtcNotifyConfig`] with a new backfill fetch concurrency and returns the
+    /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     ///
-    /// Note, this bounds how many blocks are fetched and processed at once when the client
-    /// backfills a gap in the block stream, for example after prolonged downtime. A larger batch
-    /// size backfills in fewer round trips at the cost of holding more blocks in memory at once;
-    /// a smaller one bounds memory and RPC load more tightly at the cost of more round trips.
-    pub const fn with_backfill_batch_size(mut self, n: usize) -> Self {
-        self.backfill_batch_size = n;
+    /// Note, this bounds how many blocks are fetched ahead of the block being processed when the
+    /// client backfills a gap in the block stream, for example after prolonged downtime. A higher
+    /// concurrency hides more RPC latency at the cost of holding more fetched blocks in memory at
+    /// once. A concurrency of zero is treated as one.
+    pub const fn with_backfill_fetch_concurrency(mut self, n: usize) -> Self {
+        self.backfill_fetch_concurrency = n;
         self
     }
 
-    /// Returns the value configured with the [`BtcNotifyConfig::with_backfill_batch_size`]
+    /// Returns the value configured with the [`BtcNotifyConfig::with_backfill_fetch_concurrency`]
     /// function.
-    pub const fn backfill_batch_size(&self) -> usize {
-        self.backfill_batch_size
+    pub const fn backfill_fetch_concurrency(&self) -> usize {
+        self.backfill_fetch_concurrency
     }
 
     /// Updates the [`BtcNotifyConfig`] with a new block subscription capacity and returns the
@@ -152,7 +152,7 @@ impl Default for BtcNotifyConfig {
     fn default() -> Self {
         BtcNotifyConfig {
             bury_depth: DEFAULT_BURY_DEPTH,
-            backfill_batch_size: DEFAULT_BACKFILL_BATCH_SIZE,
+            backfill_fetch_concurrency: DEFAULT_BACKFILL_FETCH_CONCURRENCY,
             block_subscription_capacity: DEFAULT_BLOCK_SUBSCRIPTION_CAPACITY,
             hashblock_connection_string: None,
             hashtx_connection_string: None,
