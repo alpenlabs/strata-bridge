@@ -39,8 +39,8 @@ from utils.utils import (
     wait_until_logs_match,
 )
 from utils.withdrawal import (
+    mine_until_bridge_proof_posted,
     wait_until_active_valid_claim,
-    wait_until_bridge_proof_posted,
     wait_until_counterproof_ack,
 )
 
@@ -127,15 +127,19 @@ class SP1HeavierChainCounterproofTest(StrataTestBase):
             # The default bridge proof predicate is required: the proof must VERIFY so the
             # counterproof can only come from the heavier-chain path.
         )
+        # mine_until_bridge_proof_posted mines each retry; one past bury_depth keeps the blocks
+        # burying a posted proof from making another attempt due.
+        self.bridge_config_params = BridgeConfigParams(
+            allow_unsafe_timelocks=True,
+            cooperative_payout_timeout=0,
+            min_withdrawal_fulfillment_window=0,
+            retry_interval_secs=120,
+            proof_retry_blocks=self.BURY_DEPTH + 1,
+        )
         ctx.set_env(
             ExternalBtcBridgeNetworkEnv(
                 bridge_protocol_params=self.bridge_protocol_params,
-                bridge_config_params=BridgeConfigParams(
-                    allow_unsafe_timelocks=True,
-                    cooperative_payout_timeout=0,
-                    min_withdrawal_fulfillment_window=0,
-                    retry_interval_secs=120,
-                ),
+                bridge_config_params=self.bridge_config_params,
                 btc_config=BitcoinEnvConfig(
                     mine_on_demand=True,
                     mine_on_demand_trailing_blocks=self.BURY_DEPTH,
@@ -230,10 +234,19 @@ class SP1HeavierChainCounterproofTest(StrataTestBase):
             contester_node_idx=contester_idx,
             seed=read_operator_key(contester_idx).SEED,
         )
-        wait_for_tx_confirmation(bitcoin_rpc, contest_txid, timeout=3600)
+        contest_block_hash = wait_for_tx_confirmation(bitcoin_rpc, contest_txid, timeout=3600)
         self.logger.info(f"Contest tx {contest_txid} confirmed on behalf of op-{contester_idx}")
 
-        wait_until_bridge_proof_posted(assigned_rpc, deposit_idx, timeout=7200)
+        contest_height = bitcoin_rpc.proxy.getblock(contest_block_hash)["height"]
+        mine_until_bridge_proof_posted(
+            bitcoin_rpc,
+            asm_rpc,
+            assigned_rpc,
+            deposit_idx,
+            anchor_height=contest_height + self.bridge_config_params.proof_delay_blocks,
+            bury_depth=self.BURY_DEPTH,
+            proof_retry_blocks=self.bridge_config_params.proof_retry_blocks,
+        )
         bridge_proof_txid = find_utxo_spender_txid(bitcoin_rpc, contest_txid, CONTEST_PROOF_VOUT)
         wait_for_tx_confirmation(bitcoin_rpc, bridge_proof_txid, timeout=3600)
         self.logger.info(f"Valid SP1 bridge proof tx {bridge_proof_txid} posted on fork A")
