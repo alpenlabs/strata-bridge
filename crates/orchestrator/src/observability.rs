@@ -44,6 +44,7 @@ const GOSSIP_RECEIVED_TOTAL: &str = "strata_bridge_gossip_received_total";
 const GOSSIP_LAGGED_MESSAGES_TOTAL: &str = "strata_bridge_gossip_lagged_messages_total";
 const NAG_DEDUPED_TOTAL: &str = "strata_bridge_nag_deduped_total";
 const TICK_LATENESS_SECONDS: &str = "strata_bridge_tick_lateness_seconds";
+const BLOCK_BACKLOG: &str = "strata_bridge_block_backlog";
 
 pub(crate) fn describe_metrics() {
     describe_histogram!(
@@ -98,6 +99,10 @@ pub(crate) fn describe_metrics() {
         TICK_LATENESS_SECONDS,
         Unit::Seconds,
         "Delay between a periodic tick's scheduled instant and the orchestrator serving it"
+    );
+    describe_gauge!(
+        BLOCK_BACKLOG,
+        "Block events queued for the orchestrator behind the one it just received"
     );
 }
 
@@ -210,6 +215,10 @@ pub(crate) fn record_gossip_lagged(skipped: u64) {
 
 pub(crate) fn record_nag_deduped(kind: &'static str) {
     counter!(NAG_DEDUPED_TOTAL, "kind" => kind).increment(1);
+}
+
+pub(crate) fn record_block_backlog(backlog: usize) {
+    gauge!(BLOCK_BACKLOG).set(backlog as f64);
 }
 
 pub(crate) fn record_tick_lateness(tick: &'static str, lateness: Duration) {

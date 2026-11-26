@@ -124,6 +124,7 @@ impl EventsMux {
 
                 // Now, we handle external event streams starting with buried bitcoin blocks.
                 Some(block_event) = self.block_sub.next() => {
+                    observability::record_block_backlog(self.block_sub.backlog());
                     // skip unburied blocks
                     if block_event.status == BlockStatus::Buried {
                         return UnifiedEvent::Block(block_event);
