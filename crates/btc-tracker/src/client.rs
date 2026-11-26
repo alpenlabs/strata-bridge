@@ -131,6 +131,9 @@ pub trait BlockFetcher {
 /// and processed in batches of at most `backfill_batch_size` blocks (clamped to at least one),
 /// rather than all at once, so that a long backlog bounds memory use instead of holding every
 /// fetched block and every derived transaction event for the whole gap until the end.
+///
+/// `state_machine` is locked only while a single block is applied, never while blocks are fetched
+/// or delivered to block subscribers.
 #[expect(
     clippy::too_many_arguments,
     reason = "splitting these into a struct would obscure the per-call lifetimes of the shared state it borrows"
@@ -139,7 +142,7 @@ async fn process_block_message<F>(
     block: Block,
     cursor: &mut u64,
     start_height: u64,
-    sm: &mut BtcNotifySM,
+    state_machine: &Mutex<BtcNotifySM>,
     fetcher: &Arc<F>,
     block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
@@ -162,7 +165,8 @@ async fn process_block_message<F>(
         return;
     }
 
-    if let Some(next_expected_height) = sm.next_expected_block_height() {
+    let next_expected_height = state_machine.lock().await.next_expected_block_height();
+    if let Some(next_expected_height) = next_expected_height {
         let realigned_cursor = next_expected_height.max(start_height);
         if realigned_cursor != *cursor {
             warn!(
@@ -184,7 +188,7 @@ async fn process_block_message<F>(
     debug!("received block at height {received_height}, expected {cursor}");
 
     // A batch size of zero would never advance `batch_start` below, spinning forever on empty
-    // batches while holding the state machine lock; clamp it to make progress regardless.
+    // batches; clamp it to make progress regardless.
     let backfill_batch_size = backfill_batch_size.max(1) as u64;
 
     // Backfill any skipped blocks in the range [cursor, received_height), a batch of
@@ -219,71 +223,82 @@ async fn process_block_message<F>(
         };
 
         for batch_block in batch_blocks {
-            process_connected_block(batch_block, cursor, sm, block_subs, tx_subs).await;
+            process_connected_block(batch_block, cursor, state_machine, block_subs, tx_subs).await;
         }
 
         batch_start = batch_end;
     }
 
-    process_connected_block(block, cursor, sm, block_subs, tx_subs).await; // the one from ZMQ
+    process_connected_block(block, cursor, state_machine, block_subs, tx_subs).await; // the one from ZMQ
 }
 
 /// Applies one block to subscribers and the state machine.
 ///
-/// The block is announced as mined, processed for transaction state transitions, and any resulting
-/// block event is forwarded to block subscribers. On success the cursor is moved past the processed
-/// block and the transaction diff is delivered to `tx_subs` before returning, so the block and its
-/// events can be dropped immediately rather than accumulating for the caller.
+/// The block is processed for transaction state transitions under the `state_machine` lock, and
+/// the transaction diff is delivered to `tx_subs` before the lock is released. The block is then
+/// announced to block subscribers as mined, followed by any resulting block event. On success the
+/// cursor is moved past the processed block, so the block and its events can be dropped
+/// immediately rather than accumulating for the caller.
 async fn process_connected_block(
     block: Block,
     cursor: &mut u64,
-    sm: &mut BtcNotifySM,
+    state_machine: &Mutex<BtcNotifySM>,
     block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
 ) {
     let height = block.bip34_block_height().unwrap_or(0);
     let block_hash = block.block_hash();
 
-    if !sm.can_connect_block(&block) {
-        warn!(
-            %height,
-            %block_hash,
-            cursor = %*cursor,
-            "block does not connect to state machine tip, leaving cursor unchanged"
-        );
-        return;
-    }
+    let (mined_event, block_event) = {
+        let mut sm = state_machine.lock().await;
 
-    // First send the block to the block subscribers.
-    // if the receiver has been dropped, we remove it from the
-    // subscription list.
-    block_subs.lock().await.retain(|sub| {
-        sub.send(BlockEvent {
+        if !sm.can_connect_block(&block) {
+            warn!(
+                %height,
+                %block_hash,
+                cursor = %*cursor,
+                "block does not connect to state machine tip, leaving cursor unchanged"
+            );
+            return;
+        }
+
+        let mined_event = BlockEvent {
             block: block.clone(),
             status: BlockStatus::Mined,
-        })
-        .is_ok()
-    });
+        };
 
-    // Now we process the block to understand what the relevant
-    // transaction diff is.
-    trace!(?block, "processing block");
-    let height_string = block
-        .bip34_block_height()
-        .map_or_else(|_| "UNKNOWN".to_string(), |h| h.to_string());
-    info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
-    let (tx_events, block_event) = sm.process_block(block);
+        // Now we process the block to understand what the relevant
+        // transaction diff is.
+        trace!(?block, "processing block");
+        let height_string = block
+            .bip34_block_height()
+            .map_or_else(|_| "UNKNOWN".to_string(), |h| h.to_string());
+        info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
+        let (tx_events, block_event) = sm.process_block(block);
 
-    if let Some(block_event) = block_event {
-        block_subs
-            .lock()
-            .await
-            .retain(|sub| sub.send(block_event.clone()).is_ok())
-    }
+        deliver_tx_events(&mut *tx_subs.lock().await, &mut sm, &tx_events);
+
+        (mined_event, block_event)
+    };
 
     *cursor = height.saturating_add(1);
 
-    deliver_tx_events(&mut *tx_subs.lock().await, sm, &tx_events);
+    send_block_event(block_subs, mined_event).await;
+    if let Some(block_event) = block_event {
+        send_block_event(block_subs, block_event).await;
+    }
+}
+
+/// Sends `event` to every block subscriber, and removes each subscriber whose receiver has been
+/// dropped.
+async fn send_block_event(
+    block_subs: &Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>,
+    event: BlockEvent,
+) {
+    block_subs
+        .lock()
+        .await
+        .retain(|sub| sub.send(event.clone()).is_ok());
 }
 
 /// Sends `diff` to the matching subscribers, and removes each closed subscriber with its filter.
@@ -432,8 +447,7 @@ impl BtcNotifyClient<Disconnected> {
             info!("listening for ZMQ events");
 
             while let Some(res) = stream.next().await {
-                let mut sm = state_machine_thread.lock().await;
-                let diff = match res {
+                match res {
                     Ok(SocketMessage::Message(msg)) => {
                         if let Some(observer) = &health_observer {
                             observer.observe(BtcNotifyHealthEvent::MessageReceived);
@@ -442,39 +456,53 @@ impl BtcNotifyClient<Disconnected> {
                         match msg {
                             Message::HashBlock(_, _) => {
                                 trace!(%topic, "received event");
-                                Vec::new()
                             }
                             Message::HashTx(_, _) => {
                                 trace!(%topic, "received event");
-                                Vec::new()
                             }
                             Message::Block(block, _) => {
                                 trace!(%topic, "received event");
 
-                                // Delivers its own tx events per backfill batch as it goes, so
-                                // there is nothing left to deliver uniformly below.
                                 process_block_message(
                                     block,
                                     &mut cursor,
                                     start_height,
-                                    &mut sm,
+                                    &state_machine_thread,
                                     &fetcher,
                                     &block_subs_thread,
                                     &tx_subs_thread,
                                     backfill_batch_size,
                                 )
                                 .await;
-                                Vec::new()
                             }
                             Message::Tx(tx, _) => {
                                 trace!(%topic, "received event");
                                 info!(txid=%tx.compute_txid(), "processing transaction");
-                                sm.process_tx(tx)
+                                let mut sm = state_machine_thread.lock().await;
+                                let tx_events = sm.process_tx(tx);
+                                deliver_tx_events(
+                                    &mut *tx_subs_thread.lock().await,
+                                    &mut sm,
+                                    &tx_events,
+                                );
                             }
                             Message::Sequence(seq, _) => {
                                 trace!(%topic, "received event");
                                 info!(%seq, "processing sequence");
-                                let (tx_events, block_event) = sm.process_sequence(seq);
+                                // Transaction events are delivered under the same lock that
+                                // produced them, so a subscriber added afterwards never receives
+                                // them. Only the block event, which may wait on a full
+                                // subscription, is sent after the lock is released.
+                                let block_event = {
+                                    let mut sm = state_machine_thread.lock().await;
+                                    let (tx_events, block_event) = sm.process_sequence(seq);
+                                    deliver_tx_events(
+                                        &mut *tx_subs_thread.lock().await,
+                                        &mut sm,
+                                        &tx_events,
+                                    );
+                                    block_event
+                                };
 
                                 if let Some(block_event) = block_event {
                                     if matches!(&block_event.status, BlockStatus::Uncled) {
@@ -496,13 +524,8 @@ impl BtcNotifyClient<Disconnected> {
                                         }
                                     }
 
-                                    block_subs_thread
-                                        .lock()
-                                        .await
-                                        .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                    send_block_event(&block_subs_thread, block_event).await;
                                 }
-
-                                tx_events
                             }
                         }
                     }
@@ -511,18 +534,19 @@ impl BtcNotifyClient<Disconnected> {
                             observer.observe(BtcNotifyHealthEvent::MessageReceived);
                         }
                         warn!(?monitoring_msg, "ignoring monitoring message");
-                        Vec::new()
                     }
                     Err(e) => {
                         if let Some(observer) = &health_observer {
                             observer.observe(BtcNotifyHealthEvent::MessageError);
                         }
                         error!(%e, "Error processing ZMQ message");
-                        Vec::new()
                     }
-                };
+                }
 
-                deliver_tx_events(&mut *tx_subs_thread.lock().await, &mut sm, &diff);
+                // Every message prunes closed transaction subscribers, even one that produces no
+                // transaction events.
+                let mut sm = state_machine_thread.lock().await;
+                deliver_tx_events(&mut *tx_subs_thread.lock().await, &mut sm, &[]);
             }
 
             if let Some(observer) = &health_observer {
@@ -796,7 +820,7 @@ mod tests {
             fetched_heights: fetched_heights.clone(),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -805,7 +829,7 @@ mod tests {
             base,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -818,7 +842,7 @@ mod tests {
             stale_child.clone(),
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -827,9 +851,12 @@ mod tests {
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 2);
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_child.block_hash(),
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_child.block_hash(),
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -842,18 +869,22 @@ mod tests {
         }
         assert_eq!(cursor, BASE_HEIGHT + 1);
 
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_child.block_hash(),
-        });
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_grandchild.block_hash(),
-        });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_child.block_hash(),
+            });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_grandchild.block_hash(),
+            });
 
         process_block_message(
             canonical_grandchild,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -881,7 +912,7 @@ mod tests {
             fetched_heights,
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -890,7 +921,7 @@ mod tests {
             stale_base.clone(),
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -899,9 +930,12 @@ mod tests {
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_base.block_hash(),
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_base.block_hash(),
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -918,7 +952,7 @@ mod tests {
             canonical_base,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -927,7 +961,10 @@ mod tests {
         .await;
 
         assert_eq!(cursor, BASE_HEIGHT + 1);
-        assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 1));
+        assert_eq!(
+            sm.lock().await.next_expected_block_height(),
+            Some(BASE_HEIGHT + 1)
+        );
     }
 
     #[tokio::test]
@@ -945,7 +982,7 @@ mod tests {
             fetched_heights: fetched_heights.clone(),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -954,7 +991,7 @@ mod tests {
             stale_base.clone(),
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -963,9 +1000,12 @@ mod tests {
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_base.block_hash(),
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_base.block_hash(),
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -982,7 +1022,7 @@ mod tests {
             canonical_child,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -996,7 +1036,10 @@ mod tests {
             "replacement parent must be backfilled before the child is processed"
         );
         assert_eq!(cursor, BASE_HEIGHT + 2);
-        assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 2));
+        assert_eq!(
+            sm.lock().await.next_expected_block_height(),
+            Some(BASE_HEIGHT + 2)
+        );
     }
 
     #[tokio::test]
@@ -1011,7 +1054,10 @@ mod tests {
             fetched_heights: fetched_heights.clone(),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::from([old_tip]));
+        let sm = Mutex::new(BtcNotifySM::init(
+            DEFAULT_BURY_DEPTH,
+            VecDeque::from([old_tip]),
+        ));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = START_HEIGHT;
@@ -1020,7 +1066,7 @@ mod tests {
             first_allowed,
             &mut cursor,
             START_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -1033,7 +1079,10 @@ mod tests {
             "realignment must not backfill blocks before the configured start height"
         );
         assert_eq!(cursor, START_HEIGHT + 1);
-        assert_eq!(sm.next_expected_block_height(), Some(START_HEIGHT + 1));
+        assert_eq!(
+            sm.lock().await.next_expected_block_height(),
+            Some(START_HEIGHT + 1)
+        );
     }
 
     /// Builds a chain of `len` blocks starting at `base_height`, each connecting to the last.
@@ -1094,7 +1143,7 @@ mod tests {
             max_in_flight: Arc::new(AtomicUsize::new(0)),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -1103,7 +1152,7 @@ mod tests {
             tip,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -1137,7 +1186,7 @@ mod tests {
             max_in_flight: Arc::new(AtomicUsize::new(0)),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -1148,7 +1197,7 @@ mod tests {
                 tip,
                 &mut cursor,
                 BASE_HEIGHT,
-                &mut sm,
+                &sm,
                 &fetcher,
                 &block_subs,
                 &tx_subs,
@@ -1202,9 +1251,9 @@ mod tests {
             .map(|block| (block.bip34_block_height().unwrap(), block))
             .collect();
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let mut sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let mut tx_subs_vec = Vec::new();
-        let receiver = subscribe_all(&mut tx_subs_vec, &mut sm);
+        let receiver = subscribe_all(&mut tx_subs_vec, sm.get_mut());
         let tx_subs = Arc::new(Mutex::new(tx_subs_vec));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
 
@@ -1220,7 +1269,7 @@ mod tests {
             tip,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -1443,14 +1492,14 @@ mod e2e_tests {
         });
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
-        let mut sm = BtcNotifySM::init(cfg.bury_depth, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(cfg.bury_depth, VecDeque::new()));
         let mut cursor = base_height;
 
         process_block_message(
             base,
             &mut cursor,
             base_height,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -1471,7 +1520,7 @@ mod e2e_tests {
             stale,
             &mut cursor,
             base_height,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
@@ -1490,9 +1539,12 @@ mod e2e_tests {
             "chain must be back to base height"
         );
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_hash,
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_hash,
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -1514,18 +1566,22 @@ mod e2e_tests {
         let canonical_grandchild_hash = canonical_hashes.remove(0);
         let canonical_grandchild = bitcoind.client.get_block(canonical_grandchild_hash)?;
 
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_child_hash,
-        });
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_grandchild_hash,
-        });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_child_hash,
+            });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_grandchild_hash,
+            });
 
         process_block_message(
             canonical_grandchild,
             &mut cursor,
             base_height,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
