@@ -395,8 +395,8 @@ mod tests {
     }
 
     /// Runs a `NewBlock` on a PoV-owned graph built by `state_at`, whose last bridge proof attempt
-    /// was at `last_attempt`, and asserts whether an attempt anchored at `new_height` is emitted
-    /// and recorded.
+    /// was at `last_attempt`, and asserts whether an attempt anchored at `contest_height + delay`
+    /// is emitted and recorded at `new_height`.
     fn owner_attempt_transition(
         state_at: fn(u64, u64) -> GraphState,
         delay: u16,
@@ -408,7 +408,10 @@ mod tests {
         let cfg = test_graph_sm_cfg_with_delay(delay);
         let (expected_duties, expected_attempt) = if attempts {
             (
-                vec![expected_bridge_proof_duty_at(&cfg, new_height)],
+                vec![expected_bridge_proof_duty_at(
+                    &cfg,
+                    contest_height + u64::from(delay),
+                )],
                 Some(new_height),
             )
         } else {

@@ -186,7 +186,7 @@ fn counterproof_ends_delay(
             },
             expected_duties: vec![
                 expected_nack_duty(TEST_NONPOV_IDX),
-                expected_bridge_proof_duty_at(&cfg, counterproof_height),
+                expected_bridge_proof_duty_at(&cfg, contest_height + u64::from(delay)),
             ],
             expected_signals: vec![],
         },
@@ -362,10 +362,7 @@ fn counterproof_accumulates(last_attempt: Option<u64>, attempt_due: bool) {
     let mut expected_duties = vec![expected_nack_duty(TEST_NONPOV_IDX)];
     let mut expected_attempt = last_attempt;
     if attempt_due {
-        expected_duties.push(expected_bridge_proof_duty_at(
-            &cfg,
-            COUNTERPROOF_BLOCK_HEIGHT,
-        ));
+        expected_duties.push(expected_bridge_proof_duty_at(&cfg, LATER_BLOCK_HEIGHT));
         expected_attempt = Some(COUNTERPROOF_BLOCK_HEIGHT);
     }
 

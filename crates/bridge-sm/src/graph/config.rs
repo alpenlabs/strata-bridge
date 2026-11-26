@@ -35,7 +35,7 @@ pub struct GraphSMCfg {
     /// Predicate key used to verify bridge counterproof.
     pub counterproof_predicate: PredicateKey,
 
-    /// Blocks past the contest block before the owner anchors its first bridge proof attempt.
+    /// Blocks past the contest block at which the owner anchors every bridge proof attempt.
     pub proof_delay_blocks: u16,
 
     /// Blocks between the owner's bridge proof attempts until one confirms.

@@ -446,8 +446,11 @@ impl GraphSM {
 }
 
 /// If the POV operator owns the graph, the delay past the contest has elapsed and the last attempt
-/// is at least the retry interval old, returns a [`GraphDuty::GenerateAndPublishBridgeProof`]
-/// anchored at `block_height`. With a delay of `0` this fires on the contest block.
+/// is at least the retry interval old, returns a [`GraphDuty::GenerateAndPublishBridgeProof`].
+///
+/// Every attempt is anchored at `contest_block_height + proof_delay_blocks`, so a retry anchors at
+/// the same height as the first attempt. With a delay of `0` this fires on, and anchors at, the
+/// contest block.
 pub(super) fn check_bridge_proof_attempt(
     cfg: &GraphSMCfg,
     graph_ctx: &GraphSMCtx,
@@ -458,12 +461,13 @@ pub(super) fn check_bridge_proof_attempt(
     contest_txid: Txid,
 ) -> Option<GraphDuty> {
     let is_own_graph = graph_ctx.operator_idx() == graph_ctx.operator_table().pov_idx();
-    let delay_elapsed = block_height >= contest_block_height + u64::from(cfg.proof_delay_blocks);
+    let anchor_height = contest_block_height + u64::from(cfg.proof_delay_blocks);
+    let delay_elapsed = block_height >= anchor_height;
     let retry_due = last_attempt_height
         .is_none_or(|last| block_height >= last + u64::from(cfg.proof_retry_blocks.get()));
 
     (is_own_graph && delay_elapsed && retry_due)
-        .then(|| bridge_proof_duty(graph_ctx, cfg, graph_data, contest_txid, block_height))
+        .then(|| bridge_proof_duty(graph_ctx, cfg, graph_data, contest_txid, anchor_height))
 }
 
 /// If the payout timelock has expired and the POV operator does not own the graph,
