@@ -120,9 +120,9 @@ class MetricsConfig:
 class BridgeConfigParams:
     min_withdrawal_fulfillment_window: int = 144
     cooperative_payout_timeout: int = 144
-    proof_delay_blocks: int = 0
+    proof_delay_blocks: int = 1
     proof_retry_blocks: int = 6
-    counterproof_delay_blocks: int = 0
+    counterproof_delay_blocks: int = 1
     max_fee_rate: int = 10
     nag_interval_ms: int = 10_000
     retry_interval_secs: int = 10
