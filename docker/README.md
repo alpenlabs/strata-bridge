@@ -365,8 +365,8 @@ generating the proof, so the proof commits more accumulated work. Absent or `0` 
 contest block itself. Keep the value plus `bury_depth` well below `proof_timelock`:
 proving and burial must fit in the remainder, or the proof timeout wins.
 
-Until a bridge proof confirms, the owner generates a fresh one, anchored at the then-current block,
-every `proof_retry_blocks` blocks after the last attempt (absent means `6`, `0` is
+Until a bridge proof confirms, the owner generates a fresh one, anchored at the same height as the
+first attempt, every `proof_retry_blocks` blocks after the last attempt (absent means `6`, `0` is
 rejected). Retry ticks do not regenerate the proof, so a node that restarts mid-proof waits out the
 rest of that interval.
 
