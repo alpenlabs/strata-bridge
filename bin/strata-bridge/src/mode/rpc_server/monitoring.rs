@@ -179,7 +179,8 @@ pub(super) const fn withdrawal_status(deposit_state: &DepositState) -> Option<Rp
             fulfillment_txid: None,
             ..
         }
-        | DepositState::Aborted => None,
+        | DepositState::Aborted
+        | DepositState::Skipped => None,
     }
 }
 

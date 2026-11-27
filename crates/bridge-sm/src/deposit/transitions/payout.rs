@@ -79,6 +79,16 @@ impl DepositSM {
                 ));
             }
 
+            // No deposit transaction was signed here, so an assignment can only come from a
+            // foreign or stale feed; reject it rather than halt the node.
+            DepositState::Skipped => {
+                return Err(DSMError::rejected(
+                    self.state.clone(),
+                    assignment.into(),
+                    "deposit request skipped under the deposit cap",
+                ));
+            }
+
             // Exhaustive so a new state must be classified rather than inherit the fatal arm.
             DepositState::Created { .. }
             | DepositState::GraphGenerated { .. }
@@ -634,7 +644,8 @@ impl DepositSM {
             | DepositState::GraphGenerated { .. }
             | DepositState::DepositNoncesCollected { .. }
             | DepositState::DepositPartialsCollected { .. }
-            | DepositState::Aborted => {
+            | DepositState::Aborted
+            | DepositState::Skipped => {
                 return Err(DSMError::invalid_event(
                     self.state().clone(),
                     payout_confirmed.clone().into(),

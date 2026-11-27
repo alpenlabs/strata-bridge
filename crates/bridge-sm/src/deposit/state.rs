@@ -213,6 +213,11 @@ pub enum DepositState {
         /// The partial signatures, indexed by operator, for signing the sweep transaction.
         sweep_partials: BTreeMap<OperatorIdx, PartialSignature>,
     },
+    /// This represents the terminal state for a deposit request this node declined to take part
+    /// in because its deposit cap was reached. The request is registered so the deposit index
+    /// stays aligned across operators, but no graph is generated and nothing is signed; the
+    /// depositor takes the request back after the recovery delay.
+    Skipped,
 }
 
 impl Display for DepositState {
@@ -232,6 +237,7 @@ impl Display for DepositState {
             DepositState::SweepNoncesCollected { .. } => "SweepNoncesCollected".to_string(),
             DepositState::Spent { .. } => "Spent".to_string(),
             DepositState::Aborted => "Aborted".to_string(),
+            DepositState::Skipped => "Skipped".to_string(),
         };
         write!(f, "{}", display_str)
     }
@@ -301,7 +307,7 @@ impl DepositState {
                 last_block_height: block_height,
                 ..
             } => Some(block_height),
-            DepositState::Spent { .. } | DepositState::Aborted => {
+            DepositState::Spent { .. } | DepositState::Aborted | DepositState::Skipped => {
                 // Terminal states do not track block height
                 None
             }
