@@ -10,7 +10,7 @@ use std::{
 use algebra::retry::{retry_with, Strategy};
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
-use futures::{future::join_all, StreamExt};
+use futures::{stream, StreamExt};
 use strata_bridge_primitives::subscription::Subscription;
 use tokio::{
     sync::{mpsc, Mutex},
@@ -89,10 +89,11 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 #[derive(Debug, Clone)]
 pub struct BtcNotifyClient<State = Disconnected> {
     bury_depth: usize,
-    backfill_batch_size: usize,
+    backfill_fetch_concurrency: usize,
+    block_subscription_capacity: usize,
     start_height: Option<u64>,
     sockets: Vec<String>,
-    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    block_subs: Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcNotifySM>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
@@ -128,9 +129,11 @@ pub trait BlockFetcher {
 /// The handler enforces the configured start height, backfills any height gap before the received
 /// block, and then processes the resulting contiguous block list in order. `cursor` is advanced by
 /// the lower-level block processor for each block that is accepted. Backfilled blocks are fetched
-/// and processed in batches of at most `backfill_batch_size` blocks (clamped to at least one),
-/// rather than all at once, so that a long backlog bounds memory use instead of holding every
-/// fetched block and every derived transaction event for the whole gap until the end.
+/// with at most `backfill_fetch_concurrency` fetches (clamped to at least one) running ahead of
+/// the block being processed, so a long backlog holds only that many fetched blocks at once.
+///
+/// `state_machine` is locked only while a single block is applied, never while blocks are fetched
+/// or delivered to block subscribers.
 #[expect(
     clippy::too_many_arguments,
     reason = "splitting these into a struct would obscure the per-call lifetimes of the shared state it borrows"
@@ -139,11 +142,11 @@ async fn process_block_message<F>(
     block: Block,
     cursor: &mut u64,
     start_height: u64,
-    sm: &mut BtcNotifySM,
+    state_machine: &Mutex<BtcNotifySM>,
     fetcher: &Arc<F>,
-    block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    block_subs: &Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
-    backfill_batch_size: usize,
+    backfill_fetch_concurrency: usize,
 ) where
     F: BlockFetcher + Send + Sync + 'static,
     <F as BlockFetcher>::Error: std::fmt::Debug + Send,
@@ -162,7 +165,8 @@ async fn process_block_message<F>(
         return;
     }
 
-    if let Some(next_expected_height) = sm.next_expected_block_height() {
+    let next_expected_height = state_machine.lock().await.next_expected_block_height();
+    if let Some(next_expected_height) = next_expected_height {
         let realigned_cursor = next_expected_height.max(start_height);
         if realigned_cursor != *cursor {
             warn!(
@@ -183,107 +187,108 @@ async fn process_block_message<F>(
 
     debug!("received block at height {received_height}, expected {cursor}");
 
-    // A batch size of zero would never advance `batch_start` below, spinning forever on empty
-    // batches while holding the state machine lock; clamp it to make progress regardless.
-    let backfill_batch_size = backfill_batch_size.max(1) as u64;
-
-    // Backfill any skipped blocks in the range [cursor, received_height), a batch of
-    // `backfill_batch_size` blocks at a time. Each batch is fetched, processed and delivered to
-    // subscribers before the next batch is fetched, so a long backlog never holds more than one
-    // batch's worth of blocks and their derived events in memory at once.
-    let mut batch_start = *cursor;
-    while batch_start < received_height {
-        let batch_end = batch_start
-            .saturating_add(backfill_batch_size)
-            .min(received_height);
-
-        let batch_blocks = match join_all((batch_start..batch_end).map(|height| {
+    // Backfill any skipped blocks in the range [cursor, received_height) in order. The stream is
+    // not polled while a block is being processed, so no new fetch starts while delivery waits on
+    // a full block subscription. A concurrency of zero would never start a fetch; clamp it to make
+    // progress regardless.
+    let mut lagged_blocks = stream::iter(*cursor..received_height)
+        .map(|height| {
             debug!(%height, "fetching lagged block");
             let fetcher = fetcher.clone();
             async move { fetcher.fetch_block(height).await }
-        }))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        {
-            Ok(batch_blocks) => batch_blocks,
+        })
+        .buffered(backfill_fetch_concurrency.max(1));
+
+    while let Some(lagged_block) = lagged_blocks.next().await {
+        match lagged_block {
+            Ok(lagged_block) => {
+                process_connected_block(lagged_block, cursor, state_machine, block_subs, tx_subs)
+                    .await;
+            }
             Err(e) => {
                 error!(?e, "failed to backfill lagged blocks");
                 // if we can't fetch any of the skipped blocks,
                 // then we wait for the next ZMQ event and try
                 // again since returning intermediate/broken stream
-                // of blocks may introduce unpredictable weirdness. Batches already processed
-                // above are kept; only this batch and beyond are retried next time.
+                // of blocks may introduce unpredictable weirdness. Blocks already processed
+                // above are kept; only the failed block and beyond are retried next time.
                 return;
             }
-        };
-
-        for batch_block in batch_blocks {
-            process_connected_block(batch_block, cursor, sm, block_subs, tx_subs).await;
         }
-
-        batch_start = batch_end;
     }
 
-    process_connected_block(block, cursor, sm, block_subs, tx_subs).await; // the one from ZMQ
+    process_connected_block(block, cursor, state_machine, block_subs, tx_subs).await; // the one from ZMQ
 }
 
 /// Applies one block to subscribers and the state machine.
 ///
-/// The block is announced as mined, processed for transaction state transitions, and any resulting
-/// block event is forwarded to block subscribers. On success the cursor is moved past the processed
-/// block and the transaction diff is delivered to `tx_subs` before returning, so the block and its
-/// events can be dropped immediately rather than accumulating for the caller.
+/// The block is processed for transaction state transitions under the `state_machine` lock, and
+/// the transaction diff is delivered to `tx_subs` before the lock is released. The block is then
+/// announced to block subscribers as mined, followed by any resulting block event. On success the
+/// cursor is moved past the processed block, so the block and its events can be dropped
+/// immediately rather than accumulating for the caller.
 async fn process_connected_block(
     block: Block,
     cursor: &mut u64,
-    sm: &mut BtcNotifySM,
-    block_subs: &Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    state_machine: &Mutex<BtcNotifySM>,
+    block_subs: &Arc<Mutex<Vec<mpsc::Sender<BlockEvent>>>>,
     tx_subs: &Arc<Mutex<Vec<TxSubscriptionDetails>>>,
 ) {
     let height = block.bip34_block_height().unwrap_or(0);
     let block_hash = block.block_hash();
 
-    if !sm.can_connect_block(&block) {
-        warn!(
-            %height,
-            %block_hash,
-            cursor = %*cursor,
-            "block does not connect to state machine tip, leaving cursor unchanged"
-        );
-        return;
-    }
+    let (mined_event, block_event) = {
+        let mut sm = state_machine.lock().await;
 
-    // First send the block to the block subscribers.
-    // if the receiver has been dropped, we remove it from the
-    // subscription list.
-    block_subs.lock().await.retain(|sub| {
-        sub.send(BlockEvent {
+        if !sm.can_connect_block(&block) {
+            warn!(
+                %height,
+                %block_hash,
+                cursor = %*cursor,
+                "block does not connect to state machine tip, leaving cursor unchanged"
+            );
+            return;
+        }
+
+        let mined_event = BlockEvent {
             block: block.clone(),
             status: BlockStatus::Mined,
-        })
-        .is_ok()
-    });
+        };
 
-    // Now we process the block to understand what the relevant
-    // transaction diff is.
-    trace!(?block, "processing block");
-    let height_string = block
-        .bip34_block_height()
-        .map_or_else(|_| "UNKNOWN".to_string(), |h| h.to_string());
-    info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
-    let (tx_events, block_event) = sm.process_block(block);
+        // Now we process the block to understand what the relevant
+        // transaction diff is.
+        trace!(?block, "processing block");
+        let height_string = block
+            .bip34_block_height()
+            .map_or_else(|_| "UNKNOWN".to_string(), |h| h.to_string());
+        info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
+        let (tx_events, block_event) = sm.process_block(block);
 
-    if let Some(block_event) = block_event {
-        block_subs
-            .lock()
-            .await
-            .retain(|sub| sub.send(block_event.clone()).is_ok())
-    }
+        deliver_tx_events(&mut *tx_subs.lock().await, &mut sm, &tx_events);
+
+        (mined_event, block_event)
+    };
 
     *cursor = height.saturating_add(1);
 
-    deliver_tx_events(&mut *tx_subs.lock().await, sm, &tx_events);
+    send_block_event(block_subs, mined_event).await;
+    if let Some(block_event) = block_event {
+        send_block_event(block_subs, block_event).await;
+    }
+}
+
+/// Sends `event` to every block subscriber, waiting for room in each subscriber's channel, and
+/// removes each subscriber whose receiver has been dropped.
+///
+/// `block_subs` is not locked while waiting, so a subscriber that is slow to drain its channel
+/// does not block new subscriptions.
+async fn send_block_event(block_subs: &Mutex<Vec<mpsc::Sender<BlockEvent>>>, event: BlockEvent) {
+    let subs = block_subs.lock().await.clone();
+    for sub in &subs {
+        // A send fails only once the receiver is dropped; such senders are pruned below.
+        let _ = sub.send(event.clone()).await;
+    }
+    block_subs.lock().await.retain(|sub| !sub.is_closed());
 }
 
 /// Sends `diff` to the matching subscribers, and removes each closed subscriber with its filter.
@@ -339,7 +344,8 @@ impl BtcNotifyClient<Disconnected> {
 
         Self {
             bury_depth: cfg.bury_depth,
-            backfill_batch_size: cfg.backfill_batch_size,
+            backfill_fetch_concurrency: cfg.backfill_fetch_concurrency,
+            block_subscription_capacity: cfg.block_subscription_capacity,
             sockets,
             block_subs,
             tx_subs,
@@ -423,7 +429,7 @@ impl BtcNotifyClient<Disconnected> {
         let state_machine_thread = self.state_machine.clone();
         let fetcher = Arc::new(fetcher);
         let health_observer = self.health_observer.clone();
-        let backfill_batch_size = self.backfill_batch_size;
+        let backfill_fetch_concurrency = self.backfill_fetch_concurrency;
 
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
@@ -432,8 +438,7 @@ impl BtcNotifyClient<Disconnected> {
             info!("listening for ZMQ events");
 
             while let Some(res) = stream.next().await {
-                let mut sm = state_machine_thread.lock().await;
-                let diff = match res {
+                match res {
                     Ok(SocketMessage::Message(msg)) => {
                         if let Some(observer) = &health_observer {
                             observer.observe(BtcNotifyHealthEvent::MessageReceived);
@@ -442,39 +447,53 @@ impl BtcNotifyClient<Disconnected> {
                         match msg {
                             Message::HashBlock(_, _) => {
                                 trace!(%topic, "received event");
-                                Vec::new()
                             }
                             Message::HashTx(_, _) => {
                                 trace!(%topic, "received event");
-                                Vec::new()
                             }
                             Message::Block(block, _) => {
                                 trace!(%topic, "received event");
 
-                                // Delivers its own tx events per backfill batch as it goes, so
-                                // there is nothing left to deliver uniformly below.
                                 process_block_message(
                                     block,
                                     &mut cursor,
                                     start_height,
-                                    &mut sm,
+                                    &state_machine_thread,
                                     &fetcher,
                                     &block_subs_thread,
                                     &tx_subs_thread,
-                                    backfill_batch_size,
+                                    backfill_fetch_concurrency,
                                 )
                                 .await;
-                                Vec::new()
                             }
                             Message::Tx(tx, _) => {
                                 trace!(%topic, "received event");
                                 info!(txid=%tx.compute_txid(), "processing transaction");
-                                sm.process_tx(tx)
+                                let mut sm = state_machine_thread.lock().await;
+                                let tx_events = sm.process_tx(tx);
+                                deliver_tx_events(
+                                    &mut *tx_subs_thread.lock().await,
+                                    &mut sm,
+                                    &tx_events,
+                                );
                             }
                             Message::Sequence(seq, _) => {
                                 trace!(%topic, "received event");
                                 info!(%seq, "processing sequence");
-                                let (tx_events, block_event) = sm.process_sequence(seq);
+                                // Transaction events are delivered under the same lock that
+                                // produced them, so a subscriber added afterwards never receives
+                                // them. Only the block event, which may wait on a full
+                                // subscription, is sent after the lock is released.
+                                let block_event = {
+                                    let mut sm = state_machine_thread.lock().await;
+                                    let (tx_events, block_event) = sm.process_sequence(seq);
+                                    deliver_tx_events(
+                                        &mut *tx_subs_thread.lock().await,
+                                        &mut sm,
+                                        &tx_events,
+                                    );
+                                    block_event
+                                };
 
                                 if let Some(block_event) = block_event {
                                     if matches!(&block_event.status, BlockStatus::Uncled) {
@@ -496,13 +515,8 @@ impl BtcNotifyClient<Disconnected> {
                                         }
                                     }
 
-                                    block_subs_thread
-                                        .lock()
-                                        .await
-                                        .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                    send_block_event(&block_subs_thread, block_event).await;
                                 }
-
-                                tx_events
                             }
                         }
                     }
@@ -511,18 +525,19 @@ impl BtcNotifyClient<Disconnected> {
                             observer.observe(BtcNotifyHealthEvent::MessageReceived);
                         }
                         warn!(?monitoring_msg, "ignoring monitoring message");
-                        Vec::new()
                     }
                     Err(e) => {
                         if let Some(observer) = &health_observer {
                             observer.observe(BtcNotifyHealthEvent::MessageError);
                         }
                         error!(%e, "Error processing ZMQ message");
-                        Vec::new()
                     }
-                };
+                }
 
-                deliver_tx_events(&mut *tx_subs_thread.lock().await, &mut sm, &diff);
+                // Every message prunes closed transaction subscribers, even one that produces no
+                // transaction events.
+                let mut sm = state_machine_thread.lock().await;
+                deliver_tx_events(&mut *tx_subs_thread.lock().await, &mut sm, &[]);
             }
 
             if let Some(observer) = &health_observer {
@@ -534,7 +549,8 @@ impl BtcNotifyClient<Disconnected> {
 
         Ok(BtcNotifyClient {
             bury_depth: self.bury_depth,
-            backfill_batch_size: self.backfill_batch_size,
+            backfill_fetch_concurrency: self.backfill_fetch_concurrency,
+            block_subscription_capacity: self.block_subscription_capacity,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
             tx_subs: self.tx_subs.clone(),
@@ -571,7 +587,8 @@ impl BtcNotifyClient<Connected> {
 
         BtcNotifyClient {
             bury_depth: self.bury_depth,
-            backfill_batch_size: self.backfill_batch_size,
+            backfill_fetch_concurrency: self.backfill_fetch_concurrency,
+            block_subscription_capacity: self.block_subscription_capacity,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
             tx_subs: self.tx_subs.clone(),
@@ -625,15 +642,19 @@ impl BtcNotifyClient<Connected> {
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is
     /// connected to the main Bitcoin blockchain.
     ///
+    /// The subscription queues at most the configured block subscription capacity of events. Once
+    /// it is full, the client stops processing blocks until the subscriber reads from it, so a
+    /// subscription that is kept but not read holds back every other subscriber.
+    ///
     /// Only available when the client is in the Connected state.
     pub async fn subscribe_blocks(&self) -> Subscription<BlockEvent> {
-        let (send, recv) = mpsc::unbounded_channel();
+        let (send, recv) = mpsc::channel(self.block_subscription_capacity.max(1));
 
         trace!("subscribing to blocks");
 
         self.block_subs.lock().await.push(send);
 
-        Subscription::from_receiver(recv)
+        Subscription::from_bounded_receiver(recv)
     }
 
     /// Returns the number of active transaction subscriptions created with
@@ -681,7 +702,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH},
+        constants::{DEFAULT_BACKFILL_FETCH_CONCURRENCY, DEFAULT_BURY_DEPTH},
         event::BlockStatus,
     };
 
@@ -796,7 +817,7 @@ mod tests {
             fetched_heights: fetched_heights.clone(),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -805,11 +826,11 @@ mod tests {
             base,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
@@ -818,18 +839,21 @@ mod tests {
             stale_child.clone(),
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 2);
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_child.block_hash(),
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_child.block_hash(),
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -842,22 +866,26 @@ mod tests {
         }
         assert_eq!(cursor, BASE_HEIGHT + 1);
 
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_child.block_hash(),
-        });
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_grandchild.block_hash(),
-        });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_child.block_hash(),
+            });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_grandchild.block_hash(),
+            });
 
         process_block_message(
             canonical_grandchild,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -881,7 +909,7 @@ mod tests {
             fetched_heights,
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -890,18 +918,21 @@ mod tests {
             stale_base.clone(),
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_base.block_hash(),
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_base.block_hash(),
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -918,16 +949,19 @@ mod tests {
             canonical_base,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
         assert_eq!(cursor, BASE_HEIGHT + 1);
-        assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 1));
+        assert_eq!(
+            sm.lock().await.next_expected_block_height(),
+            Some(BASE_HEIGHT + 1)
+        );
     }
 
     #[tokio::test]
@@ -945,7 +979,7 @@ mod tests {
             fetched_heights: fetched_heights.clone(),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -954,18 +988,21 @@ mod tests {
             stale_base.clone(),
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, BASE_HEIGHT + 1);
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_base.block_hash(),
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_base.block_hash(),
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -982,11 +1019,11 @@ mod tests {
             canonical_child,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -996,7 +1033,10 @@ mod tests {
             "replacement parent must be backfilled before the child is processed"
         );
         assert_eq!(cursor, BASE_HEIGHT + 2);
-        assert_eq!(sm.next_expected_block_height(), Some(BASE_HEIGHT + 2));
+        assert_eq!(
+            sm.lock().await.next_expected_block_height(),
+            Some(BASE_HEIGHT + 2)
+        );
     }
 
     #[tokio::test]
@@ -1011,7 +1051,10 @@ mod tests {
             fetched_heights: fetched_heights.clone(),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::from([old_tip]));
+        let sm = Mutex::new(BtcNotifySM::init(
+            DEFAULT_BURY_DEPTH,
+            VecDeque::from([old_tip]),
+        ));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = START_HEIGHT;
@@ -1020,11 +1063,11 @@ mod tests {
             first_allowed,
             &mut cursor,
             START_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
@@ -1033,7 +1076,10 @@ mod tests {
             "realignment must not backfill blocks before the configured start height"
         );
         assert_eq!(cursor, START_HEIGHT + 1);
-        assert_eq!(sm.next_expected_block_height(), Some(START_HEIGHT + 1));
+        assert_eq!(
+            sm.lock().await.next_expected_block_height(),
+            Some(START_HEIGHT + 1)
+        );
     }
 
     /// Builds a chain of `len` blocks starting at `base_height`, each connecting to the last.
@@ -1063,7 +1109,7 @@ mod tests {
         async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
             let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
             self.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
-            // Yield so overlapping fetches within the same batch actually overlap, instead of
+            // Yield so concurrent fetches actually overlap, instead of
             // each one resolving before the next is polled.
             tokio::time::sleep(Duration::from_millis(5)).await;
             self.in_flight.fetch_sub(1, Ordering::SeqCst);
@@ -1076,9 +1122,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn backfill_fetches_at_most_a_batch_size_of_blocks_concurrently() {
+    async fn backfill_runs_at_most_the_fetch_concurrency_of_fetches_at_once() {
         const BASE_HEIGHT: u64 = 100;
-        const BATCH_SIZE: usize = 3;
+        const CONCURRENCY: usize = 3;
         const GAP: u64 = 10;
 
         let chain = test_chain(BASE_HEIGHT, GAP + 1);
@@ -1094,7 +1140,7 @@ mod tests {
             max_in_flight: Arc::new(AtomicUsize::new(0)),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -1103,24 +1149,24 @@ mod tests {
             tip,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            BATCH_SIZE,
+            CONCURRENCY,
         )
         .await;
 
         assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
         assert!(
-            fetcher.max_in_flight.load(Ordering::SeqCst) <= BATCH_SIZE,
-            "backfill must never hold more than one batch's worth of blocks in flight, saw {}",
+            fetcher.max_in_flight.load(Ordering::SeqCst) <= CONCURRENCY,
+            "backfill must never run more than the fetch concurrency of fetches at once, saw {}",
             fetcher.max_in_flight.load(Ordering::SeqCst)
         );
     }
 
     #[tokio::test]
-    async fn a_zero_batch_size_still_makes_progress() {
+    async fn a_zero_fetch_concurrency_still_makes_progress() {
         const BASE_HEIGHT: u64 = 100;
         const GAP: u64 = 3;
 
@@ -1137,7 +1183,7 @@ mod tests {
             max_in_flight: Arc::new(AtomicUsize::new(0)),
         });
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
         let mut cursor = BASE_HEIGHT;
@@ -1148,7 +1194,7 @@ mod tests {
                 tip,
                 &mut cursor,
                 BASE_HEIGHT,
-                &mut sm,
+                &sm,
                 &fetcher,
                 &block_subs,
                 &tx_subs,
@@ -1156,7 +1202,7 @@ mod tests {
             ),
         )
         .await
-        .expect("a zero batch size must not spin forever");
+        .expect("a zero fetch concurrency must not stall forever");
 
         assert_eq!(cursor, BASE_HEIGHT + GAP + 1);
     }
@@ -1181,6 +1227,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .insert(height, self.delivered_so_far.load(Ordering::SeqCst));
+            // Stay pending so every fetch the backfill starts early is observed here, instead of
+            // each one resolving before the next is polled.
+            tokio::time::sleep(Duration::from_millis(5)).await;
 
             self.blocks
                 .get(&height)
@@ -1190,9 +1239,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn backfill_delivers_each_batchs_tx_events_before_fetching_the_next() {
+    async fn backfill_delivers_tx_events_before_fetching_further_ahead() {
         const BASE_HEIGHT: u64 = 100;
-        const BATCH_SIZE: usize = 2;
+        const CONCURRENCY: usize = 2;
         const GAP: u64 = 4;
 
         let chain = test_chain(BASE_HEIGHT, GAP + 1);
@@ -1202,9 +1251,9 @@ mod tests {
             .map(|block| (block.bip34_block_height().unwrap(), block))
             .collect();
 
-        let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+        let mut sm = Mutex::new(BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new()));
         let mut tx_subs_vec = Vec::new();
-        let receiver = subscribe_all(&mut tx_subs_vec, &mut sm);
+        let receiver = subscribe_all(&mut tx_subs_vec, sm.get_mut());
         let tx_subs = Arc::new(Mutex::new(tx_subs_vec));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
 
@@ -1220,25 +1269,29 @@ mod tests {
             tip,
             &mut cursor,
             BASE_HEIGHT,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            BATCH_SIZE,
+            CONCURRENCY,
         )
         .await;
 
         let delivered_before_fetch = fetcher.delivered_before_fetch.lock().unwrap().clone();
         assert_eq!(
-            delivered_before_fetch,
-            BTreeMap::from([
-                (BASE_HEIGHT, 0),
-                (BASE_HEIGHT + 1, 0),
-                (BASE_HEIGHT + 2, BATCH_SIZE),
-                (BASE_HEIGHT + 3, BATCH_SIZE),
-            ]),
-            "the first batch's tx events must be delivered before the second batch is fetched"
+            delivered_before_fetch.keys().copied().collect::<Vec<_>>(),
+            (BASE_HEIGHT..BASE_HEIGHT + GAP).collect::<Vec<_>>(),
+            "every lagged block must be fetched exactly once"
         );
+        for (height, delivered) in delivered_before_fetch {
+            let blocks_ahead = (height - BASE_HEIGHT) as usize;
+            let must_be_delivered = (blocks_ahead + 1).saturating_sub(CONCURRENCY);
+            assert!(
+                delivered >= must_be_delivered,
+                "the fetch at height {height} must wait for {must_be_delivered} earlier blocks to \
+                 deliver their tx events, saw {delivered}"
+            );
+        }
 
         while fetcher.receiver.lock().unwrap().try_recv().is_ok() {
             fetcher.delivered_so_far.fetch_add(1, Ordering::SeqCst);
@@ -1265,7 +1318,7 @@ mod e2e_tests {
 
     use super::*;
     use crate::{
-        constants::{DEFAULT_BACKFILL_BATCH_SIZE, DEFAULT_BURY_DEPTH},
+        constants::{DEFAULT_BACKFILL_FETCH_CONCURRENCY, DEFAULT_BURY_DEPTH},
         event::TxStatus,
     };
 
@@ -1443,18 +1496,18 @@ mod e2e_tests {
         });
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
-        let mut sm = BtcNotifySM::init(cfg.bury_depth, VecDeque::new());
+        let sm = Mutex::new(BtcNotifySM::init(cfg.bury_depth, VecDeque::new()));
         let mut cursor = base_height;
 
         process_block_message(
             base,
             &mut cursor,
             base_height,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, base_height + 1);
@@ -1471,11 +1524,11 @@ mod e2e_tests {
             stale,
             &mut cursor,
             base_height,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
         assert_eq!(cursor, base_height + 2);
@@ -1490,9 +1543,12 @@ mod e2e_tests {
             "chain must be back to base height"
         );
 
-        let (_tx_events, disconnected) = sm.process_sequence(SequenceMessage::BlockDisconnect {
-            blockhash: stale_hash,
-        });
+        let (_tx_events, disconnected) =
+            sm.lock()
+                .await
+                .process_sequence(SequenceMessage::BlockDisconnect {
+                    blockhash: stale_hash,
+                });
         let disconnected = disconnected.expect("disconnect should emit block event");
         assert_eq!(disconnected.status, BlockStatus::Uncled);
         let disconnected_height = disconnected
@@ -1514,22 +1570,26 @@ mod e2e_tests {
         let canonical_grandchild_hash = canonical_hashes.remove(0);
         let canonical_grandchild = bitcoind.client.get_block(canonical_grandchild_hash)?;
 
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_child_hash,
-        });
-        sm.process_sequence(SequenceMessage::BlockConnect {
-            blockhash: canonical_grandchild_hash,
-        });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_child_hash,
+            });
+        sm.lock()
+            .await
+            .process_sequence(SequenceMessage::BlockConnect {
+                blockhash: canonical_grandchild_hash,
+            });
 
         process_block_message(
             canonical_grandchild,
             &mut cursor,
             base_height,
-            &mut sm,
+            &sm,
             &fetcher,
             &block_subs,
             &tx_subs,
-            DEFAULT_BACKFILL_BATCH_SIZE,
+            DEFAULT_BACKFILL_FETCH_CONCURRENCY,
         )
         .await;
 
