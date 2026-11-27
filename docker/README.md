@@ -346,6 +346,25 @@ This uses:
 
 **Important:** Ensure that the MuSig2 keys in `bin/dev-cli/params.toml` match those used in the Docker bridge params.
 
+### Deposit cap
+
+Each node can cap how many deposits it takes part in at once with the optional top-level
+`max_active_deposits` key in its `config.toml`. The key must precede the first `[table]`: placed
+under a table it is either ignored, so the node runs unlimited, or rejected at startup by a table
+that denies unknown keys. Absent means unlimited and `0` admits no new deposit.
+
+The cap counts every deposit holding funds in the bridge plus every deposit request still being
+signed; spent, aborted and skipped deposits do not count. A deposit request that arrives at the cap is still registered, so the deposit index
+advances identically on every operator whatever cap each one runs, but it is recorded as skipped:
+the node logs it, never acts on it, and the depositor reclaims it after the recovery delay. The
+monitoring RPCs report it as a failed deposit with the reason "Deposit cap reached". Deposits already in the bridge are never affected,
+so lowering the cap only stops new admissions until withdrawals drain.
+
+Operators may run different values. A request skipped by one operator and admitted by another
+never completes, since a deposit needs every operator, and its depositor reclaims it. Until then
+it holds one of the admitting operators' slots, and they keep asking the skipping operator for
+graph data it will never produce; the deposit indices stay aligned either way.
+
 ### ASM RPC Verification
 
 Useful ASM RPC checks:

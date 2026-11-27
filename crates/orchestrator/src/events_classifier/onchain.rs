@@ -74,14 +74,6 @@ pub(crate) fn process_block(
     let existing_stakes = applicator.registry().get_stake_ids();
 
     for tx in &block_event.block.txdata {
-        // If this tx is a DRT, register new DepositSM + per-operator GraphSMs using the currently
-        // active operator snapshot. Because stake SM state transitions settle between transaction
-        // batches via the Applicator, a stake transition that removes an operator from the active
-        // set in an earlier transaction will be reflected here for a DRT appearing later in the
-        // same block.
-        let initial_duties =
-            try_register_deposit(&deposit_cfg, initial_operator_table, applicator, tx, height)?;
-
         // Classify this tx against every active SM via TxClassifier
         // PERF: (Rajil1213) this needs benchmarking to make sure that classifying every tx
         // against every SM is not too expensive. If it is, we can optimize by maintaining a
@@ -101,6 +93,14 @@ pub(crate) fn process_block(
 
         // Apply seed events as one fixed-point batch per transaction
         applicator.apply_batch(seed_events)?;
+
+        // If this tx is a DRT, register new DepositSM + per-operator GraphSMs using the currently
+        // active operator snapshot. Admission is checked after earlier transactions and this
+        // one's own spends have settled: a stake transition that removes an operator from the
+        // active set is reflected for a DRT appearing later in the same block, and a take-back
+        // rolled into a new request frees its deposit-cap slot first.
+        let initial_duties =
+            try_register_deposit(&deposit_cfg, initial_operator_table, applicator, tx, height)?;
 
         // Add initial duties from newly created SMs (produced by SM constructors, not the STF)
         applicator.add_duties(initial_duties);
@@ -123,7 +123,8 @@ pub(crate) fn process_block(
 ///
 /// Returns initial duties emitted by [`GraphSM`] constructors (e.g., `GenerateGraphData`).
 /// Returns `Ok(Vec::new())` if the registry is not yet ready (no stakes confirmed, or this
-/// node's operator is not in the active set) or if the transaction fails DRT validation.
+/// node's operator is not in the active set), if the transaction fails DRT validation, or if the
+/// deposit cap is reached (the deposit is then registered as skipped and never acted on).
 fn try_register_deposit(
     deposit_cfg: &Arc<DepositSMCfg>,
     full_operator_table: &OperatorTable,
@@ -180,13 +181,6 @@ fn try_register_deposit(
     };
 
     let drt_txid = tx.compute_txid();
-    let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
-    let _entered = span.entered();
-    info!(
-        active_operator_count = active_operator_table.operator_idxs().len(),
-        "passed validation; registering DSM / GSMs from active operator snapshot"
-    );
-
     let deposit_idx = applicator.registry().next_deposit_idx()?;
     let deposit_request_outpoint = OutPoint::new(drt_txid, DRT_OUTPUT_INDEX as u32);
     let deposit_data = DepositData {
@@ -202,6 +196,25 @@ fn try_register_deposit(
         valid.depositor_pubkey,
         valid.drt_output_amount,
         height,
+    );
+
+    // Apply the deposit cap. The request is still registered, as skipped, so the deposit index
+    // stays in step with the other operators; this node just never acts on it.
+    if applicator.registry().deposit_cap_reached() {
+        warn!(
+            %drt_txid,
+            %deposit_idx,
+            "deposit cap reached; registering deposit request as skipped"
+        );
+        applicator.insert_deposit(deposit_idx, dsm.into_skipped())?;
+        return Ok(Vec::new());
+    }
+
+    let span = tracing::span!(Level::INFO, "registering new deposit", drt_txid=%drt_txid);
+    let _entered = span.entered();
+    info!(
+        active_operator_count = active_operator_table.operator_idxs().len(),
+        "passed validation; registering DSM / GSMs from active operator snapshot"
     );
 
     let deposit_outpoint = dsm.context().deposit_outpoint();
@@ -315,17 +328,23 @@ fn new_block_events(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bitcoin::{absolute, transaction};
-    use strata_bridge_sm::graph::duties::GraphDuty;
-    use strata_bridge_test_utils::bitcoin::generate_txid;
+    use btc_tracker::event::BlockStatus;
+    use strata_bridge_sm::{
+        deposit::{events::UserTakeBackEvent, state::DepositState},
+        graph::duties::GraphDuty,
+    };
+    use strata_bridge_test_utils::bitcoin::{generate_block_with_height, generate_txid};
 
     use super::*;
     use crate::{
         sm_registry::SMRegistry,
         testing::{
             DrtBuilder, N_TEST_OPERATORS, TEST_POV_IDX, insert_confirmed_stake,
-            test_deposit_sm_cfg, test_operator_table, test_populated_registry,
-            test_safe_harbour_address,
+            insert_deposit_with_graphs, takeback_tx, test_deposit_sm_cfg, test_operator_table,
+            test_populated_registry, test_registry_with_cap, test_safe_harbour_address,
         },
     };
 
@@ -579,5 +598,369 @@ mod tests {
             duty_operator_table, &operator_table,
             "initial graph duty must carry the active operator-table snapshot"
         );
+    }
+
+    // ===== deposit cap tests =====
+
+    /// Runs `drt` through [`try_register_deposit`] and returns the duties it emitted.
+    fn register_drt(
+        registry: &mut SMRegistry,
+        operator_table: &OperatorTable,
+        cfg: &Arc<DepositSMCfg>,
+        drt: &Transaction,
+    ) -> Vec<UnifiedDuty> {
+        let mut applicator = Applicator::new(registry);
+        let duties =
+            try_register_deposit(cfg, operator_table, &mut applicator, drt, TEST_HEIGHT).unwrap();
+        let _ = applicator.finish();
+        duties
+    }
+
+    /// Spends the deposit-request output of `drt` on the take-back path.
+    fn takeback_of(drt: &Transaction) -> Transaction {
+        takeback_tx(OutPoint::new(drt.compute_txid(), DRT_OUTPUT_INDEX as u32))
+    }
+
+    /// Runs `txs` as one buried block through [`process_block`].
+    fn process_buried_block(
+        registry: &mut SMRegistry,
+        operator_table: &OperatorTable,
+        txs: Vec<Transaction>,
+    ) {
+        let mut block = generate_block_with_height(TEST_HEIGHT);
+        block.txdata.extend(txs);
+        let block_event = BlockEvent {
+            block,
+            status: BlockStatus::Buried,
+        };
+        let mut applicator = Applicator::new(registry);
+        process_block(&mut applicator, operator_table, &block_event).unwrap();
+        let _ = applicator.finish();
+    }
+
+    fn graph_ids_of(registry: &SMRegistry, deposit_idx: DepositIdx) -> usize {
+        registry
+            .get_graph_ids()
+            .into_iter()
+            .filter(|graph_idx| graph_idx.deposit == deposit_idx)
+            .count()
+    }
+
+    #[test]
+    fn try_register_deposit_skips_drt_at_cap() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(1));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let first = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let second = DrtBuilder::aligned(&operator_table, &cfg).build();
+        assert_eq!(
+            register_drt(&mut registry, &operator_table, &cfg, &first).len(),
+            1,
+            "the first DRT takes the only slot"
+        );
+
+        let mut applicator = Applicator::new(&mut registry);
+        let duties =
+            try_register_deposit(&cfg, &operator_table, &mut applicator, &second, TEST_HEIGHT)
+                .unwrap();
+        let (_, tracker) = applicator.finish();
+        let persisted: BTreeSet<SMId> = tracker.into_batches().into_iter().flatten().collect();
+
+        assert!(duties.is_empty(), "a skipped deposit emits no duties");
+        assert_eq!(
+            registry.num_deposits(),
+            2,
+            "the deposit is registered all the same"
+        );
+        assert_eq!(
+            registry.get_deposit(&1).unwrap().state(),
+            &DepositState::Skipped,
+            "the DRT over the cap is recorded as skipped"
+        );
+        assert_eq!(
+            graph_ids_of(&registry, 1),
+            0,
+            "no graphs for a skipped deposit"
+        );
+        assert_eq!(
+            registry.next_deposit_idx(),
+            Ok(2),
+            "the skipped deposit consumed its index"
+        );
+        assert!(
+            persisted.contains(&SMId::Deposit(1)),
+            "the skipped deposit is persisted"
+        );
+        assert_eq!(
+            registry.num_active_deposits(),
+            1,
+            "skipped deposits do not count"
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_admits_under_cap() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(2));
+        confirm_all_stakes(&mut registry, &operator_table);
+
+        for _ in 0..2 {
+            let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+            assert_eq!(
+                register_drt(&mut registry, &operator_table, &cfg, &drt).len(),
+                1,
+                "each DRT under the cap emits the POV operator's GenerateGraphData duty"
+            );
+        }
+
+        assert_eq!(
+            registry.num_active_deposits(),
+            2,
+            "both DRTs under the cap are admitted"
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_unlimited_without_cap() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_populated_registry(5);
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        assert_eq!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt).len(),
+            1,
+            "without a cap the DRT is admitted"
+        );
+        assert_eq!(
+            registry.num_active_deposits(),
+            6,
+            "the new deposit joins the five existing ones"
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_cap_zero_skips_every_drt() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(0));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        assert!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt).is_empty(),
+            "a cap of zero emits no GenerateGraphData duty"
+        );
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::Skipped,
+            "a cap of zero records the DRT as skipped"
+        );
+        assert_eq!(
+            graph_ids_of(&registry, 0),
+            0,
+            "a cap of zero registers no graphs"
+        );
+    }
+
+    #[test]
+    fn try_register_deposit_counts_only_live_deposits() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(1));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt_a = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let drt_b = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let drt_c = DrtBuilder::aligned(&operator_table, &cfg).build();
+        register_drt(&mut registry, &operator_table, &cfg, &drt_a);
+        assert!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt_b).is_empty(),
+            "B arrives at the cap and is skipped"
+        );
+
+        // The user takes A back: its slot is free again, but B stays skipped for good.
+        let mut applicator = Applicator::new(&mut registry);
+        applicator
+            .apply_batch(vec![(
+                SMId::Deposit(0),
+                SMEvent::Deposit(Box::new(DepositEvent::UserTakeBack(UserTakeBackEvent {
+                    tx: takeback_of(&drt_a),
+                }))),
+            )])
+            .unwrap();
+        let _ = applicator.finish();
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::Aborted,
+            "taking A back aborts its deposit"
+        );
+
+        assert_eq!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt_c).len(),
+            1,
+            "the next DRT takes the freed slot"
+        );
+        assert_eq!(
+            registry.get_deposit(&1).unwrap().state(),
+            &DepositState::Skipped,
+            "a freed slot does not revive an already skipped deposit"
+        );
+        assert_eq!(
+            registry.next_deposit_idx(),
+            Ok(3),
+            "every DRT consumed an index"
+        );
+    }
+
+    #[test]
+    fn process_block_takeback_frees_slot_for_later_drt_in_same_block() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(1));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt_a = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let drt_b = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        process_buried_block(
+            &mut registry,
+            &operator_table,
+            vec![drt_a.clone(), takeback_of(&drt_a), drt_b],
+        );
+
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::Aborted,
+            "the take-back earlier in the block aborts A"
+        );
+        assert!(
+            matches!(
+                registry.get_deposit(&1).unwrap().state(),
+                DepositState::Created { .. }
+            ),
+            "the slot freed earlier in the block admits the later DRT"
+        );
+        assert_eq!(
+            graph_ids_of(&registry, 1),
+            N_TEST_OPERATORS,
+            "the admitted DRT gets one graph per operator"
+        );
+    }
+
+    #[test]
+    fn process_block_admits_drt_rolled_from_a_takeback_in_the_same_tx() {
+        // A wallet may spend a recovered DRT output straight into a new request; the spend
+        // settles before the new request is counted against the cap.
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(1));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt_a = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let mut drt_b = DrtBuilder::aligned(&operator_table, &cfg).build();
+        drt_b.input.push(takeback_of(&drt_a).input[0].clone());
+
+        process_buried_block(&mut registry, &operator_table, vec![drt_a, drt_b]);
+
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::Aborted,
+            "B's take-back input aborts A"
+        );
+        assert!(
+            matches!(
+                registry.get_deposit(&1).unwrap().state(),
+                DepositState::Created { .. }
+            ),
+            "B is admitted into the slot its own input freed"
+        );
+        assert_eq!(
+            graph_ids_of(&registry, 1),
+            N_TEST_OPERATORS,
+            "the admitted DRT gets one graph per operator"
+        );
+    }
+
+    #[test]
+    fn process_block_skips_later_drt_when_one_slot_is_left() {
+        // Every operator replays the same block, so the slot goes to the earlier transaction.
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(1));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt_a = DrtBuilder::aligned(&operator_table, &cfg).build();
+        let drt_b = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        process_buried_block(&mut registry, &operator_table, vec![drt_a.clone(), drt_b]);
+
+        assert!(
+            matches!(
+                registry.get_deposit(&0).unwrap().state(),
+                DepositState::Created { .. }
+            ),
+            "the earlier DRT takes the last slot"
+        );
+        assert_eq!(
+            registry
+                .get_deposit(&0)
+                .unwrap()
+                .context()
+                .deposit_request_outpoint()
+                .txid,
+            drt_a.compute_txid(),
+            "deposit 0 is the earlier DRT"
+        );
+        assert_eq!(
+            registry.get_deposit(&1).unwrap().state(),
+            &DepositState::Skipped,
+            "the later DRT is skipped"
+        );
+        assert_eq!(
+            graph_ids_of(&registry, 1),
+            0,
+            "the skipped DRT gets no graphs"
+        );
+    }
+
+    #[test]
+    fn takeback_of_skipped_drt_is_harmless() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(0));
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+        register_drt(&mut registry, &operator_table, &cfg, &drt);
+
+        process_buried_block(&mut registry, &operator_table, vec![takeback_of(&drt)]);
+
+        assert_eq!(
+            registry.get_deposit(&0).unwrap().state(),
+            &DepositState::Skipped,
+            "a skipped deposit ignores its take-back"
+        );
+    }
+
+    #[test]
+    fn lowered_cap_skips_new_drts_but_evicts_nothing() {
+        let operator_table = test_operator_table(N_TEST_OPERATORS, TEST_POV_IDX);
+        let cfg = test_deposit_sm_cfg();
+        let mut registry = test_registry_with_cap(Some(1));
+        for deposit_idx in 0..3 {
+            insert_deposit_with_graphs(&mut registry, deposit_idx);
+        }
+        confirm_all_stakes(&mut registry, &operator_table);
+        let drt = DrtBuilder::aligned(&operator_table, &cfg).build();
+
+        assert!(
+            register_drt(&mut registry, &operator_table, &cfg, &drt).is_empty(),
+            "a DRT over a lowered cap emits no duties"
+        );
+        assert_eq!(
+            registry.get_deposit(&3).unwrap().state(),
+            &DepositState::Skipped,
+            "a DRT over a lowered cap is skipped"
+        );
+        assert_eq!(registry.num_active_deposits(), 3, "nothing is evicted");
     }
 }

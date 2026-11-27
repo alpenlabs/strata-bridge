@@ -4,6 +4,10 @@ min_withdrawal_fulfillment_window = 10
 shutdown_timeout = { secs = 30, nanos = 0 }
 cooperative_payout_timeout = 144
 max_fee_rate = 10
+# Optional cap on the deposits this node takes part in at once. Absent means unlimited and 0 admits
+# no new deposit. Deposit requests over the cap are registered as skipped and never acted on; the
+# depositor reclaims them after the recovery delay.
+# max_active_deposits = 100
 
 [secret_service_client]
 server_addr = "secret-service-1:69"
