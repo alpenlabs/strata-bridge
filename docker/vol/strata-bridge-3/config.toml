@@ -9,15 +9,15 @@ max_fee_rate = 10
 # depositor reclaims them after the recovery delay.
 # max_active_deposits = 100
 # Blocks the graph owner waits after a contest confirms before anchoring and generating the bridge
-# proof. Absent or 0 anchors at the contest block; together with bury_depth it should stay well
-# below proof_timelock.
+# proof. Absent means 6; 0 anchors at the contest block. Together with bury_depth it should stay
+# well below proof_timelock.
 proof_delay_blocks = 6
 # Blocks the graph owner waits after a bridge proof attempt before generating a fresh one, while
 # none has confirmed. Absent means 6; 0 is rejected.
 proof_retry_blocks = 6
 # Blocks a watchtower waits after a bridge proof confirms before checking it against a heavier
-# chain. Must stay well below ack_timelock - proof_timelock, or the counterproof misses the
-# contested payout.
+# chain. Absent means 1; 0 does not wait. Must stay well below ack_timelock - proof_timelock, or
+# the counterproof misses the contested payout.
 counterproof_delay_blocks = 6
 
 [secret_service_client]
