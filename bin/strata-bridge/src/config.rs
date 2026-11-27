@@ -85,8 +85,8 @@ pub(crate) struct Config {
 
     /// Blocks the graph owner waits after the contest confirms before anchoring the bridge proof.
     ///
-    /// Absent means `0`. Plus `bury_depth`, it must leave room to prove within `proof_timelock`.
-    #[serde(default)]
+    /// Absent means `6`. Plus `bury_depth`, it must leave room to prove within `proof_timelock`.
+    #[serde(default = "default_proof_delay_blocks")]
     pub proof_delay_blocks: u16,
 
     /// Blocks between the graph owner's bridge proof attempts until one confirms.
@@ -99,8 +99,8 @@ pub(crate) struct Config {
     /// heavier chain. An invalid bridge proof is countered at once.
     ///
     /// Must stay well below `ack_timelock - proof_timelock`, or the counterproof misses the
-    /// contested payout.
-    #[serde(default)]
+    /// contested payout. Absent means `1`.
+    #[serde(default = "default_counterproof_delay_blocks")]
     pub counterproof_delay_blocks: u16,
 
     /// The maximum fee rate for any transaction (in sats/vb). A wallet-funded duty refuses a
@@ -578,6 +578,14 @@ pub(crate) struct MetricsConfig {
     pub prometheus_listener_addr: Option<SocketAddr>,
 }
 
+const fn default_proof_delay_blocks() -> u16 {
+    6
+}
+
+const fn default_counterproof_delay_blocks() -> u16 {
+    1
+}
+
 const fn default_proof_retry_blocks() -> NonZeroU16 {
     NonZeroU16::new(6).expect("6 is non-zero")
 }
@@ -772,12 +780,19 @@ mod tests {
     }
 
     #[test]
-    fn proof_delay_blocks_absent_means_zero() {
+    fn proof_delay_blocks_absent_means_six() {
         assert_eq!(test_config().proof_delay_blocks, 6);
 
-        let config = toml::from_str::<Config>(&test_config_without("proof_delay_blocks")).unwrap();
-
+        let config = toml::from_str::<Config>(
+            &toml::to_string(&test_config())
+                .unwrap()
+                .replace("proof_delay_blocks = 6", "proof_delay_blocks = 0"),
+        )
+        .unwrap();
         assert_eq!(config.proof_delay_blocks, 0);
+
+        let config = toml::from_str::<Config>(&test_config_without("proof_delay_blocks")).unwrap();
+        assert_eq!(config.proof_delay_blocks, 6);
     }
 
     #[test]
@@ -794,13 +809,19 @@ mod tests {
     }
 
     #[test]
-    fn counterproof_delay_blocks_absent_means_zero() {
+    fn counterproof_delay_blocks_absent_means_one() {
         assert_eq!(test_config().counterproof_delay_blocks, 6);
+
+        let config = toml::from_str::<Config>(&toml::to_string(&test_config()).unwrap().replace(
+            "counterproof_delay_blocks = 6",
+            "counterproof_delay_blocks = 0",
+        ))
+        .unwrap();
+        assert_eq!(config.counterproof_delay_blocks, 0);
 
         let config =
             toml::from_str::<Config>(&test_config_without("counterproof_delay_blocks")).unwrap();
-
-        assert_eq!(config.counterproof_delay_blocks, 0);
+        assert_eq!(config.counterproof_delay_blocks, 1);
     }
 
     // Operator startup logs the whole config, so no debug rendering of it may carry the Bitcoin
